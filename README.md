@@ -305,5 +305,3 @@ node scripts/verify.js
 
 4. **健全的非安装式工程化验证体系**：
    - 内置统一的静态验证与全量词典审计工具（`node scripts/verify.js`）及轻量 DOM 核心契约回归测试（`tests/renderer-regression.js`），可在不触碰客户端的前提下拦截语法、占位符、重复键与渲染安全问题。
-
-再次向原作者及所有参与测试、提交 PR 与反馈的社区贡献者致以诚挚的谢意！
