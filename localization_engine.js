@@ -3000,15 +3000,35 @@ function closeAntigravityProcesses() {
     return true;
 }
 
-function detectInstallationDir(manualDir) {
+function detectInstallationDir(manualDir, options = {}) {
+    const quiet = Boolean(options && options.quiet);
+    const hasAntigravityResources = (candidate) => {
+        return fs.existsSync(path.join(candidate, "resources", "app.asar")) ||
+            fs.existsSync(path.join(candidate, "app.asar")) ||
+            fs.existsSync(path.join(candidate, "Contents", "Resources", "app.asar")) ||
+            fs.existsSync(path.join(candidate, "resources", "app", "product.json"));
+    };
+
     if (manualDir) {
         if (fs.existsSync(manualDir)) {
             let resolved = path.resolve(manualDir);
             if (fs.statSync(resolved).isFile() && resolved.endsWith('app.asar')) {
                 resolved = path.dirname(resolved);
             }
+            if (!hasAntigravityResources(resolved) && fs.statSync(resolved).isDirectory()) {
+                try {
+                    const subItems = fs.readdirSync(resolved);
+                    for (const sub of subItems) {
+                        const subPath = path.join(resolved, sub);
+                        if (fs.existsSync(subPath) && fs.statSync(subPath).isDirectory() && hasAntigravityResources(subPath)) {
+                            return path.resolve(subPath);
+                        }
+                    }
+                } catch (e) {}
+            }
             return resolved;
         } else {
+            if (quiet) return null;
             console.error(`[错误] 手动指定的路径不存在: ${manualDir}`);
             process.exit(1);
         }
@@ -3019,17 +3039,11 @@ function detectInstallationDir(manualDir) {
     const addCandidate = (candidate) => {
         if (!candidate) return;
         const normalized = path.resolve(candidate);
-        const key = normalized.toLowerCase();
+        const key = process.platform === 'win32' ? normalized.toLowerCase() : normalized;
         if (!seenCandidates.has(key)) {
             candidates.push(normalized);
             seenCandidates.add(key);
         }
-    };
-    const hasAntigravityResources = (candidate) => {
-        return fs.existsSync(path.join(candidate, "resources", "app.asar")) ||
-            fs.existsSync(path.join(candidate, "app.asar")) ||
-            fs.existsSync(path.join(candidate, "Contents", "Resources", "app.asar")) ||
-            fs.existsSync(path.join(candidate, "resources", "app", "product.json"));
     };
 
     addCandidate(process.env.ANTIGRAVITY_INSTALL_DIR);
@@ -3062,65 +3076,140 @@ function detectInstallationDir(manualDir) {
             addCandidate(`${drive}:\\Antigravity`);
         }
         addCandidate("C:\\Program Files\\Antigravity");
+        addCandidate("C:\\Program Files (x86)\\Antigravity");
         const localAppdata = process.env.LOCALAPPDATA;
         if (localAppdata) {
+            addCandidate(path.join(localAppdata, 'antigravity'));
             addCandidate(path.join(localAppdata, 'Programs', 'antigravity'));
         }
     } else {
-        const homeDir = process.env.HOME || '';
-        addCandidate('/opt/Antigravity');
-        addCandidate('/opt/Antigravity/Antigravity-x64');
-        addCandidate('/opt/antigravity');
-        addCandidate('/opt/antigravity/antigravity-x64');
-        addCandidate('/usr/share/antigravity');
-        addCandidate('/usr/share/Antigravity');
-        addCandidate('/usr/lib/antigravity');
-        addCandidate('/usr/lib/Antigravity');
-        if (homeDir) {
-            addCandidate(path.join(homeDir, '.local', 'share', 'antigravity'));
-            addCandidate(path.join(homeDir, '.local', 'share', 'Antigravity'));
-            addCandidate(path.join(homeDir, 'antigravity'));
-        }
-        const desktopFiles = [
-            '/usr/share/applications/antigravity.desktop',
-            '/usr/share/applications/Antigravity.desktop',
-            path.join(homeDir, '.local', 'share', 'applications', 'antigravity.desktop'),
-            path.join(homeDir, '.local', 'share', 'applications', 'Antigravity.desktop')
-        ];
-        for (const df of desktopFiles) {
-            if (fs.existsSync(df)) {
-                try {
-                    const content = fs.readFileSync(df, 'utf-8');
-                    const execMatch = content.match(/^Exec=(.+)$/m);
-                    if (execMatch) {
-                        let execPath = execMatch[1].trim().split(/\s+/)[0].replace(/^"|"$/g, '');
-                        if (fs.existsSync(execPath)) {
-                            try { execPath = fs.realpathSync(execPath); } catch (e) {}
-                            addCandidate(path.dirname(execPath));
-                        }
+        const homeDirs = [];
+        if (process.env.HOME) homeDirs.push(process.env.HOME);
+        if (process.env.SUDO_USER && process.env.SUDO_USER !== 'root') {
+            let sudoHome = '';
+            try {
+                const getent = child_process.execSync(`getent passwd "${process.env.SUDO_USER}" 2>/dev/null`, { encoding: 'utf-8' }).trim();
+                if (getent) {
+                    const parts = getent.split(':');
+                    if (parts.length >= 6 && parts[5]) {
+                        sudoHome = parts[5];
                     }
-                } catch (e) {}
+                }
+            } catch (e) {}
+            if (!sudoHome) {
+                sudoHome = path.join('/home', process.env.SUDO_USER);
+            }
+            if (fs.existsSync(sudoHome) && !homeDirs.includes(sudoHome)) {
+                homeDirs.push(sudoHome);
             }
         }
-        try {
-            const whichOut = child_process.execSync('which antigravity 2>/dev/null || which agy 2>/dev/null', { encoding: 'utf-8' }).trim();
-            if (whichOut && fs.existsSync(whichOut)) {
-                const realP = fs.realpathSync(whichOut);
-                addCandidate(path.dirname(realP));
+
+        const isRunningAsRoot = typeof process.getuid === 'function' && process.getuid() === 0;
+
+        const addHomeCandidates = () => {
+            for (const homeDir of homeDirs) {
+                addCandidate(path.join(homeDir, '.local', 'share', 'antigravity'));
+                addCandidate(path.join(homeDir, '.local', 'share', 'Antigravity'));
+                addCandidate(path.join(homeDir, 'antigravity'));
+                addCandidate(path.join(homeDir, 'Antigravity'));
+                addCandidate(path.join(homeDir, '.local', 'share', 'flatpak', 'app', 'com.antigravity', 'current', 'active', 'files', 'share', 'antigravity'));
             }
-        } catch (e) {}
-        addCandidate('/snap/antigravity/current');
-        addCandidate('/snap/antigravity/current/usr/share/antigravity');
-        if (homeDir) {
-            addCandidate(path.join(homeDir, '.local', 'share', 'flatpak', 'app', 'com.antigravity', 'current', 'active', 'files', 'share', 'antigravity'));
+            for (const homeDir of homeDirs) {
+                const userDesktopFiles = [
+                    path.join(homeDir, '.local', 'share', 'applications', 'antigravity.desktop'),
+                    path.join(homeDir, '.local', 'share', 'applications', 'Antigravity.desktop')
+                ];
+                for (const df of userDesktopFiles) {
+                    if (fs.existsSync(df)) {
+                        try {
+                            const content = fs.readFileSync(df, 'utf-8');
+                            const execMatch = content.match(/^Exec=(.*)$/m);
+                            if (execMatch && execMatch[1]) {
+                                let execPath = execMatch[1].trim().split(/\s+/)[0].replace(/^"|"$/g, '');
+                                if (fs.existsSync(execPath)) {
+                                    try { execPath = fs.realpathSync(execPath); } catch (e) {}
+                                    addCandidate(path.dirname(execPath));
+                                }
+                            }
+                        } catch (e) {}
+                    }
+                }
+            }
+        };
+
+        const addSystemCandidates = () => {
+            try {
+                const whichOut = child_process.execSync(
+                    'command -v antigravity 2>/dev/null || which antigravity 2>/dev/null || command -v agy 2>/dev/null || which agy 2>/dev/null || command -v Antigravity 2>/dev/null || which Antigravity 2>/dev/null',
+                    { encoding: 'utf-8' }
+                ).trim();
+                if (whichOut && fs.existsSync(whichOut)) {
+                    let realP = whichOut;
+                    try { realP = fs.realpathSync(whichOut); } catch (e) {}
+                    addCandidate(path.dirname(realP));
+                    try {
+                        const fileContent = fs.readFileSync(realP, 'utf-8');
+                        const scriptMatch = fileContent.match(/(?:\/opt|\/usr|\/home\/[^\s'"]+)\/[^\s'"]*antigravity[^\s'"]*/i);
+                        if (scriptMatch && fs.existsSync(scriptMatch[0])) {
+                            let target = scriptMatch[0];
+                            try { target = fs.realpathSync(target); } catch (e) {}
+                            addCandidate(fs.statSync(target).isDirectory() ? target : path.dirname(target));
+                        }
+                    } catch (e) {}
+                }
+            } catch (e) {}
+
+            const desktopFiles = [
+                '/usr/share/applications/antigravity.desktop',
+                '/usr/share/applications/Antigravity.desktop',
+                '/usr/local/share/applications/antigravity.desktop',
+                '/usr/local/share/applications/Antigravity.desktop'
+            ];
+            for (const df of desktopFiles) {
+                if (fs.existsSync(df)) {
+                    try {
+                        const content = fs.readFileSync(df, 'utf-8');
+                        const execMatch = content.match(/^Exec=(.*)$/m);
+                        if (execMatch && execMatch[1]) {
+                            let execPath = execMatch[1].trim().split(/\s+/)[0].replace(/^"|"$/g, '');
+                            if (fs.existsSync(execPath)) {
+                                try { execPath = fs.realpathSync(execPath); } catch (e) {}
+                                addCandidate(path.dirname(execPath));
+                            }
+                        }
+                    } catch (e) {}
+                }
+            }
+
+            addCandidate('/opt/antigravity/Antigravity-x64');
+            addCandidate('/opt/antigravity/antigravity-x64');
+            addCandidate('/opt/Antigravity/Antigravity-x64');
+            addCandidate('/opt/antigravity');
+            addCandidate('/opt/Antigravity');
+            addCandidate('/usr/local/share/antigravity');
+            addCandidate('/usr/local/share/Antigravity');
+            addCandidate('/usr/share/antigravity');
+            addCandidate('/usr/share/Antigravity');
+            addCandidate('/usr/lib/antigravity');
+            addCandidate('/usr/lib/Antigravity');
+            addCandidate('/snap/antigravity/current');
+            addCandidate('/snap/antigravity/current/usr/share/antigravity');
+            addCandidate('/var/lib/flatpak/app/com.antigravity/current/active/files/share/antigravity');
+        };
+
+        if (isRunningAsRoot) {
+            addSystemCandidates();
+            addHomeCandidates();
+        } else {
+            addHomeCandidates();
+            addSystemCandidates();
         }
-        addCandidate('/var/lib/flatpak/app/com.antigravity/current/active/files/share/antigravity');
     }
 
     for (const p of candidates) {
         if (fs.existsSync(p)) {
             if (hasAntigravityResources(p)) {
-                console.log(`[探测] 成功自动识别到 Antigravity 安装目录: ${p}`);
+                if (!quiet) console.log(`[探测] 成功自动识别到 Antigravity 安装目录: ${p}`);
                 return path.resolve(p);
             }
             try {
@@ -3129,7 +3218,7 @@ function detectInstallationDir(manualDir) {
                     for (const sub of subItems) {
                         const subPath = path.join(p, sub);
                         if (fs.existsSync(subPath) && fs.statSync(subPath).isDirectory() && hasAntigravityResources(subPath)) {
-                            console.log(`[探测] 成功自动识别到 Antigravity 安装目录: ${subPath}`);
+                            if (!quiet) console.log(`[探测] 成功自动识别到 Antigravity 安装目录: ${subPath}`);
                             return path.resolve(subPath);
                         }
                     }
@@ -3138,6 +3227,7 @@ function detectInstallationDir(manualDir) {
         }
     }
 
+    if (quiet) return null;
     console.error("[错误] 未找到默认安装目录，请使用 --install-dir 手动指定您的安装路径！");
     process.exit(1);
 }
@@ -3166,11 +3256,17 @@ function reportWritePermissionError(resourcesDir, error, action, entryScript = '
 
 function canWriteAntigravityResources(resourcesDir, entryScript) {
     const asarPath = path.join(resourcesDir, "app.asar");
-    if (!fs.existsSync(asarPath)) return true;
+    const bakPath = path.join(resourcesDir, "app.asar.bak");
+    if (!fs.existsSync(asarPath) && !fs.existsSync(bakPath)) return true;
 
     try {
         fs.accessSync(resourcesDir, fs.constants.W_OK | fs.constants.X_OK);
-        fs.accessSync(asarPath, fs.constants.R_OK | fs.constants.W_OK);
+        if (fs.existsSync(asarPath)) {
+            fs.accessSync(asarPath, fs.constants.R_OK | fs.constants.W_OK);
+        }
+        if (fs.existsSync(bakPath)) {
+            fs.accessSync(bakPath, fs.constants.R_OK | fs.constants.W_OK);
+        }
         return true;
     } catch (e) {
         reportWritePermissionError(resourcesDir, e, '写入', entryScript);
@@ -3215,23 +3311,25 @@ function installLocalization(resourcesDir) {
 
     const tempDir = path.join(__dirname, "_temp_asar");
     if (fs.existsSync(tempDir)) {
-        fs.rmSync(tempDir, { recursive: true, force: true });
+        try {
+            fs.rmSync(tempDir, { recursive: true, force: true });
+        } catch (e) {}
     }
 
-    console.log(`[解包] 正在使用 npx 提取 app.asar...`);
-    const extractRes = runCommandSync(`npx -y @electron/asar extract "${asarPath}" "${tempDir}"`);
-    if (!extractRes.success || !fs.existsSync(tempDir)) {
-        console.error(`[错误] 解包失败，可能是由于系统未安装 Node.js/npm 或者网络限制。`);
-        console.error(`详情: ${extractRes.stderr}\n${extractRes.stdout}`);
-        return false;
-    }
+    try {
+        console.log(`[解包] 正在使用 npx 提取 app.asar...`);
+        const extractRes = runCommandSync(`npx -y @electron/asar extract "${asarPath}" "${tempDir}"`);
+        if (!extractRes.success || !fs.existsSync(tempDir)) {
+            console.error(`[错误] 解包失败，可能是由于系统未安装 Node.js/npm 或者网络限制。`);
+            console.error(`详情: ${extractRes.stderr}\n${extractRes.stdout}`);
+            return false;
+        }
 
-    const preloadPath = path.join(tempDir, "dist", "preload.js");
-    if (!fs.existsSync(preloadPath)) {
-        console.error(`[错误] 解压后未能在指定路径找到 preload.js: ${preloadPath}`);
-        fs.rmSync(tempDir, { recursive: true, force: true });
-        return false;
-    }
+        const preloadPath = path.join(tempDir, "dist", "preload.js");
+        if (!fs.existsSync(preloadPath)) {
+            console.error(`[错误] 解压后未能在指定路径找到 preload.js: ${preloadPath}`);
+            return false;
+        }
 
     console.log(`[修改] 正在向 preload.js 注入汉化代码...`);
     let content = fs.readFileSync(preloadPath, 'utf-8');
@@ -3380,19 +3478,24 @@ function installLocalization(resourcesDir) {
         console.log(`[修改] 更新弹窗汉化注入成功！`);
     }
 
-    console.log(`[打包] 正在将修改后的内容打包回 app.asar...`);
-    const packRes = runCommandSync(`npx -y @electron/asar pack "${tempDir}" "${asarPath}"`);
+        console.log(`[打包] 正在将修改后的内容打包回 app.asar...`);
+        const packRes = runCommandSync(`npx -y @electron/asar pack "${tempDir}" "${asarPath}"`);
 
-    fs.rmSync(tempDir, { recursive: true, force: true });
+        if (!packRes.success) {
+            console.error(`[错误] 打包失败。`);
+            console.error(`详情: ${packRes.stderr}\n${packRes.stdout}`);
+            return false;
+        }
 
-    if (!packRes.success) {
-        console.error(`[错误] 打包失败。`);
-        console.error(`详情: ${packRes.stderr}\n${packRes.stdout}`);
-        return false;
+        console.log(`[√] Antigravity 汉化部署完成！`);
+        return true;
+    } finally {
+        if (fs.existsSync(tempDir)) {
+            try {
+                fs.rmSync(tempDir, { recursive: true, force: true });
+            } catch (e) {}
+        }
     }
-
-    console.log(`[√] Antigravity 汉化部署完成！`);
-    return true;
 }
 
 function restoreLocalization(resourcesDir) {
@@ -3405,8 +3508,17 @@ function restoreLocalization(resourcesDir) {
     }
 
     console.log("[还原] 正在用官方备份文件恢复...");
-    fs.copyFileSync(bakPath, asarPath);
-    fs.unlinkSync(bakPath);
+    try {
+        fs.copyFileSync(bakPath, asarPath);
+        fs.unlinkSync(bakPath);
+    } catch (e) {
+        if (e.code === 'EACCES' || e.code === 'EPERM' || e.code === 'EROFS') {
+            reportWritePermissionError(resourcesDir, e, '还原', 'uninstall.sh');
+        } else {
+            console.error(`[错误] 还原 app.asar 失败: ${e.message}`);
+        }
+        return false;
+    }
     console.log("[√] 官方 app.asar 已成功恢复！");
     return true;
 }
@@ -3427,6 +3539,7 @@ function main() {
     let huifu = false;
     let manualDir = "";
     let noKill = false;
+    let checkWriteOnly = false;
 
     const args = process.argv.slice(2);
     for (let i = 0; i < args.length; i++) {
@@ -3439,6 +3552,50 @@ function main() {
             noKill = true;
         } else if (args[i] === '--brand-title') {
             i++;
+        } else if (args[i] === '--check-write') {
+            checkWriteOnly = true;
+        }
+    }
+
+    if (checkWriteOnly) {
+        const installDir = detectInstallationDir(manualDir, { quiet: true });
+        if (!installDir) {
+            process.exit(3);
+        }
+        let resourcesDir = "";
+        if (fs.existsSync(path.join(installDir, "resources"))) {
+            resourcesDir = path.join(installDir, "resources");
+        } else if (fs.existsSync(path.join(installDir, "Contents", "Resources"))) {
+            resourcesDir = path.join(installDir, "Contents", "Resources");
+        } else if (installDir.replace(/\/$/, "").toLowerCase().endsWith("/resources")) {
+            resourcesDir = installDir;
+        } else if (fs.existsSync(path.join(installDir, "app.asar"))) {
+            resourcesDir = installDir;
+        } else {
+            resourcesDir = path.join(installDir, "resources");
+        }
+
+        if (!fs.existsSync(resourcesDir)) {
+            process.exit(3);
+        }
+
+        const asarPath = path.join(resourcesDir, "app.asar");
+        const bakPath = path.join(resourcesDir, "app.asar.bak");
+        if (!fs.existsSync(asarPath) && !fs.existsSync(bakPath)) {
+            process.exit(3);
+        }
+
+        try {
+            fs.accessSync(resourcesDir, fs.constants.W_OK | fs.constants.X_OK);
+            if (fs.existsSync(asarPath)) {
+                fs.accessSync(asarPath, fs.constants.R_OK | fs.constants.W_OK);
+            }
+            if (fs.existsSync(bakPath)) {
+                fs.accessSync(bakPath, fs.constants.R_OK | fs.constants.W_OK);
+            }
+            process.exit(0);
+        } catch (e) {
+            process.exit(2);
         }
     }
 
@@ -3528,7 +3685,7 @@ function main() {
                     }
                     if (!launched) {
                         try {
-                            const whichOut = child_process.execSync('which antigravity 2>/dev/null || which Antigravity 2>/dev/null', { encoding: 'utf-8' }).trim();
+                            const whichOut = child_process.execSync('command -v antigravity 2>/dev/null || which antigravity 2>/dev/null || command -v Antigravity 2>/dev/null || which Antigravity 2>/dev/null || command -v agy 2>/dev/null || which agy 2>/dev/null', { encoding: 'utf-8' }).trim();
                             if (whichOut) {
                                 const child = child_process.spawn(whichOut, [], { detached: true, stdio: 'ignore' });
                                 child.unref();

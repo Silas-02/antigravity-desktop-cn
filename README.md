@@ -115,10 +115,10 @@ node scripts/verify.js --preload "/absolute/path/to/preload.js"
 2. 进入解压或克隆出来的 `antigravity2-win-linux-cn` 文件夹：
    - **Windows**：先普通双击 **`双击安装中文汉化.bat`**；仅在提示权限不足时，右键该文件并选择“以管理员身份运行”。
    - **Linux**：运行安装命令：
-     ```bash
-     ./install.sh
-     ```
-     > **提示**：若直接运行提示 `权限不够` 或 `找不到命令`，可直接改用 `bash ./install.sh`（或 `sudo bash ./install.sh`）运行；汉化引擎在启动时会自动修复并固化本地脚本的可执行权限。
+      ```bash
+      ./install.sh
+      ```
+      > **提示**：用户目录安装无需管理员权限；若目标位于系统目录，脚本会自动检测并请求提权（亦可直接运行 `sudo ./install.sh`）。脚本已默认固化执行权限并支持运行时自愈。
 3. 按提示选择左上角品牌显示方式：
    - **显示英文 Antigravity（默认推荐）**：保留官方品牌名，避免左上角显示过长。
    - **不显示品牌名**：隐藏左上角的品牌文字。
@@ -132,7 +132,7 @@ node scripts/verify.js --preload "/absolute/path/to/preload.js"
 > ./install.sh --install-dir "/path/to/Antigravity"
 > ```
 >
-> 请使用安装脚本，而不要直接执行 `node localization_engine.js`；安装脚本会提供品牌选项。若目标位于系统目录并提示权限不足，再使用 `sudo ./install.sh`（手动路径参数可原样追加）重试。
+> 请使用安装脚本，而不要直接执行 `node localization_engine.js`；安装脚本会提供品牌选项。若目标位于系统目录，脚本会自动检测并请求提权，亦可直接使用 `sudo ./install.sh`（手动路径参数可原样追加）。
 
 ---
 
@@ -141,7 +141,7 @@ node scripts/verify.js --preload "/absolute/path/to/preload.js"
 1. **退出软件（可选）**：建议保存当前工作后退出 Antigravity 软件（若未手动退出，还原脚本在执行时也会自动检测并安全关闭其进程）。
 2. 在当前文件夹下：
    - **Windows**：先普通双击 **`双击卸载还原官方英文.bat`**；仅在提示权限不足时，右键该文件并选择“以管理员身份运行”。
-   - **Linux**：先运行 `./uninstall.sh`；如自动定位失败，可追加 `--install-dir "/path/to/Antigravity"`。仅在提示权限不足时，才在同一命令前加 `sudo`。
+   - **Linux**：运行 `./uninstall.sh`（用户目录无需管理员权限；系统目录会自动请求提权，亦可直接使用 `sudo ./uninstall.sh`）；如自动定位失败，可追加 `--install-dir "/path/to/Antigravity"`。
 3. 运行完成后，软件将自动清除所有汉化注入，无痕恢复至官方原版英文状态。
 
 ---
@@ -279,8 +279,8 @@ node scripts/verify.js
 * **解决**：
   - **Windows**：默认普通双击对应 `.bat` 文件；只有出现权限不足时，才右键选择 **“以管理员身份运行”**。
   - **Linux**：
-    - 默认运行 `./install.sh` 或 `./uninstall.sh`；只有目标位于系统目录并出现 `EACCES` 或权限不足时，才改用 `sudo ./install.sh` 或 `sudo ./uninstall.sh`。
-    - **脚本执行权限自愈提示**：若直接运行提示 `权限不够` 或 `sudo: ./install.sh: 找不到命令`（常见于 ZIP 压缩包解压或部分未保留执行位的文件环境），可直接使用 `bash ./install.sh`（或 `sudo bash ./install.sh`）首次运行；汉化引擎启动时会自动将本地脚本修复并固化为可执行权限（`chmod 755`），后续即可直接以 `./install.sh` 运行。
+    - **权限智能自适应**：用户目录安装直接运行 `./install.sh` 或 `./uninstall.sh`，完全无需管理员权限；若目标位于系统目录，脚本会在执行前自动检测并请求 `sudo` 提权，亦可直接以 `sudo ./install.sh` 或 `sudo ./uninstall.sh` 一步运行，无需反复切换执行方式。
+    - **脚本执行权限自愈与环境保留**：仓库脚本已默认固化可执行权限（`chmod +x`）；若因解压或环境原因丢失执行位，脚本会在运行时自动修复并固化权限，杜绝因权限不足而必须手动键入 `bash ./install.sh`；同时在提权时会自动保留并向下传递 NVM/FNM 等用户级 Node.js 运行时路径。
 
 ### 3）软件官方更新后，汉化失效了怎么办？
 

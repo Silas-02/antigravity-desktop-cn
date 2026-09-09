@@ -46,5 +46,9 @@
     "Open Keyboard Shortcuts": "打开键盘快捷键",
     "Copy conversation markdown": "复制会话 Markdown",
     "Open Command Palette": "打开命令面板",
-    "Open Project Picker": "打开项目选择器"
+    "Open Project Picker": "打开项目选择器",
+    "Split": "拆分",
+    "Split Right": "向右拆分",
+    "Split Down": "向下拆分",
+    "Replace With New": "替换为新建项"
 }
