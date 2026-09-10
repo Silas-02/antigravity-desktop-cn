@@ -100,8 +100,8 @@ node scripts/verify.js --preload "/absolute/path/to/preload.js"
 * **方法 B：通过 Git 命令行克隆（开发者推荐 💻）**
 
   ```bash
-  git clone https://github.com/Silas-02/antigravity2-win-linux-cn.git
-  cd antigravity2-win-linux-cn
+  git clone https://github.com/Silas-02/antigravity-desktop-cn.git
+  cd antigravity-desktop-cn
   ```
 
 ---
@@ -109,7 +109,7 @@ node scripts/verify.js --preload "/absolute/path/to/preload.js"
 ### 2. 一键安装汉化
 
 1. **退出软件（可选）**：建议保存当前工作后退出 Antigravity 软件（若未手动退出，安装脚本在执行时也会自动检测并安全关闭其进程）。
-2. 进入解压或克隆出来的 `antigravity2-win-linux-cn` 文件夹：
+2. 进入解压或克隆出来的 `antigravity-desktop-cn` 文件夹：
    - **Windows**：先普通双击 **`双击安装中文汉化.bat`**；仅在提示权限不足时，右键该文件并选择“以管理员身份运行”。
    - **macOS**：直接双击 **`双击安装中文汉化.command`**，或在终端中运行 `./install.sh`。仅在提示权限不足时，才在命令前加 `sudo`。（若首次双击提示“无法验证开发者”，请参见下方 FAQ 3）。
    - **Linux**：运行安装命令：
@@ -174,7 +174,7 @@ node scripts/verify.js --preload "/absolute/path/to/preload.js"
 >    如果您当前正在开发别的项目，没有把汉化目录作为项目打开，那么您在对 AI 发起汉化命令时，**必须在提示词里明确告诉 AI 您的汉化包所在路径**，否则 AI 无法得知要修改您电脑上的哪个文件夹。
 >
 >    * **提示词示例**：
->      > **"我的汉化包目录在 `~/Downloads/antigravity2-win-linux-cn`（请替换为您本地的实际路径），请先阅读 `AGENTS.md`，再帮我把下面这张截图里漏译的内容补全到词典里。"**
+>      > **"我的汉化包目录在 `~/Downloads/antigravity-desktop-cn`（请替换为您本地的实际路径），请先阅读 `AGENTS.md`，再帮我把下面这张截图里漏译的内容补全到词典里。"**
 >      >
 
 ### 📋 常用提示词（Prompt）模板
@@ -307,7 +307,7 @@ node scripts/verify.js
     打开 Mac 的“终端（Terminal）”，进入解压后的汉化包文件夹，执行以下命令彻底清除网络隔离标记：
     ```bash
     # 1. 切换到解压目录 (或者直接在终端输入 cd 后，将 Finder 中的该文件夹拖入终端)
-    cd /path/to/antigravity2-win-linux-cn
+    cd /path/to/antigravity-desktop-cn
 
     # 2. 递归移除当前目录下所有文件的隔离标记
     xattr -d -r com.apple.quarantine .
