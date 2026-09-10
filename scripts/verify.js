@@ -7,9 +7,10 @@ const { spawnSync } = require('child_process');
 const { auditDictionaries } = require('./lib/dictionary-audit');
 const { compileJavaScript, generateInjection } = require('./lib/load-engine');
 const { runRendererRegression } = require('../tests/renderer-regression');
+const { runInstallerRegression } = require('../tests/installer-regression');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
-const TEXT_EXTENSIONS = new Set(['.js', '.json', '.md', '.sh', '.ps1']);
+const TEXT_EXTENSIONS = new Set(['.js', '.json', '.md', '.sh', '.ps1', '.command']);
 const TEXT_BASENAMES = new Set(['.gitattributes']);
 const SKIPPED_DIRECTORIES = new Set(['.git', '_temp_asar', 'node_modules', 'showimg']);
 
@@ -337,6 +338,13 @@ function main() {
             return result;
         });
         console.log(`       ${regression.assertions} 项断言`);
+
+        const installerRegression = runStep('安装器进程识别契约', () => {
+            const result = runInstallerRegression(ROOT_DIR);
+            assertCondition(typeof result?.assertions === 'number' && result.assertions > 0, '安装器回归测试未执行任何断言');
+            return result;
+        });
+        console.log(`       ${installerRegression.assertions} 项断言`);
 
         const textReview = runStep('仓库文本无冲突标记、行尾空白或缺失末尾换行', verifyRepositoryText);
         console.log(`       检查 ${textReview.files} 个文本文件（包括未跟踪文件）`);

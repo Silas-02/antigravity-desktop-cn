@@ -5,7 +5,14 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # Ensure scripts have execute permission
-chmod +x "$0" "$SCRIPT_DIR/install.sh" "$SCRIPT_DIR/uninstall.sh" 2>/dev/null || true
+chmod +x "$0" "$SCRIPT_DIR/install.sh" "$SCRIPT_DIR/uninstall.sh" "$SCRIPT_DIR"/*.command 2>/dev/null || true
+
+OS_NAME="$(uname -s)"
+if [ "$OS_NAME" = "Darwin" ]; then
+    PLATFORM_LABEL="macOS"
+else
+    PLATFORM_LABEL="Linux"
+fi
 
 # Locate Node.js runtime (handling standard paths, user NVM/fnm/volta/pnpm under sudo)
 find_node_dir() {
@@ -15,7 +22,7 @@ find_node_dir() {
         echo "${node_bin%/*}"
         return 0
     fi
-    for p in /usr/local/bin; do
+    for p in /opt/homebrew/bin /usr/local/bin /opt/local/bin; do
         if [ -f "$p/node" ] && [ -x "$p/node" ]; then
             echo "$p"
             return 0
@@ -36,7 +43,16 @@ find_node_dir() {
                 sudo_home="$6"
             fi
         fi
-        [ -z "$sudo_home" ] && sudo_home="/home/$SUDO_USER"
+        if [ -z "$sudo_home" ]; then
+            sudo_home="$(eval echo "~$SUDO_USER" 2>/dev/null || true)"
+        fi
+        if [ -z "$sudo_home" ] || [ ! -d "$sudo_home" ]; then
+            if [ "$OS_NAME" = "Darwin" ]; then
+                sudo_home="/Users/$SUDO_USER"
+            else
+                sudo_home="/home/$SUDO_USER"
+            fi
+        fi
         [ "$sudo_home" != "$HOME" ] && homes+=("$sudo_home")
     fi
     for h in "${homes[@]}"; do
@@ -47,10 +63,13 @@ find_node_dir() {
             "$h/bin" \
             "$h/.volta/bin" \
             "$h/.asdf/shims" \
+            "$h/.local/share/mise/shims" \
+            "$h/Library/pnpm" \
             "$h/.n/bin" \
             "$h/.local/share/pnpm" \
             "$h/.nvm/current/bin" \
-            "$h/.local/share/fnm/current/bin"; do
+            "$h/.local/share/fnm/current/bin" \
+            "$h/.fnm/current/bin"; do
             if [ -f "$cand/node" ] && [ -x "$cand/node" ]; then
                 echo "$cand"
                 return 0
@@ -95,6 +114,9 @@ fi
 
 if ! command -v node >/dev/null 2>&1; then
     echo "[错误] 未检测到 Node.js 环境，请先安装 Node.js (v16+) 后再运行此脚本。"
+    if [ "$OS_NAME" = "Darwin" ]; then
+        echo "提示：macOS 用户可使用 Homebrew 安装：brew install node"
+    fi
     exit 1
 fi
 
@@ -127,6 +149,9 @@ if ! node "$SCRIPT_DIR/localization_engine.js" --huifu "$@"; then
     if [ "$(id -u)" -ne 0 ]; then
         echo "提示：如果上方显示“权限不足”或 “EACCES”，请使用 sudo 重新运行此脚本。"
         echo "示例：sudo ./uninstall.sh"
+    fi
+    if [ -t 0 ]; then
+        read -rp "按 Enter 键退出..." _
     fi
     exit 1
 fi

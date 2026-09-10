@@ -6,7 +6,7 @@ const vm = require('vm');
 
 const MAIN_CALL_PATTERN = /\nmain\(\);\s*$/;
 
-function loadGenerateJs(rootDir) {
+function loadEngineExports(rootDir) {
     const enginePath = path.join(rootDir, 'localization_engine.js');
     const source = fs.readFileSync(enginePath, 'utf8');
     if (!MAIN_CALL_PATTERN.test(source)) {
@@ -15,7 +15,7 @@ function loadGenerateJs(rootDir) {
 
     const nonInstallingSource = source.replace(
         MAIN_CALL_PATTERN,
-        '\nmodule.exports = { generateJs };\n'
+        '\nmodule.exports = { generateJs, isPosixAntigravityMainProcess };\n'
     );
     const moduleBox = { exports: {} };
     const sandbox = {
@@ -36,10 +36,15 @@ function loadGenerateJs(rootDir) {
     const script = new vm.Script(nonInstallingSource, { filename: enginePath });
     script.runInContext(context);
 
-    if (typeof moduleBox.exports.generateJs !== 'function') {
-        throw new Error('未能从 localization_engine.js 获取 generateJs()');
+    if (typeof moduleBox.exports.generateJs !== 'function' ||
+        typeof moduleBox.exports.isPosixAntigravityMainProcess !== 'function') {
+        throw new Error('未能从 localization_engine.js 获取所需函数');
     }
-    return moduleBox.exports.generateJs;
+    return moduleBox.exports;
+}
+
+function loadGenerateJs(rootDir) {
+    return loadEngineExports(rootDir).generateJs;
 }
 
 function generateInjection(rootDir) {
@@ -58,5 +63,6 @@ function compileJavaScript(source, filename) {
 module.exports = {
     compileJavaScript,
     generateInjection,
+    loadEngineExports,
     loadGenerateJs
 };
