@@ -204,6 +204,9 @@ function generateJs() {
         match = normalized.match(/^Committed\\s+to\\s+((?:↗\\s*)?\\S+)\\.$/i);
         if (match) return "已提交到 " + match[1] + "。";
 
+        match = normalized.match(/^Amended\\s+commit\\s+on\\s+((?:↗\\s*)?[^\\s.。]+)[.。]?$/i);
+        if (match) return "已在 " + match[1] + " 上修补提交。";
+
         const commitSummary = getCommitSummaryParts(normalized);
         if (commitSummary) {
             return "将 " + commitSummary.count + " 个文件的更改提交到 " + commitSummary.target;
@@ -309,6 +312,9 @@ function generateJs() {
 
         match = normalized.match(/^(?:Comments?|评论)\\s*[（(]\\s*(\\d+)\\s*[)）]$/i);
         if (match) return "评论（" + match[1] + "）";
+
+        match = normalized.match(/^(?:Side Questions?|侧边提问)\\s*[（(]\\s*(\\d+)\\s*[)）]$/i);
+        if (match) return "侧边提问（" + match[1] + "）";
 
         match = normalized.match(/^(?:Listed|列出了)\\s*(\\d+)\\s*(?:tasks?|个任务\\s*s?)(?:\\s*([>v›❯〉→∨˅⌄▼▽⋁↓]))?$/i);
         if (match) return "列出了 " + match[1] + " 个任务" + (match[2] ? " " + match[2] : "");
@@ -1370,6 +1376,12 @@ function generateJs() {
         match = normalized.match(/^(\\d+)\\s+questions?$/i);
         if (match) return match[1] + " 个问题";
 
+        match = normalized.match(/^View\\s+(\\d+)\\s+side\\s+questions?$/i);
+        if (match) return "查看 " + match[1] + " 个侧边提问";
+
+        match = normalized.match(/^Asked\\s+(\\d+)\\s+questions?$/i);
+        if (match) return "已询问 " + match[1] + " 个问题";
+
         match = normalized.match(/^(\\d+)\\s+subagents?\\s+(running|blocked|completed|failed)$/i);
         if (match) {
             const stateMap = {
@@ -1755,7 +1767,7 @@ function generateJs() {
             translated = translateAgentLoadingStatus(element) || translated;
             translated = translateWorkingStatusContainer(element) || translated;
         }
-        if (textLength <= 120 && /(?:\\bresults?\\b|个结果|(?:Comments?|评论)\\s*[（(]\\s*\\d+|Listed|列出了|\\bsubagents?\\b|子智能体)/i.test(rawText)) {
+        if (textLength <= 120 && /(?:\\bresults?\\b|个结果|(?:Comments?|评论)\\s*[（(]\\s*\\d+|(?:Side Questions?|侧边提问)\\s*[（(]\\s*\\d+|Listed|列出了|\\bsubagents?\\b|子智能体)/i.test(rawText)) {
             translated = translateCompactCountLabelContainer(element) || translated;
         }
         if (textLength <= 240 &&
@@ -2629,6 +2641,14 @@ function generateJs() {
                 } else if (/^Asking\\s+(\\d+)\\s+questions?$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^Asking\\s+(\\d+)\\s+questions?$/i, (match, num) => {
                         return "正在询问 " + num + " 个问题";
+                    });
+                } else if (/^View\\s+(\\d+)\\s+side\\s+questions?$/i.test(valNorm)) {
+                    newVal = valNorm.replace(/^View\\s+(\\d+)\\s+side\\s+questions?$/i, (match, num) => {
+                        return "查看 " + num + " 个侧边提问";
+                    });
+                } else if (/^Asked\\s+(\\d+)\\s+questions?$/i.test(valNorm)) {
+                    newVal = valNorm.replace(/^Asked\\s+(\\d+)\\s+questions?$/i, (match, num) => {
+                        return "已询问 " + num + " 个问题";
                     });
                 } else if (/^This will permanently delete (\\d+) active (?:conversations?|chats?)(?: and (\\d+) archived (?:conversations?|chats?))? within it\\.?$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^This will permanently delete (\\d+) active (?:conversations?|chats?)(?: and (\\d+) archived (?:conversations?|chats?))? within it\\.?$/i, (match, active, archived) => {

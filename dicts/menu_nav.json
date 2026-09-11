@@ -50,5 +50,8 @@
     "Split": "拆分",
     "Split Right": "向右拆分",
     "Split Down": "向下拆分",
+    "Split Conversation Horizontally": "水平拆分会话",
+    "Split Conversation Vertically": "垂直拆分会话",
+    "Remove From Split": "从拆分中移除",
     "Replace With New": "替换为新建项"
 }

@@ -123,6 +123,18 @@ function runRendererRegression(generatedSource) {
     mount(element('div', pluralPush));
     equal(pluralPush.nodeValue, '将 3 个提交推送到 feature/demo', '动态 Git 复数规则失效');
 
+    const amendedCommit = text('Amended commit on main.');
+    mount(element('div', amendedCommit));
+    equal(amendedCommit.nodeValue, '已在 main 上修补提交。', '动态 Git 修补提交规则失效');
+
+    const dynamicSideQuestions = text('View 3 side questions');
+    mount(element('div', dynamicSideQuestions));
+    equal(dynamicSideQuestions.nodeValue, '查看 3 个侧边提问', '动态侧边提问查看规则失效');
+
+    const compactSideQuestions = text('Side Questions (3)');
+    mount(element('div', compactSideQuestions));
+    equal(compactSideQuestions.nodeValue, '侧边提问（3）', '侧边提问计数标签规则失效');
+
     const fileStatus = text('src/index.ts (unstaged)');
     mount(element('div', fileStatus));
     equal(fileStatus.nodeValue, 'src/index.ts (未暂存)', '文件状态规则未保留路径');
