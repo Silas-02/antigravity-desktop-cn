@@ -4,7 +4,7 @@ These instructions apply to every AI agent and contributor working in this repos
 
 ## 1. Current target and sources of truth
 
-- The current localization release is **v2.12.2**, targeting the official **Antigravity v2.12.2** client. The current version dictionary is `dicts/v2.12.2.json`; keep these values, the release date, and the support statement in `README.md` consistent.
+- The current localization release is **v2.13.0**, targeting the official **Antigravity v2.13.0** client. The current version dictionary is `dicts/v2.13.0.json`; keep these values, the release date, and the support statement in `README.md` consistent.
 - Treat the repository's actual files and executable behavior as authoritative. If these instructions, `README.md`, a dictionary filename, an engine comment, or the current client disagree, report the mismatch and update only what the requested task requires.
 - The engine loads **every** `dicts/*.json` file. A version bump must leave exactly one active version dictionary, migrate the previous dictionary deliberately, update all current-version references, and be checked against official packaged source and metadata. If renderer source is unavailable, verify the package version and relevant packaged injection surfaces, use observed client UI as renderer evidence, and state that limitation instead of claiming a full source audit. Do not change tags or release metadata unless explicitly requested.
 - Keep the user-facing installation, restoration, platform, path, dependency, and compatibility claims in `README.md` consistent with the actual engine and supported launchers.
