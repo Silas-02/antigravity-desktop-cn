@@ -194,6 +194,8 @@
     "Browser settings have moved to the Browser section of General settings.": "浏览器设置已移动至通用设置的浏览器部分",
     "Go to General settings": "前往通用设置",
     "Configure the browser subagent. It requires": "配置浏览器子智能体。它需要安装 ",
+    "Configure the browser subagent. It requires Google Chrome to be installed. The browser subagent can be invoked by typing /browser in the conversation input box.": "配置浏览器子智能体。它需要安装 Google Chrome。您可以通过在会话输入框中输入 /browser 来调用浏览器子智能体",
+    "It requires Google Chrome to be installed.": "它需要安装 Google Chrome",
     "The browser subagent can be invoked by typing /browser in the conversation input box.": "您可以通过在会话输入框中输入 /browser 来调用浏览器子智能体",
     "Controls whether the agent can run custom JavaScript to automate complex browser actions.": "控制智能体是否可以在浏览器中运行自定义 JavaScript 以自动执行复杂的浏览器操作",
     "Actuation Permissions": "操作执行权限",

@@ -1633,6 +1633,47 @@ function generateJs() {
         return false;
     }
 
+    function translateBrowserSubagentNotice(element) {
+        if (!element) return false;
+
+        let current = element.nodeType === Node.TEXT_NODE ? element.parentElement : element;
+        for (let depth = 0; current && depth < 6; depth++) {
+            if (current === document.body || current === document.documentElement) break;
+            if (current.nodeType === Node.ELEMENT_NODE && !isInBlockedZone(current)) {
+                const cText = current.textContent || '';
+                if (cText.length <= 500 &&
+                    /(?:Configure the browser subagent|配置浏览器子智能体)/i.test(cText) &&
+                    /(?:Google Chrome|to be installed)/i.test(cText)) {
+                    const textNodes = collectTextNodes(current).filter(tn => !isInBlockedZone(tn));
+                    if (textNodes.length === 0) return false;
+
+                    let changed = false;
+                    for (let i = 0; i < textNodes.length; i++) {
+                        const tn = textNodes[i];
+                        const val = tn.nodeValue || '';
+                        const valN = norm(val);
+
+                        if (/^Configure the browser subagent\\.\\s*It requires$/i.test(valN)) {
+                            changed = replaceTextNode(tn, "配置浏览器子智能体。它需要安装 ") || changed;
+                        } else if (/^to be installed\\.?$/i.test(valN)) {
+                            changed = replaceTextNode(tn, "。") || changed;
+                        } else if (/^to be installed\\.\\s*(.+)$/i.test(valN)) {
+                            const match = valN.match(/^to be installed\\.\\s*(.+)$/i);
+                            const rest = match[1];
+                            const restTrans = map.get(norm(rest)) || lowerMap.get(norm(rest).toLowerCase()) || rest;
+                            changed = replaceTextNode(tn, "。" + restTrans) || changed;
+                        } else if (/^The browser subagent can be invoked by typing \\/browser in the conversation input box\\.?$/i.test(valN)) {
+                            changed = replaceTextNode(tn, "您可以通过在会话输入框中输入 /browser 来调用浏览器子智能体") || changed;
+                        }
+                    }
+                    if (changed) return true;
+                }
+            }
+            current = current.parentElement || (current.parentNode && current.parentNode.host);
+        }
+        return false;
+    }
+
     function getCustomizationBudgetTranslation(value) {
         const match = norm(value).match(/^(\\d+(?:\\.\\d+)?)%\\s+of the customization budget is available[.。]?$/i);
         return match ? match[1] + "% 的个性化定制预算可用" : null;
@@ -1914,6 +1955,11 @@ function generateJs() {
             /(?:active (?:conversations?|chats?)|archived (?:conversations?|chats?)|个活跃会话|个已归档会话|within it)/i.test(rawText)) {
             translated = translatePermanentlyDeleteNotice(element) || translated;
         }
+        if (textLength <= 500 &&
+            /(?:Configure the browser subagent|配置浏览器子智能体)/i.test(rawText) &&
+            /(?:Google Chrome|to be installed)/i.test(rawText)) {
+            translated = translateBrowserSubagentNotice(element) || translated;
+        }
         if (textLength <= 8 && element.tagName?.toUpperCase() === 'SPAN' && /^OR$/i.test(rawText.trim())) {
             translated = translateBusinessSsoOrDivider(element) || translated;
         }
@@ -2070,6 +2116,22 @@ function generateJs() {
         const currentText = norm(originalVal);
         const previous = findPreviousTextNode(node);
         const previousText = previous ? norm(previous.nodeValue) : '';
+
+        if (/^to be installed\\.?$/i.test(currentText)) {
+            const parentText = node && node.parentElement ? (node.parentElement.textContent || '') : '';
+            if (/^Google Chrome$/i.test(previousText) || /(?:browser subagent|浏览器子智能体|Google Chrome)/i.test(parentText)) {
+                return "。";
+            }
+        }
+        const toBeInstalledMatch = currentText.match(/^to be installed\\.\\s*(.+)$/i);
+        if (toBeInstalledMatch) {
+            const parentText = node && node.parentElement ? (node.parentElement.textContent || '') : '';
+            if (/^Google Chrome$/i.test(previousText) || /(?:browser subagent|浏览器子智能体|Google Chrome)/i.test(parentText)) {
+                const rest = toBeInstalledMatch[1];
+                const restTrans = map.get(norm(rest)) || lowerMap.get(norm(rest).toLowerCase()) || rest;
+                return "。" + restTrans;
+            }
+        }
 
         const commentCountMatch = currentText.match(/^[（(]\\s*(\\d+)\\s*[)）]$/);
         if (commentCountMatch && /^(?:Comments?|评论)$/i.test(previousText)) {
@@ -2827,6 +2889,19 @@ function generateJs() {
                     const parentText = node && node.parentElement ? (node.parentElement.textContent || '') : '';
                     if (/(?:This will permanently delete|这将永久删除)/i.test(parentText)) {
                         newVal = '';
+                    }
+                } else if (/^to be installed\\.?$/i.test(valNorm)) {
+                    const parentText = node && node.parentElement ? (node.parentElement.textContent || '') : '';
+                    if (/(?:browser subagent|浏览器子智能体|Google Chrome)/i.test(parentText)) {
+                        newVal = '。';
+                    }
+                } else if (/^to be installed\\.\\s*(.+)$/i.test(valNorm)) {
+                    const parentText = node && node.parentElement ? (node.parentElement.textContent || '') : '';
+                    if (/(?:browser subagent|浏览器子智能体|Google Chrome)/i.test(parentText)) {
+                        const match = valNorm.match(/^to be installed\\.\\s*(.+)$/i);
+                        const rest = match[1];
+                        const restTrans = map.get(norm(rest)) || lowerMap.get(norm(rest).toLowerCase()) || rest;
+                        newVal = '。' + restTrans;
                     }
                 } else if (/^(.+?): context deadline exceeded$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^(.+?): context deadline exceeded$/i, (match, prefix) => {
