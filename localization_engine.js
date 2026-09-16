@@ -198,14 +198,14 @@ function generateJs() {
         match = normalized.match(/^Push\\s+(\\d+)\\s+commits?\\s+to\\s+((?:↗\\s*)?\\S+)$/i);
         if (match) return "将 " + match[1] + " 个提交推送到 " + match[2];
 
-        match = normalized.match(/^Pushed\\s+(\\d+)\\s+commits?\\s+to\\s+((?:↗\\s*)?\\S+)\\.$/i);
-        if (match) return "已将 " + match[1] + " 个提交推送到 " + match[2] + "。";
+        match = normalized.match(/^Pushed\\s+(\\d+)\\s+commits?\\s+to\\s+((?:↗\\s*)?\\S+)[.。]?$/i);
+        if (match) return "已将 " + match[1] + " 个提交推送到 " + match[2];
 
-        match = normalized.match(/^Committed\\s+to\\s+((?:↗\\s*)?\\S+)\\.$/i);
-        if (match) return "已提交到 " + match[1] + "。";
+        match = normalized.match(/^Committed\\s+to\\s+((?:↗\\s*)?\\S+)[.。]?$/i);
+        if (match) return "已提交到 " + match[1];
 
         match = normalized.match(/^Amended\\s+commit\\s+on\\s+((?:↗\\s*)?[^\\s.。]+)[.。]?$/i);
-        if (match) return "已在 " + match[1] + " 上修补提交。";
+        if (match) return "已在 " + match[1] + " 上修补提交";
 
         const commitSummary = getCommitSummaryParts(normalized);
         if (commitSummary) {
@@ -342,7 +342,7 @@ function generateJs() {
             return "正在搜索...";
         }
         if (/^No\\s+suggestions(?:\\.|\\b)/i.test(normalized)) {
-            return "无建议。";
+            return "无建议";
         }
         return null;
     }
@@ -365,35 +365,35 @@ function generateJs() {
 
     function getQuotaNoticeTranslation(value) {
         const normalized = norm(value);
-        let match = normalized.match(/^You have hit your weekly limit, it refreshes in (.+?)\\. If on a supported paid plan, you can use AI credits in the interim or upgrade to a higher tier\\.$/i);
+        let match = normalized.match(/^You have hit your weekly limit, it refreshes in (.+?)\\. If on a supported paid plan, you can use AI credits in the interim or upgrade to a higher tier\\.?$/i);
         if (match) {
             const duration = getQuotaDurationTranslation(match[1]);
             if (duration) {
-                return "您已达到每周配额限制，将在 " + duration + "后刷新。如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度，或升级到更高等级的套餐。";
+                return "您已达到每周配额限制，将在 " + duration + "后刷新。如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度，或升级到更高等级的套餐";
             }
         }
 
-        match = normalized.match(/^You have hit your weekly limit, the 5-hour limit does not currently apply\\. Your weekly limit will fully refresh in (.+?)\\.$/i);
+        match = normalized.match(/^You have hit your weekly limit, the 5-hour limit does not currently apply\\. Your weekly limit will fully refresh in (.+?)\\.?$/i);
         if (match) {
             const duration = getQuotaDurationTranslation(match[1]);
             if (duration) {
-                return "您已达到每周配额限制，因此当前不适用 5 小时配额限制。您的每周配额将在 " + duration + "后完全刷新。";
+                return "您已达到每周配额限制，因此当前不适用 5 小时配额限制。您的每周配额将在 " + duration + "后完全刷新";
             }
         }
 
-        match = normalized.match(/^您已达到每周配额限制，将在 (.+?)后刷新。如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度，或升级到更高等级的套餐。$/);
+        match = normalized.match(/^您已达到每周配额限制，将在 (.+?)后刷新。如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度，或升级到更高等级的套餐。?$/);
         if (match) {
             const duration = getQuotaDurationTranslation(match[1]);
             if (duration) {
-                return "您已达到每周配额限制，将在 " + duration + "后刷新。如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度，或升级到更高等级的套餐。";
+                return "您已达到每周配额限制，将在 " + duration + "后刷新。如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度，或升级到更高等级的套餐";
             }
         }
 
-        match = normalized.match(/^您已达到每周配额限制，因此当前不适用 5 小时配额限制。您的每周配额将在 (.+?)后完全刷新。$/);
+        match = normalized.match(/^您已达到每周配额限制，因此当前不适用 5 小时配额限制。您的每周配额将在 (.+?)后完全刷新。?$/);
         if (match) {
             const duration = getQuotaDurationTranslation(match[1]);
             if (duration) {
-                return "您已达到每周配额限制，因此当前不适用 5 小时配额限制。您的每周配额将在 " + duration + "后完全刷新。";
+                return "您已达到每周配额限制，因此当前不适用 5 小时配额限制。您的每周配额将在 " + duration + "后完全刷新";
             }
         }
         return null;
@@ -632,15 +632,15 @@ function generateJs() {
         if (!/^Are you sure you want to delete/i.test(normalized) && !/^\\?/i.test(normalized)) return null;
         if (!isInDeleteTaskDialogContext(node)) return null;
 
-        let match = normalized.match(/^Are you sure you want to delete(?:\\s+the scheduled task)?\\s+(.+?)\\?\\s*(?:This action cannot be undone\\.?|此操作无法撤销。)$/i);
-        if (match) return "您确定要删除任务 " + match[1] + " 吗？此操作无法撤销。";
+        let match = normalized.match(/^Are you sure you want to delete(?:\\s+the scheduled task)?\\s+(.+?)\\?\\s*(?:This action cannot be undone\\.?|此操作无法撤销。?)$/i);
+        if (match) return "您确定要删除任务 " + match[1] + " 吗？此操作无法撤销";
 
         match = normalized.match(/^Are you sure you want to delete(?:\\s+the scheduled task)?(?:\\s+(.+))?$/i);
         if (match) return "您确定要删除任务" + (match[1] ? " " + match[1] : " ");
 
-        if (/^\\?\\s*(?:This action cannot be undone\\.?|此操作无法撤销。)?$/i.test(normalized)) {
+        if (/^\\?\\s*(?:This action cannot be undone\\.?|此操作无法撤销。?)?$/i.test(normalized)) {
             return /(?:This action cannot be undone|此操作无法撤销)/i.test(normalized)
-                ? " 吗？此操作无法撤销。"
+                ? " 吗？此操作无法撤销"
                 : " 吗？";
         }
         return null;
@@ -846,7 +846,7 @@ function generateJs() {
             display: "快速提问",
             descriptions: [
                 'Ask a quick question without interrupting the main conversation.',
-                "在不中断主会话的情况下快速提问。"
+                "在不中断主会话的情况下快速提问"
             ]
         },
         {
@@ -855,9 +855,7 @@ function generateJs() {
             descriptions: [
                 'Interview me to align on a plan',
                 'Interview me to align on a plan.',
-                "通过访谈与我对齐方案",
-                "通过访谈与我对齐方案.",
-                "通过访谈与我对齐方案。"
+                "通过访谈与我对齐方案"
             ]
         },
         {
@@ -866,9 +864,7 @@ function generateJs() {
             descriptions: [
                 'Invoke a team of agents to autonomously tackle large projects',
                 'Invoke a team of agents to autonomously tackle large projects.',
-                "调用智能体团队自主应对大型项目",
-                "调用智能体团队自主应对大型项目.",
-                "调用智能体团队自主应对大型项目。"
+                "调用智能体团队自主应对大型项目"
             ]
         },
         {
@@ -876,7 +872,7 @@ function generateJs() {
             display: "复盘学习",
             descriptions: [
                 'Reflect on recent successes or corrections to capture reusable skills or rules.',
-                "反思最近的成功或改进，以捕获可复用的技能或规则。"
+                "反思最近的成功或改进，以捕获可复用的技能或规则"
             ]
         },
         {
@@ -885,9 +881,7 @@ function generateJs() {
             descriptions: [
                 'Invoke the Boost multi-agent orchestrator for complex tasks',
                 'Invoke the Boost multi-agent orchestrator for complex tasks.',
-                "调用 Boost 多智能体编排器处理复杂任务",
-                "调用 Boost 多智能体编排器处理复杂任务.",
-                "调用 Boost 多智能体编排器处理复杂任务。"
+                "调用 Boost 多智能体编排器处理复杂任务"
             ]
         },
         {
@@ -895,7 +889,7 @@ function generateJs() {
             display: "Antigravity 个性化定制",
             descriptions: [
                 'Comprehensive guide and reference for the Antigravity Customization System.',
-                "Antigravity 个性化定制系统的综合指南与参考资料。"
+                "Antigravity 个性化定制系统的综合指南与参考资料"
             ]
         },
         {
@@ -903,7 +897,7 @@ function generateJs() {
             display: "Antigravity 使用指南",
             descriptions: [
                 'Provides a comprehensive guide, quick reference, and sitemap for Google Antigravity (AGY), including the Antigravity CLI (agy), Antigravity 2.0, Antigravity IDE, Python SDK, slash commands, keybindings, and customizations (skills, rules, MCP, sidecars).',
-                "为 Google Antigravity（AGY）提供全面指南、快速参考和网站地图，涵盖 Antigravity CLI（agy）、Antigravity 2.0、Antigravity IDE、Python SDK、斜杠命令、快捷键及个性化定制（技能、规则、MCP 和 Sidecar）。"
+                "为 Google Antigravity（AGY）提供全面指南、快速参考和网站地图，涵盖 Antigravity CLI（agy）、Antigravity 2.0、Antigravity IDE、Python SDK、斜杠命令、快捷键及个性化定制（技能、规则、MCP 和 Sidecar）"
             ]
         },
         {
@@ -911,7 +905,7 @@ function generateJs() {
             display: "生成式界面",
             descriptions: [
                 'How to render rich interactive HTML widgets inline in the chat or as standalone artifacts. Use this skill when you want to show the user diagrams, data visualizations, interactive controls, educational walkthroughs, or any rich visual content beyond plain text and markdown.',
-                "介绍如何在会话中以内嵌方式呈现丰富的交互式 HTML 小组件，或将其作为独立交付件呈现。当您需要向用户展示图示、数据可视化、交互控件、教学演示，或任何超出纯文本和 Markdown 范畴的丰富可视化内容时，请使用此技能。"
+                "介绍如何在会话中以内嵌方式呈现丰富的交互式 HTML 小组件，或将其作为独立交付件呈现。当您需要向用户展示图示、数据可视化、交互控件、教学演示，或任何超出纯文本和 Markdown 范畴的丰富可视化内容时，请使用此技能"
             ]
         },
         {
@@ -920,8 +914,8 @@ function generateJs() {
             descriptions: [
                 'Automatically migrate legacy workflows to modern skills across global and workspace configurations. Scans for existing workflows, creates target SKILL.md files, and safely archives old workflow files.',
                 'Automatically migrate legacy workflows to modern skills across global and workspace configurations.',
-                "自动跨全局和工作区配置将旧版工作流迁移至现代技能。扫描现有工作流，创建目标 SKILL.md 文件，并安全归档旧工作流文件。",
-                "自动跨全局和工作区配置将旧版工作流迁移至现代技能。"
+                "自动跨全局和工作区配置将旧版工作流迁移至现代技能。扫描现有工作流，创建目标 SKILL.md 文件，并安全归档旧工作流文件",
+                "自动跨全局和工作区配置将旧版工作流迁移至现代技能"
             ]
         },
         {
@@ -930,7 +924,6 @@ function generateJs() {
             descriptions: [
                 'Guidelines for interacting with GitHub and request permissions from the user when commands fail due to restrictions in the agent environment.',
                 'Guidelines for interacting with GitHub and request permissions from the user when commands fail due to restrictions in the agent environment',
-                "与 GitHub 交互的操作准则，并在命令因智能体环境限制而失败时向用户申请权限。",
                 "与 GitHub 交互的操作准则，并在命令因智能体环境限制而失败时向用户申请权限"
             ]
         }
@@ -941,7 +934,11 @@ function generateJs() {
         return SKILL_PICKER_DISPLAY_ENTRIES.find(entry => {
             const hasName = values.includes(entry.source) || values.includes(entry.display);
             const hasDescription = entry.descriptions.some(description => {
-                return values.some(value => value === description || value.includes(description));
+                const cleanDesc = description.replace(/[.。]+$/, '');
+                return values.some(value => {
+                    const cleanVal = value.replace(/[.。]+$/, '');
+                    return cleanVal === cleanDesc || cleanVal.includes(cleanDesc);
+                });
             });
             return hasName && hasDescription;
         }) || null;
@@ -1111,7 +1108,7 @@ function generateJs() {
 
     function getArchivedConversationNoticeTranslation(value) {
         const noticePattern = /^(?:View|视图|查看)\\s*(?:an\\s+archived\\s+conversation|(?:an\\s+)?个?\\s*已归档(?:的)?(?:会话|对话))\\s*(?:in|，?请前往)\\s*(?:History|历史记录)[.。]?$/i;
-        return noticePattern.test(norm(value)) ? "可在“历史记录”中查看已归档的会话。" : null;
+        return noticePattern.test(norm(value)) ? "可在“历史记录”中查看已归档的会话" : null;
     }
 
     function translateArchivedConversationNotice(element) {
@@ -1146,10 +1143,10 @@ function generateJs() {
             for (let i = 1; i < historyTextNodes.length; i++) replaceTextNode(historyTextNodes[i], '');
 
             if (suffixNodes.length > 0) {
-                replaceTextNode(suffixNodes[0], "中查看已归档的会话。");
+                replaceTextNode(suffixNodes[0], "中查看已归档的会话");
                 for (let i = 1; i < suffixNodes.length; i++) replaceTextNode(suffixNodes[i], '');
             } else {
-                historyElement.parentNode.insertBefore(document.createTextNode("中查看已归档的会话。"), historyElement.nextSibling);
+                historyElement.parentNode.insertBefore(document.createTextNode("中查看已归档的会话"), historyElement.nextSibling);
             }
             return true;
         }
@@ -1267,7 +1264,7 @@ function generateJs() {
         const strayPrefix = refreshTime.match(/^\\d+\\.\\s+(\\d{2}\\/\\d{1,2}\\/\\d{1,2}\\s+\\d{1,2}:\\d{2}:\\d{2})$/);
         if (strayPrefix) refreshTime = strayPrefix[1];
 
-        return "您当前计划的基础配额将于 " + refreshTime + " 刷新。";
+        return "您当前计划的基础配额将于 " + refreshTime + " 刷新";
     }
 
     function replaceTextRange(textNodes, start, end, value) {
@@ -1410,30 +1407,30 @@ function generateJs() {
     function getDynamicProductUiTranslation(value) {
         const normalized = norm(value);
         let match = normalized.match(/^When toggled on,\\s+(.+?)\\s+collects usage data to help Google enhance performance and features\\.$/i);
-        if (match) return "启用后，" + match[1] + " 会收集使用数据，以帮助 Google 改进性能和功能。";
+        if (match) return "启用后，" + match[1] + " 会收集使用数据，以帮助 Google 改进性能和功能";
 
         match = normalized.match(/^Receive product updates, tips, and promotions from Google\\s+(.+?)\\s+via email\\.$/i);
-        if (match) return "通过电子邮件接收 Google " + match[1] + " 的产品更新、使用技巧和推广信息。";
+        if (match) return "通过电子邮件接收 Google " + match[1] + " 的产品更新、使用技巧和推广信息";
 
         match = normalized.match(/^When toggled on,\\s+(.+?)\\s+will use your AI credits to fulfill model requests once you're out of model quota\\.\\s+\\1\\s+will always use your model quota first before using AI credits\\.$/i);
-        if (match) return "启用后，当模型配额用尽时，" + match[1] + " 将使用您的 AI 额度处理模型请求。系统会优先使用模型配额，之后才使用 AI 额度。";
+        if (match) return "启用后，当模型配额用尽时，" + match[1] + " 将使用您的 AI 额度处理模型请求。系统会优先使用模型配额，之后才使用 AI 额度";
 
         match = normalized.match(/^Build with\\s+(.+?)\\s+Plugins$/i);
         if (match) return "使用 " + match[1] + " 插件构建";
 
         match = normalized.match(/^Plugins are packaged collections of skills and MCPs to help the Agent in\\s+(.+?)\\s+work with Google developer products\\. You can always change your choices in Settings\\.$/i);
-        if (match) return "插件是打包的技能与 MCP 集合，用于帮助 " + match[1] + " 中的智能体使用 Google 开发者产品。您随时可以在设置中更改选择。";
+        if (match) return "插件是打包的技能与 MCP 集合，用于帮助 " + match[1] + " 中的智能体使用 Google 开发者产品。您随时可以在设置中更改选择";
 
         match = normalized.match(/^Manage\\s+(project|workspace)\\s+folders, agent settings, and permissions\\.$/i);
         if (match) {
             const scope = match[1].toLowerCase() === "project" ? "项目" : "工作区";
-            return "管理" + scope + "文件夹、智能体设置和权限。";
+            return "管理" + scope + "文件夹、智能体设置和权限";
         }
 
         match = normalized.match(/^Agent settings and permissions for conversations outside of\\s+(projects|workspaces)\\.$/i);
         if (match) {
             const scope = match[1].toLowerCase() === "projects" ? "项目" : "工作区";
-            return "用于不属于任何" + scope + "的会话的智能体设置和权限。";
+            return "用于不属于任何" + scope + "的会话的智能体设置和权限";
         }
         return null;
     }
@@ -1457,7 +1454,7 @@ function generateJs() {
         if (!match) return null;
 
         const countTranslation = getProjectConversationCountTranslation(match[2]);
-        return countTranslation ? "永久删除 " + match[1] + "，包含 " + countTranslation + "。" : null;
+        return countTranslation ? "永久删除 " + match[1] + "，包含 " + countTranslation : null;
     }
 
     function translateProjectDeleteSummary(element) {
@@ -1493,7 +1490,7 @@ function generateJs() {
 
                     const punctuationNode = textNodes.slice(countIndex + 1)
                         .find(textNode => /^[.。]$/.test(norm(textNode.nodeValue)));
-                    if (punctuationNode) replaceTextNode(punctuationNode, "。");
+                    if (punctuationNode) replaceTextNode(punctuationNode, "");
                     return true;
                 }
             }
@@ -1502,9 +1499,143 @@ function generateJs() {
         return false;
     }
 
+    function translatePermanentlyDeleteNotice(element) {
+        if (!element) return false;
+
+        let current = element.nodeType === Node.TEXT_NODE ? element.parentElement : element;
+        for (let depth = 0; current && depth < 6; depth++) {
+            if (current === document.body || current === document.documentElement) break;
+            if (current.nodeType === Node.ELEMENT_NODE && !isInBlockedZone(current)) {
+                const textNodes = collectTextNodes(current).filter(textNode => !isInBlockedZone(textNode));
+                if (textNodes.length > 0) {
+                    const rawText = textNodes.map(tn => tn.nodeValue || '').join('');
+                    const normalized = norm(rawText);
+
+                    const activeAndArchivedMatch = normalized.match(/^(?:This will permanently delete|这将永久删除)\\s+(\\d+)\\s+(?:active (?:conversations?|chats?)|个活跃会话)\\s*(?:and|及)\\s*(\\d+)\\s+(?:archived (?:conversations?|chats?)|个已归档会话)\\s*(?:within it[.。]?)?$/i);
+                    const activeOnlyMatch = normalized.match(/^(?:This will permanently delete|这将永久删除)\\s+(\\d+)\\s+(?:active (?:conversations?|chats?)|个活跃会话)\\s*(?:within it[.。]?)?$/i);
+                    const archivedOnlyMatch = normalized.match(/^(?:This will permanently delete|这将永久删除)\\s+(\\d+)\\s+(?:archived (?:conversations?|chats?)|个已归档会话)\\s*(?:within it[.。]?)?$/i);
+
+                    if (activeAndArchivedMatch) {
+                        const activeCount = activeAndArchivedMatch[1];
+                        const archivedCount = activeAndArchivedMatch[2];
+                        if (textNodes.length === 1) {
+                            return replaceTextNode(textNodes[0], "这将永久删除 " + activeCount + " 个活跃会话及 " + archivedCount + " 个已归档会话");
+                        }
+                        const firstCountIndex = textNodes.findIndex(tn => {
+                            const val = norm(tn.nodeValue);
+                            return val === activeCount || val.startsWith(activeCount + " ");
+                        });
+                        const secondCountIndex = firstCountIndex >= 0
+                            ? textNodes.findIndex((tn, idx) => {
+                                if (idx <= firstCountIndex) return false;
+                                const val = norm(tn.nodeValue);
+                                return val === archivedCount || val.startsWith(archivedCount + " ");
+                            })
+                            : -1;
+                        if (firstCountIndex >= 0 && secondCountIndex > firstCountIndex) {
+                            let changed = replaceTextNode(textNodes[0], "这将永久删除 ");
+                            for (let i = 1; i < firstCountIndex; i++) {
+                                changed = replaceTextNode(textNodes[i], "") || changed;
+                            }
+                            const firstIsIsolated = norm(textNodes[firstCountIndex].nodeValue) === activeCount;
+                            if (firstIsIsolated) {
+                                changed = replaceTextNode(textNodes[firstCountIndex + 1], " 个活跃会话及 ") || changed;
+                                for (let i = firstCountIndex + 2; i < secondCountIndex; i++) {
+                                    changed = replaceTextNode(textNodes[i], "") || changed;
+                                }
+                            } else {
+                                changed = replaceTextNode(textNodes[firstCountIndex], activeCount + " 个活跃会话及 ") || changed;
+                                for (let i = firstCountIndex + 1; i < secondCountIndex; i++) {
+                                    changed = replaceTextNode(textNodes[i], "") || changed;
+                                }
+                            }
+                            const secondIsIsolated = norm(textNodes[secondCountIndex].nodeValue) === archivedCount;
+                            if (secondIsIsolated) {
+                                if (secondCountIndex + 1 < textNodes.length) {
+                                    changed = replaceTextNode(textNodes[secondCountIndex + 1], " 个已归档会话") || changed;
+                                    for (let i = secondCountIndex + 2; i < textNodes.length; i++) {
+                                        changed = replaceTextNode(textNodes[i], "") || changed;
+                                    }
+                                }
+                            } else {
+                                changed = replaceTextNode(textNodes[secondCountIndex], archivedCount + " 个已归档会话") || changed;
+                                for (let i = secondCountIndex + 1; i < textNodes.length; i++) {
+                                    changed = replaceTextNode(textNodes[i], "") || changed;
+                                }
+                            }
+                            return changed;
+                        }
+                    } else if (activeOnlyMatch) {
+                        const activeCount = activeOnlyMatch[1];
+                        if (textNodes.length === 1) {
+                            return replaceTextNode(textNodes[0], "这将永久删除 " + activeCount + " 个活跃会话");
+                        }
+                        const countIndex = textNodes.findIndex(tn => {
+                            const val = norm(tn.nodeValue);
+                            return val === activeCount || val.startsWith(activeCount + " ");
+                        });
+                        if (countIndex >= 0) {
+                            let changed = replaceTextNode(textNodes[0], "这将永久删除 ");
+                            for (let i = 1; i < countIndex; i++) {
+                                changed = replaceTextNode(textNodes[i], "") || changed;
+                            }
+                            const isIsolated = norm(textNodes[countIndex].nodeValue) === activeCount;
+                            if (isIsolated) {
+                                if (countIndex + 1 < textNodes.length) {
+                                    changed = replaceTextNode(textNodes[countIndex + 1], " 个活跃会话") || changed;
+                                    for (let i = countIndex + 2; i < textNodes.length; i++) {
+                                        changed = replaceTextNode(textNodes[i], "") || changed;
+                                    }
+                                }
+                            } else {
+                                changed = replaceTextNode(textNodes[countIndex], activeCount + " 个活跃会话") || changed;
+                                for (let i = countIndex + 1; i < textNodes.length; i++) {
+                                    changed = replaceTextNode(textNodes[i], "") || changed;
+                                }
+                            }
+                            return changed;
+                        }
+                    } else if (archivedOnlyMatch) {
+                        const archivedCount = archivedOnlyMatch[1];
+                        if (textNodes.length === 1) {
+                            return replaceTextNode(textNodes[0], "这将永久删除 " + archivedCount + " 个已归档会话");
+                        }
+                        const countIndex = textNodes.findIndex(tn => {
+                            const val = norm(tn.nodeValue);
+                            return val === archivedCount || val.startsWith(archivedCount + " ");
+                        });
+                        if (countIndex >= 0) {
+                            let changed = replaceTextNode(textNodes[0], "这将永久删除 ");
+                            for (let i = 1; i < countIndex; i++) {
+                                changed = replaceTextNode(textNodes[i], "") || changed;
+                            }
+                            const isIsolated = norm(textNodes[countIndex].nodeValue) === archivedCount;
+                            if (isIsolated) {
+                                if (countIndex + 1 < textNodes.length) {
+                                    changed = replaceTextNode(textNodes[countIndex + 1], " 个已归档会话") || changed;
+                                    for (let i = countIndex + 2; i < textNodes.length; i++) {
+                                        changed = replaceTextNode(textNodes[i], "") || changed;
+                                    }
+                                }
+                            } else {
+                                changed = replaceTextNode(textNodes[countIndex], archivedCount + " 个已归档会话") || changed;
+                                for (let i = countIndex + 1; i < textNodes.length; i++) {
+                                    changed = replaceTextNode(textNodes[i], "") || changed;
+                                }
+                            }
+                            return changed;
+                        }
+                    }
+                }
+            }
+            current = current.parentElement || (current.parentNode && current.parentNode.host);
+        }
+        return false;
+    }
+
     function getCustomizationBudgetTranslation(value) {
-        const match = norm(value).match(/^(\\d+(?:\\.\\d+)?)%\\s+of the customization budget is available\\.$/i);
-        return match ? match[1] + "% 的个性化定制预算可用。" : null;
+        const match = norm(value).match(/^(\\d+(?:\\.\\d+)?)%\\s+of the customization budget is available[.。]?$/i);
+        return match ? match[1] + "% 的个性化定制预算可用" : null;
     }
 
     function getArtifactFileCountTranslation(value) {
@@ -1778,6 +1909,11 @@ function generateJs() {
             /(?:Permanently delete|\\bincluding\\b|\\bactive conversations?\\b|\\barchived conversations?\\b|永久删除|，包含)/i.test(rawText)) {
             translated = translateProjectDeleteSummary(element) || translated;
         }
+        if (textLength <= 600 &&
+            /(?:This will permanently delete|这将永久删除|within it)/i.test(rawText) &&
+            /(?:active (?:conversations?|chats?)|archived (?:conversations?|chats?)|个活跃会话|个已归档会话|within it)/i.test(rawText)) {
+            translated = translatePermanentlyDeleteNotice(element) || translated;
+        }
         if (textLength <= 8 && element.tagName?.toUpperCase() === 'SPAN' && /^OR$/i.test(rawText.trim())) {
             translated = translateBusinessSsoOrDivider(element) || translated;
         }
@@ -1847,16 +1983,16 @@ function generateJs() {
         const toolMatch = normalized.match(/^(\\d+)\\s+tools?\\s+enabled$/i);
         if (toolMatch) return toolMatch[1] + " 个工具已启用";
 
-        const scheduleMatch = normalized.match(/^All scheduled tasks run as\\s+(.+)$/i);
+        const scheduleMatch = normalized.match(/^All scheduled tasks run (?:as|with the)\\s+(.+?)(?:\\s+model)?[.。]?$/i);
         if (scheduleMatch) {
             const model = scheduleMatch[1].replace(/[.。]+$/, '').trim();
-            if (model) return "所有计划任务均以 " + model + " 模型运行。";
+            if (model) return "所有计划任务均以 " + model + " 模型运行";
         }
-        const viewArchivedHistMatch = normalized.match(/^View(?:\\s+(\\d+))?\\s+archived conversations?\\s+in\\s+History\\.?$/i);
+        const viewArchivedHistMatch = normalized.match(/^View(?:\\s+(\\d+))?\\s+archived conversations?\\s+in\\s+History[.。]?$/i);
         if (viewArchivedHistMatch) {
             return viewArchivedHistMatch[1]
-                ? "在“历史记录”中查看 " + viewArchivedHistMatch[1] + " 个已归档会话。"
-                : "可在“历史记录”中查看已归档的会话。";
+                ? "在“历史记录”中查看 " + viewArchivedHistMatch[1] + " 个已归档会话"
+                : "可在“历史记录”中查看已归档的会话";
         }
         const viewArchivedMatch = normalized.match(/^View(?:\\s+(\\d+))?\\s+archived conversations?(?:\\s+in)?$/i);
         if (viewArchivedMatch) {
@@ -2068,10 +2204,10 @@ function generateJs() {
 
         if (previousText === "所有计划任务均以" && currentText && !/[\\u4e00-\\u9fff]/.test(currentText)) {
             const model = currentText.replace(/[.。]+$/, '').trim();
-            if (model) return model + " 模型运行。";
+            if (model) return model + " 模型运行";
         }
 
-        if (/^[.。]$/.test(currentText) && /模型运行。$/.test(previousText)) {
+        if (/^[.。]$/.test(currentText) && /模型运行$/.test(previousText)) {
             return '';
         }
 
@@ -2080,7 +2216,7 @@ function generateJs() {
             for (let i = 0; i < 6 && candidate; i++) {
                 if (/^您确定要删除(?:计划)?任务$/.test(norm(candidate.nodeValue))) {
                     return /This action cannot be undone/i.test(currentText)
-                        ? " 吗？此操作无法撤销。"
+                        ? " 吗？此操作无法撤销"
                         : " 吗？";
                 }
                 candidate = findPreviousTextNode(candidate);
@@ -2394,71 +2530,82 @@ function generateJs() {
                     newVal = valNorm.replace(/^Refreshes in (\\d+) minutes?$/i, (match, m) => {
                         return m + " 分钟后刷新";
                     });
+                } else if (/^Resets in <1m$/i.test(valNorm)) {
+                    newVal = "不足 1 分钟后重置";
+                } else if (/^Resets in (?:(\\d+)\\s*(?:d|days?))?\\s*,?\\s*(?:(\\d+)\\s*(?:h|hours?))?\\s*,?\\s*(?:(\\d+)\\s*(?:m|mins?|minutes?))?\\s*,?\\s*(?:(\\d+)\\s*(?:s|secs?|seconds?))?$/i.test(valNorm)) {
+                    newVal = valNorm.replace(/^Resets in (?:(\\d+)\\s*(?:d|days?))?\\s*,?\\s*(?:(\\d+)\\s*(?:h|hours?))?\\s*,?\\s*(?:(\\d+)\\s*(?:m|mins?|minutes?))?\\s*,?\\s*(?:(\\d+)\\s*(?:s|secs?|seconds?))?$/i, (match, d, h, m, s) => {
+                        let parts = [];
+                        if (d) parts.push(d + " 天");
+                        if (h) parts.push(h + " 小时");
+                        if (m) parts.push(m + " 分钟");
+                        if (s) parts.push(s + " 秒");
+                        return parts.length ? parts.join(" ") + "后重置" : match;
+                    });
                 } else if (/^You have used some of your weekly limit, it will fully refresh in (\\d+) days?, (\\d+) hours?\\.$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^You have used some of your weekly limit, it will fully refresh in (\\d+) days?, (\\d+) hours?\\.$/i, (match, d, h) => {
-                        return "您已使用部分每周配额，将在 " + d + " 天 " + h + " 小时后完全刷新。";
+                        return "您已使用部分每周配额，将在 " + d + " 天 " + h + " 小时后完全刷新";
                     });
                 } else if (/^You have used some of your weekly limit, it will fully refresh in (\\d+) hours?, (\\d+) minutes?\\.$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^You have used some of your weekly limit, it will fully refresh in (\\d+) hours?, (\\d+) minutes?\\.$/i, (match, h, m) => {
-                        return "您已使用部分每周配额，将在 " + h + " 小时 " + m + " 分钟后完全刷新。";
+                        return "您已使用部分每周配额，将在 " + h + " 小时 " + m + " 分钟后完全刷新";
                     });
                 } else if (/^You have used some of your weekly limit, it will fully refresh in (\\d+) days?\\.$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^You have used some of your weekly limit, it will fully refresh in (\\d+) days?\\.$/i, (match, d) => {
-                        return "您已使用部分每周配额，将在 " + d + " 天后完全刷新。";
+                        return "您已使用部分每周配额，将在 " + d + " 天后完全刷新";
                     });
                 } else if (/^You have used some of your weekly limit, it will fully refresh in (\\d+) hours?\\.$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^You have used some of your weekly limit, it will fully refresh in (\\d+) hours?\\.$/i, (match, h) => {
-                        return "您已使用部分每周配额，将在 " + h + " 小时后完全刷新。";
+                        return "您已使用部分每周配额，将在 " + h + " 小时后完全刷新";
                     });
                 } else if (/^You have used some of your weekly limit, it will fully refresh in (\\d+) minutes?\\.$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^You have used some of your weekly limit, it will fully refresh in (\\d+) minutes?\\.$/i, (match, m) => {
-                        return "您已使用部分每周配额，将在 " + m + " 分钟后完全刷新。";
+                        return "您已使用部分每周配额，将在 " + m + " 分钟后完全刷新";
                     });
                 } else if (/^You have used some of your weekly limit, it will fully refresh in less than a minute\\.$/i.test(valNorm)) {
-                    newVal = "您已使用部分每周配额，将在不到 1 分钟后完全刷新。";
+                    newVal = "您已使用部分每周配额，将在不到 1 分钟后完全刷新";
                 } else if (/^You have used some of your 5-hour limit, it will fully refresh in (\\d+) hours?, (\\d+) minutes?\\.$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^You have used some of your 5-hour limit, it will fully refresh in (\\d+) hours?, (\\d+) minutes?\\.$/i, (match, h, m) => {
-                        return "您已使用部分 5 小时配额，将在 " + h + " 小时 " + m + " 分钟后完全刷新。";
+                        return "您已使用部分 5 小时配额，将在 " + h + " 小时 " + m + " 分钟后完全刷新";
                     });
                 } else if (/^You have used some of your 5-hour limit, it will fully refresh in (\\d+) hours?\\.$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^You have used some of your 5-hour limit, it will fully refresh in (\\d+) hours?\\.$/i, (match, h) => {
-                        return "您已使用部分 5 小时配额，将在 " + h + " 小时后完全刷新。";
+                        return "您已使用部分 5 小时配额，将在 " + h + " 小时后完全刷新";
                     });
                 } else if (/^You have used some of your 5-hour limit, it will fully refresh in (\\d+) minutes?\\.$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^You have used some of your 5-hour limit, it will fully refresh in (\\d+) minutes?\\.$/i, (match, m) => {
-                        return "您已使用部分 5 小时配额，将在 " + m + " 分钟后完全刷新。";
+                        return "您已使用部分 5 小时配额，将在 " + m + " 分钟后完全刷新";
                     });
                 } else if (/^You have used some of your 5-hour limit, it will fully refresh in less than a minute\\.$/i.test(valNorm)) {
-                    newVal = "您已使用部分 5 小时配额，将在不到 1 分钟后完全刷新。";
+                    newVal = "您已使用部分 5 小时配额，将在不到 1 分钟后完全刷新";
                 } else if (/^Your 5-hour limit will refresh in (\\d+) days?, (\\d+) hours?\\.$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^Your 5-hour limit will refresh in (\\d+) days?, (\\d+) hours?\\.$/i, (match, d, h) => {
-                        return "您的 5 小时配额将在 " + d + " 天 " + h + " 小时后刷新。";
+                        return "您的 5 小时配额将在 " + d + " 天 " + h + " 小时后刷新";
                     });
                 } else if (/^Your 5-hour limit will refresh in (\\d+) hours?, (\\d+) minutes?\\.$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^Your 5-hour limit will refresh in (\\d+) hours?, (\\d+) minutes?\\.$/i, (match, h, m) => {
-                        return "您的 5 小时配额将在 " + h + " 小时 " + m + " 分钟后刷新。";
+                        return "您的 5 小时配额将在 " + h + " 小时 " + m + " 分钟后刷新";
                     });
                 } else if (/^Your 5-hour limit will refresh in (\\d+) days?\\.$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^Your 5-hour limit will refresh in (\\d+) days?\\.$/i, (match, d) => {
-                        return "您的 5 小时配额将在 " + d + " 天后刷新。";
+                        return "您的 5 小时配额将在 " + d + " 天后刷新";
                     });
                 } else if (/^Your 5-hour limit will refresh in (\\d+) hours?\\.$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^Your 5-hour limit will refresh in (\\d+) hours?\\.$/i, (match, h) => {
-                        return "您的 5 小时配额将在 " + h + " 小时后刷新。";
+                        return "您的 5 小时配额将在 " + h + " 小时后刷新";
                     });
                 } else if (/^Your 5-hour limit will refresh in (\\d+) minutes?\\.$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^Your 5-hour limit will refresh in (\\d+) minutes?\\.$/i, (match, m) => {
-                        return "您的 5 小时配额将在 " + m + " 分钟后刷新。";
+                        return "您的 5 小时配额将在 " + m + " 分钟后刷新";
                     });
                 } else if (/^Your 5-hour limit will refresh in less than a minute\\.$/i.test(valNorm)) {
-                    newVal = "您的 5 小时配额将在不到 1 分钟后刷新。";
+                    newVal = "您的 5 小时配额将在不到 1 分钟后刷新";
                 } else if (/^You have hit your 5-hour limit, it will refresh in (\\d+) days?, (\\d+) hours?\\. If on a supported paid plan, you can use AI credits in the interim\\.$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^You have hit your 5-hour limit, it will refresh in (\\d+) days?, (\\d+) hours?\\. If on a supported paid plan, you can use AI credits in the interim\\.$/i, (match, d, h) => {
-                        return "您已达到 5 小时配额限制，将在 " + d + " 天 " + h + " 小时后刷新。如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度。";
+                        return "您已达到 5 小时配额限制，将在 " + d + " 天 " + h + " 小时后刷新。如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度";
                     });
                 } else if (/^You have hit your 5-hour limit, it will refresh in (\\d+) hours?, (\\d+) minutes?\\. If on a supported paid plan, you can use AI credits in the interim\\.$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^You have hit your 5-hour limit, it will refresh in (\\d+) hours?, (\\d+) minutes?\\. If on a supported paid plan, you can use AI credits in the interim\\.$/i, (match, h, m) => {
-                        return "您已达到 5 小时配额限制，将在 " + h + " 小时 " + m + " 分钟后刷新。如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度。";
+                        return "您已达到 5 小时配额限制，将在 " + h + " 小时 " + m + " 分钟后刷新。如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度";
                     });
                 } else if (/^Error ID:\\s*(.+)$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^Error ID:\\s*(.+)$/i, (match, id) => {
@@ -2472,56 +2619,67 @@ function generateJs() {
                     newVal = valNorm.replace(/^Executor is not currently running \\(error ID:\\s*(.+)\\)$/i, (match, id) => {
                         return "执行器当前未运行 (错误 ID: " + id + ")";
                     });
-                } else if (/^Thought for ([\\d\\.]+)(s|ms|m|min)(?:\\s*>)?$/i.test(valNorm)) {
-                    newVal = valNorm.replace(/^Thought for ([\\d\\.]+)(s|ms|m|min)(?:\\s*>)?$/i, (match, val, unit) => {
-                        let unitStr = "秒";
-                        if (unit.toLowerCase() === 'ms') unitStr = "毫秒";
-                        else if (unit.toLowerCase() === 'm' || unit.toLowerCase() === 'min') unitStr = "分钟";
-                        return "思考了 " + val + " " + unitStr;
-                    });
-                } else if (/^Worked for ([\\d\\.]+)(s|ms|m|min)(?:\\s*>)?$/i.test(valNorm)) {
-                    newVal = valNorm.replace(/^Worked for ([\\d\\.]+)(s|ms|m|min)(?:\\s*>)?$/i, (match, val, unit) => {
-                        let unitStr = "秒";
-                        if (unit.toLowerCase() === 'ms') unitStr = "毫秒";
-                        else if (unit.toLowerCase() === 'm' || unit.toLowerCase() === 'min') unitStr = "分钟";
-                        return "工作了 " + val + " " + unitStr;
-                    });
+                } else if (/^(?:Thought for|Worked for|Stopped after)\\s+([\\d\\w\\s,.]+?)(?:\\s*(>))?$/i.test(valNorm)) {
+                    const durationMatch = valNorm.match(/^(Thought for|Worked for|Stopped after)\\s+([\\d\\w\\s,.]+?)(?:\\s*(>))?$/i);
+                    if (durationMatch) {
+                        const action = durationMatch[1].toLowerCase();
+                        const arrow = durationMatch[3] ? " >" : "";
+                        let actionStr = "工作了 ";
+                        if (action === "thought for") actionStr = "思考了 ";
+                        else if (action === "stopped after") actionStr = "在 ";
+
+                        let durationStr = durationMatch[2]
+                            .replace(/(\\d+)\\s*d(?:ays?)?/gi, "$1 天 ")
+                            .replace(/(\\d+)\\s*h(?:ours?)?/gi, "$1 小时 ")
+                            .replace(/([\\d\\.]+)\\s*ms/gi, "$1 毫秒 ")
+                            .replace(/(\\d+)\\s*m(?:in(?:ute)?s?)?(?![a-z])/gi, "$1 分钟 ")
+                            .replace(/([\\d\\.]+)\\s*s(?:ec(?:ond)?s?)?/gi, "$1 秒 ")
+                            .replace(/,/g, "")
+                            .replace(/\\s+/g, " ")
+                            .trim();
+
+                        if (action === "stopped after") {
+                            newVal = "在 " + durationStr + " 后停止" + arrow;
+                        } else {
+                            newVal = actionStr + durationStr + arrow;
+                        }
+                    }
                 } else if (/^You have hit your 5-hour limit, it will refresh in (\\d+) days?\\. If on a supported paid plan, you can use AI credits in the interim\\.$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^You have hit your 5-hour limit, it will refresh in (\\d+) days?\\. If on a supported paid plan, you can use AI credits in the interim\\.$/i, (match, d) => {
-                        return "您已达到 5 小时配额限制，将在 " + d + " 天后刷新。如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度。";
+                        return "您已达到 5 小时配额限制，将在 " + d + " 天后刷新。如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度";
                     });
                 } else if (/^You have hit your 5-hour limit, it will refresh in (\\d+) hours?\\. If on a supported paid plan, you can use AI credits in the interim\\.$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^You have hit your 5-hour limit, it will refresh in (\\d+) hours?\\. If on a supported paid plan, you can use AI credits in the interim\\.$/i, (match, h) => {
-                        return "您已达到 5 小时配额限制，将在 " + h + " 小时后刷新。如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度。";
+                        return "您已达到 5 小时配额限制，将在 " + h + " 小时后刷新。如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度";
                     });
                 } else if (/^You have hit your 5-hour limit, it will refresh in (\\d+) minutes?\\. If on a supported paid plan, you can use AI credits in the interim\\.$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^You have hit your 5-hour limit, it will refresh in (\\d+) minutes?\\. If on a supported paid plan, you can use AI credits in the interim\\.$/i, (match, m) => {
-                        return "您已达到 5 小时配额限制，将在 " + m + " 分钟后刷新。如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度。";
+                        return "您已达到 5 小时配额限制，将在 " + m + " 分钟后刷新。如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度";
                     });
                 } else if (/^You have hit your 5-hour limit, it will refresh in less than a minute\\. If on a supported paid plan, you can use AI credits in the interim\\.$/i.test(valNorm)) {
-                    newVal = "您已达到 5 小时配额限制，将在不到 1 分钟后刷新。如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度。";
+                    newVal = "您已达到 5 小时配额限制，将在不到 1 分钟后刷新。如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度";
                 } else if (/^You have hit your weekly limit, it will fully refresh in (\\d+) days?, (\\d+) hours?\\.$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^You have hit your weekly limit, it will fully refresh in (\\d+) days?, (\\d+) hours?\\.$/i, (match, d, h) => {
-                        return "您已达到每周配额限制，将在 " + d + " 天 " + h + " 小时后完全刷新。";
+                        return "您已达到每周配额限制，将在 " + d + " 天 " + h + " 小时后完全刷新";
                     });
                 } else if (/^You have hit your weekly limit, it will fully refresh in (\\d+) hours?, (\\d+) minutes?\\.$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^You have hit your weekly limit, it will fully refresh in (\\d+) hours?, (\\d+) minutes?\\.$/i, (match, h, m) => {
-                        return "您已达到每周配额限制，将在 " + h + " 小时 " + m + " 分钟后完全刷新。";
+                        return "您已达到每周配额限制，将在 " + h + " 小时 " + m + " 分钟后完全刷新";
                     });
                 } else if (/^You have hit your weekly limit, it will fully refresh in (\\d+) days?\\.$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^You have hit your weekly limit, it will fully refresh in (\\d+) days?\\.$/i, (match, d) => {
-                        return "您已达到每周配额限制，将在 " + d + " 天后完全刷新。";
+                        return "您已达到每周配额限制，将在 " + d + " 天后完全刷新";
                     });
                 } else if (/^You have hit your weekly limit, it will fully refresh in (\\d+) hours?\\.$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^You have hit your weekly limit, it will fully refresh in (\\d+) hours?\\.$/i, (match, h) => {
-                        return "您已达到每周配额限制，将在 " + h + " 小时后完全刷新。";
+                        return "您已达到每周配额限制，将在 " + h + " 小时后完全刷新";
                     });
                 } else if (/^You have hit your weekly limit, it will fully refresh in (\\d+) minutes?\\.$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^You have hit your weekly limit, it will fully refresh in (\\d+) minutes?\\.$/i, (match, m) => {
-                        return "您已达到每周配额限制，将在 " + m + " 分钟后完全刷新。";
+                        return "您已达到每周配额限制，将在 " + m + " 分钟后完全刷新";
                     });
                 } else if (/^You have hit your weekly limit, it will fully refresh in less than a minute\\.$/i.test(valNorm)) {
-                    newVal = "您已达到每周配额限制，将在不到 1 分钟后完全刷新。";
+                    newVal = "您已达到每周配额限制，将在不到 1 分钟后完全刷新";
                 } else if (/^Match case \\((.+)\\)$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^Match case \\((.+)\\)$/i, (m, k) => "区分大小写 (" + k + ")");
                 } else if (/^Match whole word \\((.+)\\)$/i.test(valNorm)) {
@@ -2600,13 +2758,13 @@ function generateJs() {
                     newVal = valNorm.replace(/^Updated\\s+(.+)$/i, (match, rest) => {
                         return "更新于 " + rest;
                     });
-                } else if (/^All scheduled tasks run as (.+?)[\\.\\s]*$/i.test(valNorm)) {
-                    newVal = valNorm.replace(/^All scheduled tasks run as (.+?)[\\.\\s]*$/i, (match, model) => {
-                        return "所有计划任务均以 " + model + " 模型运行。";
+                } else if (/^All scheduled tasks run (?:as|with the)\\s+(.+?)(?:\\s+model)?[\\.\\s]*$/i.test(valNorm)) {
+                    newVal = valNorm.replace(/^All scheduled tasks run (?:as|with the)\\s+(.+?)(?:\\s+model)?[\\.\\s]*$/i, (match, model) => {
+                        return "所有计划任务均以 " + model + " 模型运行";
                     });
                 } else if (/^Individual quota reached\\. Please upgrade your subscription to increase your limits\\. Resets in (.+?)\\.?$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^Individual quota reached\\. Please upgrade your subscription to increase your limits\\. Resets in (.+?)\\.?$/i, (match, t) => {
-                        return "个人配额已达上限。请升级订阅以提高限额。将于 " + t + " 后重置。";
+                        return "个人配额已达上限。请升级订阅以提高限额。将于 " + t + " 后重置";
                     });
                 } else if (/^Mark\\s+(\\d+)\\s+conversations?\\s+as\\s+read$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^Mark\\s+(\\d+)\\s+conversations?\\s+as\\s+read$/i, (match, num) => {
@@ -2646,17 +2804,30 @@ function generateJs() {
                     newVal = valNorm.replace(/^View\\s+(\\d+)\\s+side\\s+questions?$/i, (match, num) => {
                         return "查看 " + num + " 个侧边提问";
                     });
-                } else if (/^Asked\\s+(\\d+)\\s+questions?$/i.test(valNorm)) {
-                    newVal = valNorm.replace(/^Asked\\s+(\\d+)\\s+questions?$/i, (match, num) => {
+                } else if (/^Asked\s+(\d+)\s+questions?$/i.test(valNorm)) {
+                    newVal = valNorm.replace(/^Asked\s+(\d+)\s+questions?$/i, (match, num) => {
                         return "已询问 " + num + " 个问题";
                     });
                 } else if (/^This will permanently delete (\\d+) active (?:conversations?|chats?)(?: and (\\d+) archived (?:conversations?|chats?))? within it\\.?$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^This will permanently delete (\\d+) active (?:conversations?|chats?)(?: and (\\d+) archived (?:conversations?|chats?))? within it\\.?$/i, (match, active, archived) => {
                         if (archived) {
-                            return "这将永久删除 " + active + " 个活跃会话及 " + archived + " 个已归档会话。";
+                            return "这将永久删除 " + active + " 个活跃会话及 " + archived + " 个已归档会话";
                         }
-                        return "这将永久删除 " + active + " 个活跃会话。";
+                        return "这将永久删除 " + active + " 个活跃会话";
                     });
+                } else if (/^This will permanently delete (\\d+) archived (?:conversations?|chats?)\\s+within it\\.?$/i.test(valNorm)) {
+                    newVal = valNorm.replace(/^This will permanently delete (\\d+) archived (?:conversations?|chats?)\\s+within it\\.?$/i, (match, archived) => {
+                        return "这将永久删除 " + archived + " 个已归档会话";
+                    });
+                } else if (/^(?:active (?:conversations?|chats?)|个活跃会话)\\s+within it[.。]?$/i.test(valNorm)) {
+                    newVal = " 个活跃会话";
+                } else if (/^(?:archived (?:conversations?|chats?)|个已归档会话)\\s+within it[.。]?$/i.test(valNorm)) {
+                    newVal = " 个已归档会话";
+                } else if (/^within it[.。]?$/i.test(valNorm)) {
+                    const parentText = node && node.parentElement ? (node.parentElement.textContent || '') : '';
+                    if (/(?:This will permanently delete|这将永久删除)/i.test(parentText)) {
+                        newVal = '';
+                    }
                 } else if (/^(.+?): context deadline exceeded$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^(.+?): context deadline exceeded$/i, (match, prefix) => {
                         return prefix + ": 请求超时 (context deadline exceeded)";
@@ -2671,11 +2842,11 @@ function generateJs() {
                     });
                 } else if (/^Permanently delete (.+?) including (\\d+) active conversations? and (\\d+) archived conversations?\\.?$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^Permanently delete (.+?) including (\\d+) active conversations? and (\\d+) archived conversations?\\.?$/i, (match, name, active, archived) => {
-                        return "永久删除 " + name + "，包含 " + active + " 个活跃会话及 " + archived + " 个已归档会话。";
+                        return "永久删除 " + name + "，包含 " + active + " 个活跃会话及 " + archived + " 个已归档会话";
                     });
                 } else if (/^This will permanently delete (.+?) including (\\d+) active conversations? and (\\d+) archived conversations?(?:\\. This action cannot be undone\\.)?$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^This will permanently delete (.+?) including (\\d+) active conversations? and (\\d+) archived conversations?(?:\\. This action cannot be undone\\.)?$/i, (match, name, active, archived) => {
-                        return "这将永久删除 " + name + "，包含 " + active + " 个活跃会话及 " + archived + " 个已归档会话。此操作无法撤销。";
+                        return "这将永久删除 " + name + "，包含 " + active + " 个活跃会话及 " + archived + " 个已归档会话，此操作无法撤销";
                     });
                 } else {
                     if (valNorm.length > 20) {
@@ -2687,69 +2858,69 @@ function generateJs() {
                     }
 
                     newVal = newVal.replace(/Your 5-hour limit will refresh in (\\d+) days?, (\\d+) hours?\\./gi, (match, d, h) => {
-                        return "您的 5 小时配额将在 " + d + " 天 " + h + " 小时后刷新。";
+                        return "您的 5 小时配额将在 " + d + " 天 " + h + " 小时后刷新";
                     });
                     newVal = newVal.replace(/Your 5-hour limit will refresh in (\\d+) hours?, (\\d+) minutes?\\./gi, (match, h, m) => {
-                        return "您的 5 小时配额将在 " + h + " 小时 " + m + " 分钟后刷新。";
+                        return "您的 5 小时配额将在 " + h + " 小时 " + m + " 分钟后刷新";
                     });
                     newVal = newVal.replace(/Your 5-hour limit will refresh in (\\d+) days?\\./gi, (match, d) => {
-                        return "您的 5 小时配额将在 " + d + " 天后刷新。";
+                        return "您的 5 小时配额将在 " + d + " 天后刷新";
                     });
                     newVal = newVal.replace(/Your 5-hour limit will refresh in (\\d+) hours?\\./gi, (match, h) => {
-                        return "您的 5 小时配额将在 " + h + " 小时后刷新。";
+                        return "您的 5 小时配额将在 " + h + " 小时后刷新";
                     });
                     newVal = newVal.replace(/Your 5-hour limit will refresh in (\\d+) minutes?\\./gi, (match, m) => {
-                        return "您的 5 小时配额将在 " + m + " 分钟后刷新。";
+                        return "您的 5 小时配额将在 " + m + " 分钟后刷新";
                     });
                     newVal = newVal.replace(/You have hit your 5-hour limit, it will refresh in (\\d+) days?, (\\d+) hours?\\. If on a supported paid plan, you can use AI credits in the interim\\./gi, (match, d, h) => {
-                        return "您已达到 5 小时配额限制，将在 " + d + " 天 " + h + " 小时后刷新。如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度。";
+                        return "您已达到 5 小时配额限制，将在 " + d + " 天 " + h + " 小时后刷新。如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度";
                     });
                     newVal = newVal.replace(/You have hit your 5-hour limit, it will refresh in (\\d+) hours?, (\\d+) minutes?\\. If on a supported paid plan, you can use AI credits in the interim\\./gi, (match, h, m) => {
-                        return "您已达到 5 小时配额限制，将在 " + h + " 小时 " + m + " 分钟后刷新。如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度。";
+                        return "您已达到 5 小时配额限制，将在 " + h + " 小时 " + m + " 分钟后刷新。如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度";
                     });
                     newVal = newVal.replace(/You have hit your 5-hour limit, it will refresh in (\\d+) days?\\. If on a supported paid plan, you can use AI credits in the interim\\./gi, (match, d) => {
-                        return "您已达到 5 小时配额限制，将在 " + d + " 天后刷新。如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度。";
+                        return "您已达到 5 小时配额限制，将在 " + d + " 天后刷新。如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度";
                     });
                     newVal = newVal.replace(/You have hit your 5-hour limit, it will refresh in (\\d+) hours?\\. If on a supported paid plan, you can use AI credits in the interim\\./gi, (match, h) => {
-                        return "您已达到 5 小时配额限制，将在 " + h + " 小时后刷新。如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度。";
+                        return "您已达到 5 小时配额限制，将在 " + h + " 小时后刷新。如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度";
                     });
                     newVal = newVal.replace(/You have hit your 5-hour limit, it will refresh in (\\d+) minutes?\\. If on a supported paid plan, you can use AI credits in the interim\\./gi, (match, m) => {
-                        return "您已达到 5 小时配额限制，将在 " + m + " 分钟后刷新。如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度。";
+                        return "您已达到 5 小时配额限制，将在 " + m + " 分钟后刷新。如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度";
                     });
                     newVal = newVal.replace(/You have used some of your weekly limit, it will fully refresh in (\\d+) days?, (\\d+) hours?\\./gi, (match, d, h) => {
-                        return "您已使用部分每周配额，将在 " + d + " 天 " + h + " 小时后完全刷新。";
+                        return "您已使用部分每周配额，将在 " + d + " 天 " + h + " 小时后完全刷新";
                     });
                     newVal = newVal.replace(/You have used some of your weekly limit, it will fully refresh in (\\d+) hours?, (\\d+) minutes?\\./gi, (match, h, m) => {
-                        return "您已使用部分每周配额，将在 " + h + " 小时 " + m + " 分钟后完全刷新。";
+                        return "您已使用部分每周配额，将在 " + h + " 小时 " + m + " 分钟后完全刷新";
                     });
                     newVal = newVal.replace(/You have used some of your weekly limit, it will fully refresh in (\\d+) days?\\./gi, (match, d) => {
-                        return "您已使用部分每周配额，将在 " + d + " 天后完全刷新。";
+                        return "您已使用部分每周配额，将在 " + d + " 天后完全刷新";
                     });
                     newVal = newVal.replace(/You have used some of your weekly limit, it will fully refresh in (\\d+) hours?\\./gi, (match, h) => {
-                        return "您已使用部分每周配额，将在 " + h + " 小时后完全刷新。";
+                        return "您已使用部分每周配额，将在 " + h + " 小时后完全刷新";
                     });
                     newVal = newVal.replace(/You have used some of your weekly limit, it will fully refresh in (\\d+) minutes?\\./gi, (match, m) => {
-                        return "您已使用部分每周配额，将在 " + m + " 分钟后完全刷新。";
+                        return "您已使用部分每周配额，将在 " + m + " 分钟后完全刷新";
                     });
                     newVal = newVal.replace(/You have hit your weekly limit, it will fully refresh in (\\d+) days?, (\\d+) hours?\\./gi, (match, d, h) => {
-                        return "您已达到每周配额限制，将在 " + d + " 天 " + h + " 小时后完全刷新。";
+                        return "您已达到每周配额限制，将在 " + d + " 天 " + h + " 小时后完全刷新";
                     });
                     newVal = newVal.replace(/You have hit your weekly limit, it will fully refresh in (\\d+) hours?, (\\d+) minutes?\\./gi, (match, h, m) => {
-                        return "您已达到每周配额限制，将在 " + h + " 小时 " + m + " 分钟后完全刷新。";
+                        return "您已达到每周配额限制，将在 " + h + " 小时 " + m + " 分钟后完全刷新";
                     });
                     newVal = newVal.replace(/You have hit your weekly limit, it will fully refresh in (\\d+) days?\\./gi, (match, d) => {
-                        return "您已达到每周配额限制，将在 " + d + " 天后完全刷新。";
+                        return "您已达到每周配额限制，将在 " + d + " 天后完全刷新";
                     });
                     newVal = newVal.replace(/You have hit your weekly limit, it will fully refresh in (\\d+) hours?\\./gi, (match, h) => {
-                        return "您已达到每周配额限制，将在 " + h + " 小时后完全刷新。";
+                        return "您已达到每周配额限制，将在 " + h + " 小时后完全刷新";
                     });
                     newVal = newVal.replace(/You have hit your weekly limit, it will fully refresh in (\\d+) minutes?\\./gi, (match, m) => {
-                        return "您已达到每周配额限制，将在 " + m + " 分钟后完全刷新。";
+                        return "您已达到每周配额限制，将在 " + m + " 分钟后完全刷新";
                     });
-                    newVal = newVal.replace(/You have used some of your weekly limit, it will fully refresh in less than a minute\\./gi, "您已使用部分每周配额，将在不到 1 分钟后完全刷新。");
-                    newVal = newVal.replace(/You have hit your weekly limit, it will fully refresh in less than a minute\\./gi, "您已达到每周配额限制，将在不到 1 分钟后完全刷新。");
-                    newVal = newVal.replace(/Your 5-hour limit will refresh in less than a minute\\./gi, "您的 5 小时配额将在不到 1 分钟后刷新。");
-                    newVal = newVal.replace(/You have hit your 5-hour limit, it will refresh in less than a minute\\. If on a supported paid plan, you can use AI credits in the interim\\./gi, "您已达到 5 小时配额限制，将在不到 1 分钟后刷新。如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度。");
+                    newVal = newVal.replace(/You have used some of your weekly limit, it will fully refresh in less than a minute\\./gi, "您已使用部分每周配额，将在不到 1 分钟后完全刷新");
+                    newVal = newVal.replace(/You have hit your weekly limit, it will fully refresh in less than a minute\\./gi, "您已达到每周配额限制，将在不到 1 分钟后完全刷新");
+                    newVal = newVal.replace(/Your 5-hour limit will refresh in less than a minute\\./gi, "您的 5 小时配额将在不到 1 分钟后刷新");
+                    newVal = newVal.replace(/You have hit your 5-hour limit, it will refresh in less than a minute\\. If on a supported paid plan, you can use AI credits in the interim\\./gi, "您已达到 5 小时配额限制，将在不到 1 分钟后刷新。如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度");
                     newVal = newVal.replace(/Match case \\((.+)\\)/gi, (m, k) => "区分大小写 (" + k + ")");
                     newVal = newVal.replace(/Match whole word \\((.+)\\)/gi, (m, k) => "全字匹配 (" + k + ")");
                     newVal = newVal.replace(/Use regular expression \\((.+)\\)/gi, (m, k) => "使用正则表达式 (" + k + ")");

@@ -4,5 +4,5 @@
     "Failed to delete conversation": "删除会话失败",
     "Conversation History": "会话历史",
     "Conversation unavailable": "会话不可用",
-    "The conversation could not be loaded because its data was not found.": "找不到该会话的数据，因此无法加载。"
+    "The conversation could not be loaded because its data was not found.": "找不到该会话的数据，因此无法加载"
 }

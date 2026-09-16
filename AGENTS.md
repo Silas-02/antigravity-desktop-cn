@@ -1,72 +1,72 @@
-# Antigravity Chinese Localization — Project Instructions
+# Antigravity 简体中文汉化项目 — 指南与开发规范
 
-These instructions apply to every AI agent and contributor working in this repository. The goal is to deliver natural, complete, and maintainable Simplified Chinese localization without breaking Antigravity behavior, user content, technical identifiers, or renderer performance.
+本规范适用于参与本项目的所有 AI 智能体与贡献者。核心目标是在绝不破坏 Antigravity 原生功能、用户私有内容、技术标识符及渲染层性能的前提下，提供自然、完整且具备高可维护性的简体中文本地化体验。
 
-## 1. Current target and sources of truth
+## 1. 当前目标与权威基准
 
-- The current localization release is **v2.13.0**, targeting the official **Antigravity v2.13.0** client. The current version dictionary is `dicts/v2.13.0.json`; keep these values, the release date, and the support statement in `README.md` consistent.
-- Treat the repository's actual files and executable behavior as authoritative. If these instructions, `README.md`, a dictionary filename, an engine comment, or the current client disagree, report the mismatch and update only what the requested task requires.
-- The engine loads **every** `dicts/*.json` file. A version bump must leave exactly one active version dictionary, migrate the previous dictionary deliberately, update all current-version references, and be checked against official packaged source and metadata. If renderer source is unavailable, verify the package version and relevant packaged injection surfaces, use observed client UI as renderer evidence, and state that limitation instead of claiming a full source audit. Do not change tags or release metadata unless explicitly requested.
-- Keep the user-facing installation, restoration, platform, path, dependency, and compatibility claims in `README.md` consistent with the actual engine and supported launchers.
+- 当前汉化发布版本为 **v2.14.0**，匹配官方 **Antigravity v2.14.0** 客户端。当前版本独立词典为 `dicts/v2.14.0.json`；请始终保持此版本号、发布日期与 `README.md` 中的支持声明一致。
+- 以仓库实际文件与可执行行为作为权威依据。若本规范、`README.md`、字典文件名、引擎注释或当前客户端之间存在分歧，应以实际情况为准并仅更新当前任务所需范围。
+- 引擎会加载 `dicts/*.json` 下的**每一个**字典文件。进行版本升级时，必须确保只保留一个唯一的当前版本字典，审慎迁移上一版本的旧字典，同步更新所有当前版本引用，并依据官方解包源码与元数据进行核对。若无法获取渲染层源码，需核验安装包版本及相关打包注入入口，以实际观测到的客户端界面为准，并如实说明限制，切勿虚构全量源码审计结论。除非用户明确要求，否则不得擅自修改 Git 标签或发布元数据。
+- 保持 `README.md` 中面向用户的安装、还原、支持平台、路径、依赖及兼容性说明与引擎实际逻辑及启动脚本保持严格一致。
 
-## 2. Ownership and dictionary semantics
+## 2. 词典归属与语义规则
 
-- `dicts/*.json` contains fixed renderer-facing text. Search existing dictionaries before editing, reuse established wording, and put each entry in the most appropriate module dictionary.
-- `loadDictionary()` reads all dictionaries in lexicographic filename order, collapses whitespace, trims keys, and normalizes curly quotes. A later normalized key overrides an earlier one; the renderer also has a case-insensitive fallback. Invalid JSON is skipped by the client loader. The repository verifier is responsible for detecting these mechanical failures.
-- Prefer exact entries for short labels and complete fixed sentences. Entries longer than 20 characters may also be used for substring replacement, so their source text must remain sufficiently specific. Use a fragment-only key only when the client is confirmed to render that fragment as an independent, unambiguous UI node.
-- `localization_engine.js` both generates the renderer translation injection and patches packaged Electron surfaces while unpacking/repacking `app.asar`. Put fixed native menu, tray, loading, and updater text in the corresponding narrow engine injection block; use bounded engine rules for dynamic or structurally fragmented renderer text.
-- Preserve `--brand-title`: English retains the official `Antigravity` brand, hidden removes its visual label, and translated permits the Chinese brand translation.
-- `install.sh`, `双击安装中文汉化.command`, and `双击安装中文汉化.bat` are the supported installation entry points; `uninstall.sh`, `双击卸载还原官方英文.command`, and `双击卸载还原官方英文.bat` are the restoration entry points. `localization_engine.js` is side-effecting and is never a development test command.
-- Treat shipped `.bat` files as GBK/CRLF release artifacts protected by `.gitattributes`. Change them only when explicitly requested, using `convert_to_gbk.ps1`, and verify the resulting encoding and line endings.
+- `dicts/*.json` 仅收录确定的渲染层固定界面文案。编辑前先检索现有字典，复用已有规范译法，并将词条归入最合适的模块分包字典中。
+- `loadDictionary()` 按文件名字典序读取所有词典，会自动折叠空白字符、去除首尾空白并归一化弯引号。后加载的同名规范化键会覆盖先加载的键；渲染层还具备大小写不敏感的回退匹配机制。客户端加载器会跳过格式非法的 JSON，因此必须保证 JSON 格式严格有效且合规。
+- 短标签与固定完整句子优先采用精确匹配词条。长度大于 20 个字符的词条还可用于带单词边界的子串替换，因此其英文源文必须具备足够的特异性。仅在已确认客户端将某文案片段作为独立、明确的 UI DOM 节点渲染时，才允许添加纯片段词条。
+- `localization_engine.js` 既负责生成渲染层动态注入脚本，也负责在解包/重包 `app.asar` 时修补 Electron 平台文件。固定的原生菜单、托盘、加载遮罩和更新器文本应写入引擎对应的局部原生注入块中；针对动态生成或结构碎片化的渲染层文本，需使用作用域明确的有界引擎规则。
+- 严格保留 `--brand-title` 参数语义：`english` 保留官方 `Antigravity` 英文品牌名，`hidden` 移除品牌文本显示，`translated` 允许翻译为中文品牌名。
+- `install.sh`、`双击安装中文汉化.command` 与 `双击安装中文汉化.bat` 为官方支持的安装入口；`uninstall.sh`、`双击卸载还原官方英文.command` 与 `双击卸载还原官方英文.bat` 为对应的还原入口。`localization_engine.js` 具有真实写入副作用，在开发过程中严禁直接运行。
+- 发行版中的 `.bat` 文件作为受 `.gitattributes` 保护的 GBK/CRLF 平台脚本，仅在明确要求时使用 `convert_to_gbk.ps1` 进行编码转换，并务必核验最终文件的编码与换行符。
 
-## 3. Translation quality and protected content
+## 3. 翻译质量与受保护内容
 
-- Translate complete meaning in its real UI context rather than word by word. Keep buttons, menus, prompts, errors, and status text concise and natural, using standard Simplified Chinese punctuation.
-- Use the following terminology unless context requires a documented exception:
+- 结合真实 UI 上下文翻译完整语义，杜绝机械逐词直译。按钮、菜单、提示语、错误信息及状态文本应简明自然，统一遵循简体中文标点规范。
+- 所有字典与引擎规则必须严格遵循以下标点一致性规范：
+  - **短文本界面元素零末尾句号**：按钮、菜单、标签、输入框占位提示、单行 Toast 弹窗、对话框/弹窗标题与简短说明，以及动态状态返回值（如额度重置倒计时、时长、数量统计等），末尾一律不得包含句号（无论是中文 `。` 还是英文 `.`）。必须消除词条间风格不统一的情况。
+  - **多句段落文本规范**：针对多句段落（例如 MCP 市场描述或长篇功能介绍），句子之间保留标准中文句号 `。` 以保持阅读连贯性，但段落最末尾一律不加句号。
+  - **标点符号统一**：中文语境下严禁使用英文句号 `.` 代替中文句号 `。`，且类似句式之间不得混用 `.` 与 `。`。疑问句统一使用全角问号 `？`；键值分隔符使用全角冒号 `：`；加载中或占位符结尾的省略号统一保留半角 ASCII `...`。技术标识符（如版本号 `v2.14.0`、扩展名 `.json`、快捷键 `Ctrl+L`）一律保留半角 ASCII 点号。
+  - **禁止危险标点与尾部片段词条**：严禁在字典中添加独立的标点符号或为了去除句号而截取的尾部碎片词条（例如 `" within it.": "。"` 或 `" within it": ""`）。对于 DOM 碎片节点，必须通过 `localization_engine.js` 中的结构化容器规则安全处理。
+- 统一使用以下行业及项目标准术语（除非上下文要求有记录的例外）：
   - `agent` → “智能体”
-  - `conversation`, or a persisted chat/thread/history item → “会话”
-  - `chat` used as a visible action, capability, or button → “聊天”
-  - a conversational exchange or agent dialogue → “对话” when natural in context
-  - `project` → “项目”; `workspace` → “工作区”; `worktree` → “工作树”
-  - `goal` → “目标”; `task` → “任务”
-  - `file` → “文件”; `folder` → “文件夹”
-  - `page` → “页面” or counted “个页面”; `search` → “搜索” or counted “次搜索”
+  - `conversation`，或持久化的聊天/线程/历史项 → “会话”
+  - `chat` 作为可见操作、能力或按钮时 → “聊天”
+  - 对话流或智能体与用户的交互内容在自然语境下 → “对话”
+  - `project` → “项目”；`workspace` → “工作区”；`worktree` → “工作树”
+  - `goal` → “目标”；`task` → “任务”
+  - `file` → “文件”；`folder` → “文件夹”
+  - `page` → “页面”或计数“个页面”；`search` → “搜索”或计数“次搜索”
   - `tool` → “工具”
-  - UI `artifact` or a generated deliverable → “交付件”; a technical artifact may be “构件”
-- Keep project and workspace distinct even when the UI visually groups them.
-- Translate only confirmed product-owned wrapper text such as dialog or toast titles, buttons, labels, and fixed explanatory copy. Never translate user prompts or chat bodies, third-party web content, generated model responses, editor or file content, terminal or subprocess output, CLI/Git diagnostics, stack traces, URLs, paths, commands, code, shortcuts, secrets, credentials, model or product names, MCP/API/configuration identifiers, environment variables, version numbers, Git refs or hashes, exit codes, or error IDs.
-- Preserve placeholders and runtime values exactly. Do not drop, ambiguously reorder, or hard-code project, workspace, file, model, branch, email, date, count, shortcut, or status values.
+  - UI `artifact` 或生成的交付成果 → “交付件”；纯技术架构组件可称为“构件”
+- 即使界面在视觉上将项目与工作区归类在一起，也必须严格区分“项目”与“工作区”。
+- 仅翻译经确认属于产品自身的包装层文案（如对话框/Toast 标题、操作按钮、系统标签及固定的产品说明文案）。严禁翻译用户输入的 Prompt 正文、聊天消息正文、第三方网页内容、模型生成的回复内容、编辑器或文件内容、终端及子进程输出、CLI/Git 诊断信息、错误堆栈跟踪、URL、文件路径、终端命令、代码片段、快捷键定义、密钥、凭据、模型或产品专有名词、MCP/API/配置键名、环境变量、版本号、Git 分支/Hash、进程退出码或错误代码。
+- 必须精确保留占位符与运行时变量值。严禁遗漏、产生歧义地重排或硬编码项目名、工作区名、文件名、模型名、分支名、邮箱、日期、数值统计、快捷键或运行状态等动态值。
 
-## 4. Dynamic renderer and DOM safety
+## 4. 动态渲染与 DOM 操作安全性
 
-- For every screenshot report, identify the original English source, UI location, expected Chinese output, and whether the source is fixed, variable, or split across DOM nodes. Do not infer a key solely from the final mixed-language rendering.
-- Use anchored, context-specific capture groups for dynamic counts, durations, dates, names, refs, and paths. Count rules must cover singular and plural forms and use the correct Chinese classifier; never add screenshot-specific numeric variants.
-- React may split a sentence or briefly render an incomplete state. Combine only the smallest relevant container, wait for a semantically complete source, and update only the necessary text nodes. Preserve icons, links, emphasis, shortcuts, buttons, event handlers, selection, accessibility attributes, and React-owned structure.
-- Respect `data-testid="user-input-step"`, `data-ag-localization-skip`, editor and terminal guards, blocked tags, content-editable regions, protected descendants, and Shadow DOM ancestor traversal. Never concatenate text across a protected boundary or use broad `innerHTML`/`textContent` replacement on interactive containers.
-- Keep translation idempotent and observer work incremental: compare before every observed write, keep `startEngine()` single-start, use cheap text/length prefilters before ancestor or container scans, and do not add recurring full-document scans or delayed rescans to hide a missing rule.
-- Do not write translation markers or observed attributes to SVG/path/icon nodes. A structural rule must not create observer loops, cross-item translation, lost click behavior, or material panel slowdown.
+- 针对用户提供的截图反馈，必须逐一确认原始英文源文、界面所处位置、期望的中文输出，以及该文案是固定文本、动态变量文本还是跨 DOM 节点渲染的碎片文本。切勿仅凭部分混杂汉化的最终截图反推词条。
+- 动态计数、时长、日期、名称、Git 引用及文件路径必须使用带精确边界锁定的上下文捕获正则。计数规则必须同时适配单数与复数形式并搭配正确的中文量词；严禁根据单张截图硬编码具体的数字规则。
+- React 可能会拆分句子或在数据加载过程中渲染未就绪的片段状态。仅可提取最小的相关包裹容器，等待语义完整的源文出现后再安全更新目标文本节点。必须完整保留图标、超链接、加粗、快捷键徽标、按钮、事件监听器、文本选择态、无障碍属性（ARIA）及 React 内部节点结构。
+- 严格遵循保护边界：`data-testid="user-input-step"`、`data-ag-localization-skip`、代码编辑器与终端守卫、黑名单标签、可编辑区域（contenteditable）、受保护子节点以及 Shadow DOM 祖先遍历。严禁跨越保护边界拼接文本，严禁在交互式容器上使用大范围的 `innerHTML` 或 `textContent` 粗暴替换。
+- 保持翻译逻辑的幂等性与 MutationObserver 处理的增量化：在执行 DOM 写入前始终比对新旧文本，确保 `startEngine()` 仅单次启动，在扫描祖先或容器前先通过廉价的文本存在性与长度做前置过滤，禁止使用全局周期性扫描或延迟轮询来掩盖缺失的精准规则。
+- 严禁向 SVG/path/图标节点写入翻译标记或观察属性。结构化规则不得引发观察者死循环、跨节点文案串扰、导致点击失效或引起明显的界面卡顿。
 
-## 5. Implementation workflow
+## 5. 开发实施工作流
 
-1. Inspect `git status --short --untracked-files=all` before editing and preserve every unrelated user change. Do not stage or include it implicitly.
-2. Inspect the relevant dictionaries, engine functions, screenshots, current-version dictionary, callers, and available official client source. Confirm source text and DOM composition before choosing an implementation.
-3. Apply the ownership, matching, translation, and DOM rules above using the smallest safe change. Do not reorder large dictionaries, reformat unrelated files, add speculative variants or dependencies, or expand release scope without authorization.
-4. Document only non-obvious dynamic or structural invariants next to the rule. For performance-sensitive changes, compare observer activity and DOM writes on representative containers.
+1. 在修改前始终执行 `git status --short --untracked-files=all`，严格保留用户的其他未提交改动，切勿隐式暂存或提交无关修改。
+2. 仔细核对相关字典、引擎函数、截图、当前版本词典、调用者及官方解包代码。在确定实现方案前务必确认英文源文与 DOM 结构。
+3. 遵循上述归属、匹配、翻译及 DOM 安全原则，采用最小侵入性变更。严禁无故重排大型字典、格式化无关文件、引入推测性变体或非必要依赖，未经许可不得擅自扩大发布范围。
+4. 仅在规则旁以代码注释记录非显而易见的动态匹配或结构不变量。对于性能敏感的改动，需在代表性容器上比对观察者触发频率与 DOM 写入次数。
 
-## 6. Verification and handoff
+## 6. 审查与交付
 
-- For dictionary-only changes to fixed renderer text, do not add renderer regression cases. The dictionary audit covers every entry; run the repository-owned non-installing verifier `node scripts/verify.js`, inspect each reported failure or skip, and review the intended dictionary diff.
-- Add or update the smallest focused case in `tests/renderer-regression.js` only when changing dynamic matching, structural or fragmented DOM handling, protected boundaries, attribute translation, observer behavior, or when fixing a confirmed renderer regression. Cover only the applicable mechanism-level equivalence classes, such as a representative positive case, negative case, dynamic update, repeat processing, sibling isolation, or preserved interactive node. Do not duplicate ordinary fixed dictionary entries or screenshot-specific values merely to increase the assertion count.
-- The lightweight DOM contract suite prevents known engine regressions but does not prove compatibility with an official renderer. Confirm source text, DOM composition, interactions, and representative performance in the target client for release-sensitive engine changes, and state when that validation is unavailable.
-- When a confirmed official `preload.js` is available, additionally run `node scripts/verify.js --preload "/absolute/path/to/preload.js"`. The verifier accepts an explicit file path and does not discover or prove the provenance of that file; without the option, preload compatibility is skipped rather than passed.
-- For a version-dictionary migration, review the verifier's old/new entry totals and every reported missing or changed existing entry. Use `--acknowledge-version-entry-changes` only after confirming each such change is intentional.
-- Review the final diff and every untracked path reported by the verifier. Its format, compilation, regression, and status checks do not determine whether a file or semantic change was intended. If the verification infrastructure itself changes, review it directly before relying on its result.
-- For documentation- or rule-only changes, runtime DOM validation is unnecessary. Perform a coherence and repository-reference review plus `git diff --check`; also run `node scripts/verify.js` when changing version references or claims about executable behavior.
-- Report the files changed, verification actually run or skipped, and any material remaining limitation or risk.
+- 使用 `git diff` 与 `git status --short --untracked-files=all` 严格审查变动，确保仅包含预期内的修改，严禁暂存或提交无关文件。
+- 对于涉及渲染层核心逻辑的发布敏感改动，需在目标版本客户端中核实实际英文源文、DOM 组成、用户交互与渲染性能；若无法直接运行验证，须如实向用户说明该限制。
+- 在汇报交付时，清楚列出修改的文件清单，并说明任何实质性的遗留限制或潜在风险。
 
-## 7. Installation, destructive actions, and Git
+## 7. 安装、破坏性操作与 Git 规范
 
-- Never run `node localization_engine.js`, `install.sh`, `uninstall.sh`, either Windows batch launcher, either macOS command launcher, or any equivalent command that installs, injects, restores, repacks, or otherwise modifies the user's Antigravity client during development. Read-only extraction of a confirmed official package into a separate temporary directory is allowed for verification; never write the result into the application directory.
-- Do not delete `_temp_asar`, backups, application files, or user data unless the user explicitly requests the exact destructive action and the target has been verified.
-- After source changes, instruct the user to run the supported installer manually: Linux starts with `./install.sh` and adds `sudo` only when write permissions require it; macOS starts by double-clicking `双击安装中文汉化.command` or running `./install.sh` (adding `sudo` only on permission failure); Windows starts by double-clicking `双击安装中文汉化.bat` and uses “Run as administrator” only after a permission failure. Restoration follows the same escalation rule with the corresponding uninstall entry point.
-- Update versions, tags, releases, Git staging, commits, pushes, rebases, or history only when explicitly requested. Before staging, verify the exact file list and exclude unrelated user changes.
+- 严禁在开发期间直接执行 `node localization_engine.js`、`install.sh`、`uninstall.sh`、Windows 批处理脚本、macOS 命令脚本，或任何会在开发环境中直接安装、注入、还原、重包或修改本机 Antigravity 客户端的命令。仅允许将已确认的官方安装包只读解包到独立的临时目录以供对比分析；严禁将分析产物写回应用程序安装目录。
+- 严禁删除 `_temp_asar`、备份文件、应用程序文件或用户数据，除非用户明确要求执行该破坏性操作并已确认操作目标路径无误。
+- 源码修改完成后，指引用户手动运行官方支持的安装脚本进行部署：Linux 用户直接运行 `./install.sh`（仅在权限不足时使用 `sudo`）；macOS 用户双击 `双击安装中文汉化.command` 或运行 `./install.sh`（仅在权限失败时使用 `sudo`）；Windows 用户双击 `双击安装中文汉化.bat`（仅在权限不足时使用“以管理员身份运行”）。还原操作遵循相同的权限逐级提升原则，使用对应的卸载脚本。
+- 仅在用户明确指示时才可执行版本升级、打标签（tag）、创建 Release、Git 暂存（stage）、提交（commit）、推送（push）、变基（rebase）或重写历史。在暂存前必须仔细核对文件列表，排除所有无关的用户更改。
