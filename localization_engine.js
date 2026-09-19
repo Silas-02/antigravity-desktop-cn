@@ -705,17 +705,37 @@ function generateJs() {
         const match = trimmed.match(new RegExp('^(?:(Explored)\\\\s+)?(.+?)(\\\\s*' + EXPLORED_STATUS_SUFFIX + ')?\\\\s*$', 'i'));
         if (!match) return null;
 
-        const items = match[2].trim().split(/\\s*,\\s*/);
-        const translatedItems = [];
+        const rawContent = match[2].trim().replace(/,\\s*$/, '');
+        const items = rawContent.split(/\\s*,\\s*/);
+        const exploredItems = [];
+        const ranItems = [];
+
         for (const item of items) {
-            const itemMatch = item.trim().match(/^(\\d+)\\s+(files?|folders?|pages?|search(?:es)?|tasks?|commands?|tools?|rules?|repos(?:itories)?|images?)$/i);
+            const itemMatch = item.trim().match(/^(?:(ran|run|executed)\\s+)?(\\d+)\\s+(files?|folders?|pages?|search(?:es)?|tasks?|commands?|tools?|rules?|repos(?:itories)?|images?)$/i);
             if (!itemMatch) return null;
-            const unit = getExploredStatusUnit(itemMatch[2]);
+            const verb = itemMatch[1];
+            const count = itemMatch[2];
+            const unit = getExploredStatusUnit(itemMatch[3]);
             if (!unit) return null;
-            translatedItems.push(itemMatch[1] + " " + unit);
+
+            if (verb) {
+                ranItems.push("运行了 " + count + " " + unit);
+            } else {
+                exploredItems.push(count + " " + unit);
+            }
         }
 
-        return (match[1] ? "探索了 " : "") + translatedItems.join("、") + (match[3] || "");
+        const parts = [];
+        if (exploredItems.length > 0) {
+            const expPrefix = match[1] ? "探索了 " : "";
+            parts.push(expPrefix + exploredItems.join("、"));
+        }
+        if (ranItems.length > 0) {
+            parts.push(ranItems.join("、"));
+        }
+
+        if (parts.length === 0) return null;
+        return parts.join("，") + (match[3] || "");
     }
 
     function collectTextNodes(element) {
@@ -2149,6 +2169,11 @@ function generateJs() {
                 replaceTextNode(previous, "探索了 " + prefixedCount[1]);
                 return " " + unit + translatedTail;
             }
+            const prefixedRanCount = previousText.match(/^(?:ran|运行了)\\s+(\\d+)$/i);
+            if (prefixedRanCount) {
+                replaceTextNode(previous, "运行了 " + prefixedRanCount[1]);
+                return " " + unit + translatedTail;
+            }
             if (/^\\d+$/.test(previousText)) return " " + unit + translatedTail;
         }
 
@@ -3010,6 +3035,8 @@ function generateJs() {
                     newVal = newVal.replace(/^searches?\\s*>?\\s*$/i, () => "次搜索");
                     newVal = newVal.replace(/^files?\\s*>?\\s*$/i, () => "个文件");
                     newVal = newVal.replace(/^(\\d+)\\s+pages?(\\s*[>›]?)\\s*$/i, (m, n, suffix) => n + " 个页面" + suffix);
+                    newVal = newVal.replace(/^(?:ran|run|executed)\\s+(\\d+)\\s+commands?(\\s*[>›]?)\\s*$/i, (m, n, suffix) => "运行了 " + n + " 条命令" + (suffix || ""));
+                    newVal = newVal.replace(/^(\\d+)\\s+commands?(\\s*[>›]?)\\s*$/i, (m, n, suffix) => n + " 条命令" + (suffix || ""));
                 }
                 if (hasRecommended) {
                     newVal = '（推荐）' + newVal;
@@ -3873,6 +3900,23 @@ function installLocalization(resourcesDir) {
         updaterContent = updaterContent.replace(targetOptions, replacementOptions);
         fs.writeFileSync(updaterPath, updaterContent, 'utf-8');
         console.log(`[修改] 更新弹窗汉化注入成功！`);
+    }
+
+    const wizardHtmlPath = path.join(tempDir, "dist", "ideInstall", "wizardHtml.js");
+    if (fs.existsSync(wizardHtmlPath)) {
+        console.log(`[修改] 正在向 wizardHtml.js 注入新手引导页汉化...`);
+        let wizardContent = fs.readFileSync(wizardHtmlPath, 'utf-8');
+
+        wizardContent = wizardContent
+            .replace('<title>Welcome to Antigravity</title>', '<title>欢迎使用 Antigravity</title>')
+            .replace('<div class="text" style="font-size: 13px; opacity: 0.6; letter-spacing: 0.03em;">Setting up…</div>', '<div class="text" style="font-size: 13px; opacity: 0.6; letter-spacing: 0.03em;">正在设置…</div>')
+            .replace('<h1>Welcome to the new Antigravity!</h1>', '<h1>欢迎使用全新 Antigravity！</h1>')
+            .replace('<p>Antigravity has been redesigned to put agents first with new capabilities. If you\'d still like a code editor, you can download it as a separate app named <b>Antigravity IDE</b>.</p>', '<p>Antigravity 经过重新设计，以智能体为核心并带来全新能力。如果您仍希望使用代码编辑器，可将其作为名为 <b>Antigravity IDE</b> 的独立应用下载</p>')
+            .replace('<span>Download the Antigravity IDE</span>', '<span>下载 Antigravity IDE</span>')
+            .replace('<button class="btn-primary" id="btn-skip">Explore the new Antigravity</button>', '<button class="btn-primary" id="btn-skip">探索全新 Antigravity</button>');
+
+        fs.writeFileSync(wizardHtmlPath, wizardContent, 'utf-8');
+        console.log(`[修改] 新手引导页汉化注入成功！`);
     }
 
         console.log(`[打包] 正在将修改后的内容打包回 app.asar...`);
