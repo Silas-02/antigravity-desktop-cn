@@ -316,11 +316,17 @@ function generateJs() {
         match = normalized.match(/^(?:Side Questions?|侧边提问)\\s*[（(]\\s*(\\d+)\\s*[)）]$/i);
         if (match) return "侧边提问（" + match[1] + "）";
 
+        match = normalized.match(/^(\\d+)\\s+(?:Side\\s+Questions?|个?侧边提问)(?:\\s*([>v›❯〉→∨˅⌄▼▽⋁↓]))?$/i);
+        if (match) return match[1] + " 个侧边提问" + (match[2] ? " " + match[2] : "");
+
         match = normalized.match(/^(?:Listed|列出了)\\s*(\\d+)\\s*(?:tasks?|个任务\\s*s?)(?:\\s*([>v›❯〉→∨˅⌄▼▽⋁↓]))?$/i);
         if (match) return "列出了 " + match[1] + " 个任务" + (match[2] ? " " + match[2] : "");
 
         match = normalized.match(/^[（(]\\s*(\\d+)\\s*(?:subagents?|个?\\s*子智能体s?)\\s*[)）]$/i);
         if (match) return "（" + match[1] + " 个子智能体）";
+
+        match = normalized.match(/^(?:See all|显示全部|查看全部)\\s*[（(]\\s*(\\d+)\\s*[)）]$/i);
+        if (match) return "显示全部 (" + match[1] + ")";
         return null;
     }
 
@@ -696,6 +702,7 @@ function generateJs() {
         if (/^rules?$/.test(normalizedType)) return "条规则";
         if (/^repos(?:itories)?$/.test(normalizedType)) return "个仓库";
         if (/^images?$/.test(normalizedType)) return "张图片";
+        if (/^actions?$/.test(normalizedType)) return "次操作";
         return null;
     }
 
@@ -711,7 +718,7 @@ function generateJs() {
         const ranItems = [];
 
         for (const item of items) {
-            const itemMatch = item.trim().match(/^(?:(ran|run|executed)\\s+)?(\\d+)\\s+(files?|folders?|pages?|search(?:es)?|tasks?|commands?|tools?|rules?|repos(?:itories)?|images?)$/i);
+            const itemMatch = item.trim().match(/^(?:(ran|run|executed)\\s+)?(\\d+)\\s+(files?|folders?|pages?|search(?:es)?|tasks?|commands?|tools?|rules?|repos(?:itories)?|images?|actions?)$/i);
             if (!itemMatch) return null;
             const verb = itemMatch[1];
             const count = itemMatch[2];
@@ -1044,6 +1051,14 @@ function generateJs() {
 
         const countIndex = textNodes.findIndex(textNode => /^\\s*\\d+\\s*$/.test(textNode.nodeValue || ''));
         if (countIndex < 0) {
+            const seeAllMatch = original.match(/^(?:See all|显示全部|查看全部)\\s*[（(]\\s*(\\d+)\\s*[)）]$/i);
+            if (seeAllMatch) {
+                replaceTextNode(textNodes[0], "显示全部 (" + seeAllMatch[1] + ")");
+                for (let i = 1; i < textNodes.length; i++) {
+                    replaceTextNode(textNodes[i], '');
+                }
+                return true;
+            }
             if (/^(?:Listed|列出了)\\s*\\d+/i.test(original)) {
                 const countedTaskIndex = textNodes.findIndex(textNode => {
                     return /^(\\d+)\\s*(?:tasks?|个任务\\s*s?)(?:\\s*[>v›❯〉→∨˅⌄▼▽⋁↓])?$/i.test(norm(textNode.nodeValue));
@@ -1390,11 +1405,23 @@ function generateJs() {
         match = normalized.match(/^Goals?\\s+(\\d+)$/i);
         if (match) return "目标 " + match[1];
 
+        match = normalized.match(/^(\\d+)\\s+(?:Side\\s+Questions?|个?侧边提问)(?:\\s*([>›❯〉→]))?$/i);
+        if (match) return match[1] + " 个侧边提问" + (match[2] ? " " + match[2] : "");
+
         match = normalized.match(/^(\\d+)\\s+questions?$/i);
         if (match) return match[1] + " 个问题";
 
-        match = normalized.match(/^View\\s+(\\d+)\\s+side\\s+questions?$/i);
-        if (match) return "查看 " + match[1] + " 个侧边提问";
+        match = normalized.match(/^View\\s+(\\d+)\\s+side\\s+questions?(?:\\s*([>›❯〉→]))?$/i);
+        if (match) return "查看 " + match[1] + " 个侧边提问" + (match[2] ? " " + match[2] : "");
+
+        match = normalized.match(/^Question\\s+(\\d+)\\s+of\\s+(\\d+)$/i);
+        if (match) return "第 " + match[1] + " 个问题，共 " + match[2] + " 个";
+
+        match = normalized.match(/^Side\\s+question\\s+failed:\\s*(.+)$/i);
+        if (match) return "侧边提问失败：" + match[1];
+
+        match = normalized.match(/^Side\\s+question\\s+answered\\.?$/i);
+        if (match) return "侧边提问已回答";
 
         match = normalized.match(/^Asked\\s+(\\d+)\\s+questions?$/i);
         if (match) return "已询问 " + match[1] + " 个问题";
@@ -1452,6 +1479,85 @@ function generateJs() {
             const scope = match[1].toLowerCase() === "projects" ? "项目" : "工作区";
             return "用于不属于任何" + scope + "的会话的智能体设置和权限";
         }
+
+        match = normalized.match(/^File exceeds the (\\d+(?:\\.\\d+)?\\s*(?:[KMGTP]?B|bytes?))\\s+display limit(?:\\s*\\(([^)]+)\\))?\\.?$/i);
+        if (match) {
+            return "文件超过 " + match[1] + " 显示限制" + (match[2] ? " (" + match[2] + ")" : "");
+        }
+
+        match = normalized.match(/^Setting up WSL:\\s*(.+)$/i);
+        if (match) return "正在设置 WSL：" + match[1];
+
+        // Permission options (both pure English and half-translated recovery)
+        match = normalized.match(/^(?:(?:\\[\\d+\\]|\\d+[.):]?)\\s+)?(?:Yes, and always allow|是，且始终允许)(?: '(.+)')?\\s+in this project$/i);
+        if (match) return match[1] ? "是，且在此项目中始终允许运行 '" + match[1] + "'" : "是，且在此项目中始终允许";
+
+        match = normalized.match(/^(?:(?:\\[\\d+\\]|\\d+[.):]?)\\s+)?(?:Yes, and always allow|是，且始终允许)(?: '(.+)')?\\s+when not in a project$/i);
+        if (match) return match[1] ? "是，且在不属于任何项目时始终允许运行 '" + match[1] + "'" : "是，且在不属于任何项目时始终允许";
+
+        match = normalized.match(/^(?:(?:\\[\\d+\\]|\\d+[.):]?)\\s+)?(?:Yes, and always allow|是，且始终允许)(?: '(.+)')?\\s+in this workspace$/i);
+        if (match) return match[1] ? "是，且在此工作区中始终允许运行 '" + match[1] + "'" : "是，且在此工作区中始终允许";
+
+        match = normalized.match(/^(?:(?:\\[\\d+\\]|\\d+[.):]?)\\s+)?(?:Yes, and always allow|是，且始终允许)(?: '(.+)')?\\s+in this conversation$/i);
+        if (match) return match[1] ? "是，且在此会话中始终允许运行 '" + match[1] + "'" : "是，且在此会话中始终允许";
+
+        match = normalized.match(/^(?:(?:\\[\\d+\\]|\\d+[.):]?)\\s+)?(?:Yes, and always allow|是，且始终允许)\\s*'(.+)'$/i);
+        if (match) return "是，且始终允许运行 '" + match[1] + "'";
+
+        match = normalized.match(/^(?:(?:\\[\\d+\\]|\\d+[.):]?)\\s+)?(?:Yes, save rule|是，保存规则)(?:\\s*(?:for|用于)\\s*'(.+)')?\\s+in this project$/i);
+        if (match) return match[1] ? "是，在此项目中为 '" + match[1] + "' 保存规则" : "是，在此项目中保存规则";
+
+        match = normalized.match(/^(?:(?:\\[\\d+\\]|\\d+[.):]?)\\s+)?(?:Yes, save rule|是，保存规则)(?:\\s*(?:for|用于)\\s*'(.+)')?\\s+when not in a project$/i);
+        if (match) return match[1] ? "是，在不属于任何项目时为 '" + match[1] + "' 保存规则" : "是，在不属于任何项目时保存规则";
+
+        match = normalized.match(/^(?:(?:\\[\\d+\\]|\\d+[.):]?)\\s+)?(?:Yes, save rule|是，保存规则)(?:\\s*(?:for|用于)\\s*'(.+)')?\\s+in this workspace$/i);
+        if (match) return match[1] ? "是，在此工作区中为 '" + match[1] + "' 保存规则" : "是，在此工作区中保存规则";
+
+        match = normalized.match(/^(?:(?:\\[\\d+\\]|\\d+[.):]?)\\s+)?(?:Yes, save rule|是，保存规则)(?:\\s*(?:for|用于)\\s*'(.+)')?\\s+in this conversation$/i);
+        if (match) return match[1] ? "是，在此会话中为 '" + match[1] + "' 保存规则" : "是，在此会话中保存规则";
+
+        match = normalized.match(/^(?:(?:\\[\\d+\\]|\\d+[.):]?)\\s+)?(?:Yes, save rule|是，保存规则)(?:\\s*(?:for|用于)\\s*'(.+)')?\\s+globally$/i);
+        if (match) return match[1] ? "是，全局为 '" + match[1] + "' 保存规则" : "是，全局保存规则";
+
+        match = normalized.match(/^(?:(?:\\[\\d+\\]|\\d+[.):]?)\\s+)?(?:Yes, save rule|是，保存规则)\\s*(?:for|用于)\\s*'(.+)'$/i);
+        if (match) return "是，为 '" + match[1] + "' 保存规则";
+
+        // Permission questions
+        match = normalized.match(/^(?:Save rule to always allow|保存为始终允许规则)\\s+(.+?)\\??$/i);
+        if (match) {
+            let act = match[1].toLowerCase();
+            let actTrans = null;
+            if (act === 'read access to this path') actTrans = '读取此路径';
+            else if (act === 'write access to this path') actTrans = '写入此路径';
+            else if (act === 'reading this url') actTrans = '读取此 URL';
+            else if (act === 'executing actions on this url') actTrans = '在此 URL 上执行操作';
+            else if (act === 'running this command') actTrans = '运行此命令';
+            else if (act === 'running this command outside the sandbox') actTrans = '在沙箱外运行此命令';
+            else if (act === 'using this mcp tool') actTrans = '使用此 MCP 工具';
+            else if (act === 'a one-time administrator (uac) elevation') actTrans = '单次管理员 (UAC) 提权';
+            else if (act === 'access to this resource') actTrans = '访问此资源';
+            if (actTrans) {
+                const separator = /[A-Za-z0-9]$/.test(actTrans) ? " 的规则？" : "的规则？";
+                return "保存为始终允许" + actTrans + separator;
+            }
+        }
+
+        match = normalized.match(/^Allow\\s+(.+?)\\??$/i);
+        if (match) {
+            let act = match[1].toLowerCase();
+            let actTrans = null;
+            if (act === 'read access to this path') actTrans = '读取此路径';
+            else if (act === 'write access to this path') actTrans = '写入此路径';
+            else if (act === 'reading this url') actTrans = '读取此 URL';
+            else if (act === 'executing actions on this url') actTrans = '在此 URL 上执行操作';
+            else if (act === 'running this command') actTrans = '运行此命令';
+            else if (act === 'running this command outside the sandbox') actTrans = '在沙箱外运行此命令';
+            else if (act === 'using this mcp tool') actTrans = '使用此 MCP 工具';
+            else if (act === 'a one-time administrator (uac) elevation') actTrans = '单次管理员 (UAC) 提权';
+            else if (act === 'access to this resource') actTrans = '访问此资源';
+            if (actTrans) return "是否允许" + actTrans + "？";
+        }
+
         return null;
     }
 
@@ -1959,7 +2065,7 @@ function generateJs() {
             translated = translateAgentLoadingStatus(element) || translated;
             translated = translateWorkingStatusContainer(element) || translated;
         }
-        if (textLength <= 120 && /(?:\\bresults?\\b|个结果|(?:Comments?|评论)\\s*[（(]\\s*\\d+|(?:Side Questions?|侧边提问)\\s*[（(]\\s*\\d+|Listed|列出了|\\bsubagents?\\b|子智能体)/i.test(rawText)) {
+        if (textLength <= 120 && /(?:\\bresults?\\b|个结果|(?:Comments?|评论)\\s*[（(]\\s*\\d+|(?:\\d+\\s+)?(?:Side Questions?|侧边提问)(?:\\s*[（(]\\s*\\d+|\\b)|Listed|列出了|\\bsubagents?\\b|子智能体|See all|显示全部)/i.test(rawText)) {
             translated = translateCompactCountLabelContainer(element) || translated;
         }
         if (textLength <= 240 &&
@@ -2159,7 +2265,7 @@ function generateJs() {
             return "（" + commentCountMatch[1] + "）";
         }
 
-        const statusItemMatch = currentText.match(new RegExp('^(files?|folders?|pages?|search(?:es)?|tasks?|commands?|tools?|rules?|repos(?:itories)?|images?)(\\s*,\\s*|\\s*' + EXPLORED_STATUS_SUFFIX + ')?$', 'i'));
+        const statusItemMatch = currentText.match(new RegExp('^(files?|folders?|pages?|search(?:es)?|tasks?|commands?|tools?|rules?|repos(?:itories)?|images?|actions?)(\\s*,\\s*|\\s*' + EXPLORED_STATUS_SUFFIX + ')?$', 'i'));
         if (statusItemMatch && previous) {
             const unit = getExploredStatusUnit(statusItemMatch[1]);
             const tail = statusItemMatch[2] || '';
@@ -2252,14 +2358,23 @@ function generateJs() {
             }
         }
 
-        if (/^when not in a project$/i.test(currentText) && previousText === "是，且始终允许") {
-            replaceTextNode(previous, "是，且在不属于任何项目时始终允许");
-            return '';
-        }
+        if (/^(?:when not in a project|in this project|in this workspace|in this conversation)$/i.test(currentText) && previous) {
+            const isAllow = /^(?:Yes, and always allow|是，且始终允许)$/i.test(previousText);
+            const isSaveRule = /^(?:Yes, save rule|是，保存规则)$/i.test(previousText);
+            if (isAllow || isSaveRule) {
+                let scopeTrans = "";
+                if (/^in this project$/i.test(currentText)) scopeTrans = "在此项目中";
+                else if (/^when not in a project$/i.test(currentText)) scopeTrans = "在不属于任何项目时";
+                else if (/^in this workspace$/i.test(currentText)) scopeTrans = "在此工作区中";
+                else if (/^in this conversation$/i.test(currentText)) scopeTrans = "在此会话中";
 
-        if (/^in this project$/i.test(currentText) && previousText === "是，且始终允许") {
-            replaceTextNode(previous, "是，且在此项目中始终允许");
-            return '';
+                if (isAllow) {
+                    replaceTextNode(previous, "是，且" + scopeTrans + "始终允许");
+                } else {
+                    replaceTextNode(previous, "是，" + scopeTrans + "保存规则");
+                }
+                return '';
+            }
         }
 
         if (/^s\\s+enabled$/i.test(currentText) && previous) {
@@ -2413,8 +2528,12 @@ function generateJs() {
                                     const t = norm(v);
                                     const shortcutTrans = translateWithShortcut(t);
                                     const versionControlTrans = getVersionControlUiTranslation(t);
+                                    const dynamicSubagentTrans = getDynamicSubagentStatusTranslation(t);
+                                    const compactCountTrans = getCompactCountLabelTranslation(t);
                                     let target = null;
                                     if (versionControlTrans) target = versionControlTrans;
+                                    else if (dynamicSubagentTrans) target = dynamicSubagentTrans;
+                                    else if (compactCountTrans) target = compactCountTrans;
                                     else if (shortcutTrans) target = shortcutTrans;
                                     else if (map.has(t)) target = map.get(t);
                                     else if (lowerMap.has(t.toLowerCase())) target = lowerMap.get(t.toLowerCase());
@@ -2439,8 +2558,12 @@ function generateJs() {
                                 const t = norm(v);
                                 const shortcutTrans = translateWithShortcut(t);
                                 const versionControlTrans = getVersionControlUiTranslation(t);
+                                const dynamicSubagentTrans = getDynamicSubagentStatusTranslation(t);
+                                const compactCountTrans = getCompactCountLabelTranslation(t);
                                 let target = null;
                                 if (versionControlTrans) target = versionControlTrans;
+                                else if (dynamicSubagentTrans) target = dynamicSubagentTrans;
+                                else if (compactCountTrans) target = compactCountTrans;
                                 else if (shortcutTrans) target = shortcutTrans;
                                 else if (map.has(t)) target = map.get(t);
                                 else if (lowerMap.has(t.toLowerCase())) target = lowerMap.get(t.toLowerCase());
@@ -2787,14 +2910,6 @@ function generateJs() {
                         else if (p.toLowerCase() === 'turbo mode') translatedPreset = "极速模式 (Turbo Mode)";
                         else if (p.toLowerCase() === 'custom') translatedPreset = "自定义 (Custom)";
                         return "了解更多关于 " + translatedPreset + " 的信息";
-                    });
-                } else if (/^Yes, and always allow '(.+)' in this project$/i.test(valNorm)) {
-                    newVal = valNorm.replace(/^Yes, and always allow '(.+)' in this project$/i, (match, cmd) => {
-                        return "是，且在此项目中始终允许运行 '" + cmd + "'";
-                      });
-                } else if (/^Yes, and always allow '(.+)'$/i.test(valNorm)) {
-                    newVal = valNorm.replace(/^Yes, and always allow '(.+)'$/i, (match, cmd) => {
-                        return "是, 且始终允许运行 '" + cmd + "'";
                     });
                 } else if (/^(\\d+) tools? enabled$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^(\\d+) tools? enabled$/i, (match, num) => {
@@ -3800,7 +3915,9 @@ function installLocalization(resourcesDir) {
         'Hide Others': '隐藏其他',
         'Show All': '显示全部',
         'Quit Antigravity': '退出 Antigravity',
-        'Quit': '退出'
+        'Quit': '退出',
+        'Connect to WSL': '连接至 WSL',
+        'Reopen Locally': '在本地重新打开'
     };
     function translateMenu(items) {
         for (const item of items) {
@@ -3831,7 +3948,10 @@ function installLocalization(resourcesDir) {
         const targetStr = "electron_1.Menu.setApplicationMenu(menu);";
         const idx = menuCleaned.indexOf(targetStr);
         if (idx !== -1) {
-            const patchedMenuContent = menuCleaned.substring(0, idx) + menuTranslationJs + "\n    " + menuCleaned.substring(idx);
+            let patchedMenuContent = menuCleaned.substring(0, idx) + menuTranslationJs + "\n    " + menuCleaned.substring(idx);
+            patchedMenuContent = patchedMenuContent
+                .replace("return { label: 'Connect to WSL', submenu };", "return { label: '连接至 WSL', submenu };")
+                .replace("return { label: 'Reopen Locally', click: () => relaunchWithWslDistro('') };", "return { label: '在本地重新打开', click: () => relaunchWithWslDistro('') };");
             fs.writeFileSync(menuPath, patchedMenuContent, 'utf-8');
             console.log(`[修改] 菜单汉化注入成功！`);
         } else {
@@ -3851,8 +3971,10 @@ function installLocalization(resourcesDir) {
     ${TRAY_SIGNATURE_START}
     const translations = {
         'No agents running': '无运行中的智能体',
-        'Open Antigravity': '打开反重力智能编程',
-        'Quit': '退出'
+        'Open Antigravity': '打开 Antigravity',
+        'Quit': '退出',
+        'Connect to WSL': '连接至 WSL',
+        'Reopen Locally': '在本地重新打开'
     };
     for (const item of actions) {
         if (translations[item.label]) {
@@ -3862,6 +3984,20 @@ function installLocalization(resourcesDir) {
     ${TRAY_SIGNATURE_END}`;
 
         let trayPatched = trayCleaned.replace(targetCreate, replacementCreate);
+
+        const targetInsert = "function insertTrayMenuItem(position, options) {";
+        const replacementInsert = `function insertTrayMenuItem(position, options) {
+    ${TRAY_SIGNATURE_START}
+    const asyncTranslations = {
+        'Connect to WSL': '连接至 WSL',
+        'Reopen Locally': '在本地重新打开'
+    };
+    if (options && asyncTranslations[options.label]) {
+        options.label = asyncTranslations[options.label];
+    }
+    ${TRAY_SIGNATURE_END}`;
+
+        trayPatched = trayPatched.replace(targetInsert, replacementInsert);
 
         const countRegex = /countItem\.label\s*=\s*\([\s\S]*?' running';/g;
         const replacementCount = "countItem.label = count > 0 ? `${count} 个智能体运行中` : '无运行中的智能体';";
@@ -3902,21 +4038,36 @@ function installLocalization(resourcesDir) {
         console.log(`[修改] 更新弹窗汉化注入成功！`);
     }
 
-    const wizardHtmlPath = path.join(tempDir, "dist", "ideInstall", "wizardHtml.js");
-    if (fs.existsSync(wizardHtmlPath)) {
-        console.log(`[修改] 正在向 wizardHtml.js 注入新手引导页汉化...`);
-        let wizardContent = fs.readFileSync(wizardHtmlPath, 'utf-8');
+    const provisionSplashPath = path.join(tempDir, "dist", "provisionSplash.js");
+    if (fs.existsSync(provisionSplashPath)) {
+        console.log(`[修改] 正在向 provisionSplash.js 注入 WSL 引导遮罩汉化...`);
+        let splashContent = fs.readFileSync(provisionSplashPath, 'utf-8');
+        splashContent = splashContent.replace('<div>Setting up WSL: ${escapeHtml(distro)}</div>', '<div>正在设置 WSL：${escapeHtml(distro)}</div>');
+        fs.writeFileSync(provisionSplashPath, splashContent, 'utf-8');
+        console.log(`[修改] WSL 引导遮罩汉化注入成功！`);
+    }
 
-        wizardContent = wizardContent
-            .replace('<title>Welcome to Antigravity</title>', '<title>欢迎使用 Antigravity</title>')
-            .replace('<div class="text" style="font-size: 13px; opacity: 0.6; letter-spacing: 0.03em;">Setting up…</div>', '<div class="text" style="font-size: 13px; opacity: 0.6; letter-spacing: 0.03em;">正在设置…</div>')
-            .replace('<h1>Welcome to the new Antigravity!</h1>', '<h1>欢迎使用全新 Antigravity！</h1>')
-            .replace('<p>Antigravity has been redesigned to put agents first with new capabilities. If you\'d still like a code editor, you can download it as a separate app named <b>Antigravity IDE</b>.</p>', '<p>Antigravity 经过重新设计，以智能体为核心并带来全新能力。如果您仍希望使用代码编辑器，可将其作为名为 <b>Antigravity IDE</b> 的独立应用下载</p>')
-            .replace('<span>Download the Antigravity IDE</span>', '<span>下载 Antigravity IDE</span>')
-            .replace('<button class="btn-primary" id="btn-skip">Explore the new Antigravity</button>', '<button class="btn-primary" id="btn-skip">探索全新 Antigravity</button>');
+    const wslPath = path.join(tempDir, "dist", "wsl.js");
+    if (fs.existsSync(wslPath)) {
+        console.log(`[修改] 正在向 wsl.js 注入 WSL 服务端安装提示汉化...`);
+        let wslContent = fs.readFileSync(wslPath, 'utf-8');
+        const brandName = BRAND_TITLE_MODE === 'translated' ? '反重力' : 'Antigravity';
+        wslContent = wslContent
+            .replace("onStatus?.('Downloading the Antigravity binary\\u2026');", `onStatus?.('正在下载 ${brandName} 二进制文件\\u2026');`)
+            .replace("onStatus?.(`Installing into ${distro}\\u2026`);", "onStatus?.(`正在安装至 ${distro}\\u2026`);");
+        fs.writeFileSync(wslPath, wslContent, 'utf-8');
+        console.log(`[修改] WSL 服务端安装提示汉化注入成功！`);
+    }
 
-        fs.writeFileSync(wizardHtmlPath, wizardContent, 'utf-8');
-        console.log(`[修改] 新手引导页汉化注入成功！`);
+    const mainJsPath = path.join(tempDir, "dist", "main.js");
+    if (fs.existsSync(mainJsPath)) {
+        console.log(`[修改] 正在向 main.js 注入主进程 WSL 提示汉化...`);
+        let mainContent = fs.readFileSync(mainJsPath, 'utf-8');
+        mainContent = mainContent
+            .replace("await electron_1.dialog.showErrorBox('WSL setup failed', msg);", "await electron_1.dialog.showErrorBox('WSL 设置失败', msg);")
+            .replace("`Failed to install the server into WSL distro \"${WSL_DISTRO}\":\\n${err.message}`", "`未能将服务端安装至 WSL 分发版 \"${WSL_DISTRO}\"：\\n${err.message}`");
+        fs.writeFileSync(mainJsPath, mainContent, 'utf-8');
+        console.log(`[修改] 主进程 WSL 提示汉化注入成功！`);
     }
 
         console.log(`[打包] 正在将修改后的内容打包回 app.asar...`);
