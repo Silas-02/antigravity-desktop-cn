@@ -1800,6 +1800,95 @@ function generateJs() {
         return false;
     }
 
+    function translatePlanCommandAlert(element) {
+        if (!element) return false;
+
+        let alertContainer = null;
+        let current = element.nodeType === Node.TEXT_NODE ? element.parentElement : element;
+        for (let depth = 0; current && depth < 6; depth++) {
+            if (current === document.body || current === document.documentElement) break;
+            if (current.nodeType === Node.ELEMENT_NODE && !isInBlockedZone(current)) {
+                if (current.getAttribute?.('data-testid') === 'plan-command-fyi-alert') {
+                    alertContainer = current;
+                    break;
+                }
+                if (current.querySelector?.('[data-testid="plan-command-fyi-alert"]')) {
+                    alertContainer = current.querySelector('[data-testid="plan-command-fyi-alert"]');
+                    break;
+                }
+                const cText = current.textContent || '';
+                if (cText.length <= 250 &&
+                    /(?:Type|类型|键入)\\s*\\/\\s*(?:and\\s+select|并选择)\\s*plan/i.test(cText) &&
+                    /(?:to have the agent generate a plan|让智能体生成计划)/i.test(cText)) {
+                    alertContainer = current;
+                    break;
+                }
+            }
+            current = current.parentElement || (current.parentNode && current.parentNode.host);
+        }
+
+        if (!alertContainer) return false;
+
+        const span = alertContainer.querySelector('span') || alertContainer;
+        const allTextNodes = collectTextNodes(span);
+        if (allTextNodes.length === 0) return false;
+
+        let idxSlash = -1;
+        let idxPlan = -1;
+        for (let i = 0; i < allTextNodes.length; i++) {
+            const tn = allTextNodes[i];
+            const parentTag = tn.parentElement?.tagName?.toUpperCase();
+            const val = (tn.nodeValue || '').trim();
+            if (parentTag === 'CODE' && val === '/' && idxSlash === -1) {
+                idxSlash = i;
+            } else if (parentTag === 'CODE' && /^plan$/i.test(val) && idxSlash !== -1 && idxPlan === -1) {
+                idxPlan = i;
+            }
+        }
+
+        if (idxSlash === -1 || idxPlan === -1 || idxSlash >= idxPlan) return false;
+
+        let changed = false;
+
+        const beforeNodes = allTextNodes.slice(0, idxSlash);
+        if (beforeNodes.length > 0) {
+            if (beforeNodes[0].nodeValue !== '键入 ') {
+                changed = replaceTextNode(beforeNodes[0], '键入 ') || changed;
+            }
+            for (let i = 1; i < beforeNodes.length; i++) {
+                if (beforeNodes[i].nodeValue !== '') {
+                    changed = replaceTextNode(beforeNodes[i], '') || changed;
+                }
+            }
+        }
+
+        const middleNodes = allTextNodes.slice(idxSlash + 1, idxPlan);
+        if (middleNodes.length > 0) {
+            if (middleNodes[0].nodeValue !== ' 并选择 ') {
+                changed = replaceTextNode(middleNodes[0], ' 并选择 ') || changed;
+            }
+            for (let i = 1; i < middleNodes.length; i++) {
+                if (middleNodes[i].nodeValue !== '') {
+                    changed = replaceTextNode(middleNodes[i], '') || changed;
+                }
+            }
+        }
+
+        const afterNodes = allTextNodes.slice(idxPlan + 1);
+        if (afterNodes.length > 0) {
+            if (afterNodes[0].nodeValue !== '，即可让智能体生成计划') {
+                changed = replaceTextNode(afterNodes[0], '，即可让智能体生成计划') || changed;
+            }
+            for (let i = 1; i < afterNodes.length; i++) {
+                if (afterNodes[i].nodeValue !== '') {
+                    changed = replaceTextNode(afterNodes[i], '') || changed;
+                }
+            }
+        }
+
+        return changed;
+    }
+
     function getCustomizationBudgetTranslation(value) {
         const match = norm(value).match(/^(\\d+(?:\\.\\d+)?)%\\s+of the customization budget is available[.。]?$/i);
         return match ? match[1] + "% 的个性化定制预算可用" : null;
@@ -2085,6 +2174,11 @@ function generateJs() {
             /(?:Configure the browser subagent|配置浏览器子智能体)/i.test(rawText) &&
             /(?:Google Chrome|to be installed)/i.test(rawText)) {
             translated = translateBrowserSubagentNotice(element) || translated;
+        }
+        if (element.getAttribute?.('data-testid') === 'plan-command-fyi-alert' ||
+            element.querySelector?.('[data-testid="plan-command-fyi-alert"]') ||
+            (textLength <= 250 && /(?:Type|类型|键入)\\s*\\/\\s*(?:and\\s+select|并选择)\\s*plan/i.test(rawText))) {
+            translated = translatePlanCommandAlert(element) || translated;
         }
         if (textLength <= 8 && element.tagName?.toUpperCase() === 'SPAN' && /^OR$/i.test(rawText.trim())) {
             translated = translateBusinessSsoOrDivider(element) || translated;
