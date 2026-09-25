@@ -306,5 +306,17 @@
     "Run the app against a Linux environment. Connecting relaunches the app into the selected WSL distro.": "在 Linux 环境中运行此应用。连接后将重启应用并切换至所选的 WSL 分发版",
     "Local Windows environment": "本地 Windows 环境",
     "The app is currently connected to a WSL distro. Reopening locally relaunches it directly on Windows.": "当前应用已连接至 WSL 分发版。在本地重新打开将直接在 Windows 上重启应用",
-    "Reopen Locally": "在本地重新打开"
+    "Reopen Locally": "在本地重新打开",
+    "Project Settings": "项目设置",
+    "Open Settings": "打开设置",
+    "Notification Preferences": "通知首选项",
+    "Open Preferences": "打开首选项",
+    "Manage Antigravity app settings.": "管理 Antigravity 应用设置",
+    "Agent Security Settings": "智能体安全设置",
+    "Best of N Settings": "Best of N 设置",
+    "Configure settings for Best of N mode.": "配置 Best of N 模式的设置",
+    "Inherits your General settings": "继承您的通用设置",
+    "Use theme to be imported with settings": "使用随设置导入的主题",
+    "Open project settings": "打开项目设置",
+    "Edit extension settings": "编辑扩展设置"
 }

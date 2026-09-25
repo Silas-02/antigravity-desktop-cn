@@ -53,5 +53,17 @@
     "Split Conversation Horizontally": "水平拆分会话",
     "Split Conversation Vertically": "垂直拆分会话",
     "Remove From Split": "从拆分中移除",
-    "Replace With New": "替换为新建项"
+    "Replace With New": "替换为新建项",
+    "Hide Sidebar": "隐藏侧边栏",
+    "Hide Editor": "隐藏编辑器",
+    "Hide breakdown": "隐藏明细",
+    "Hide Error": "隐藏错误",
+    "Hide tools": "隐藏工具",
+    "Hide Whitespace Changes": "隐藏空白更改",
+    "Open Diff": "打开差异",
+    "Open IDE": "打开 IDE",
+    "Open Conversation": "打开会话",
+    "Open extension": "打开扩展",
+    "Open allowlist": "打开允许列表",
+    "Open in Remote Control": "在远程控制中打开"
 }

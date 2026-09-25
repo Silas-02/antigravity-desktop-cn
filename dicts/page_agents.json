@@ -15,5 +15,17 @@
     "Automation": "自动化",
     "No Custom Agents or Plugins": "暂无自定义智能体或插件",
     "No subagents": "暂无子智能体",
-    "Agent Auto-Fix Lints": "智能体自动修复 Lint 错误"
+    "Agent Auto-Fix Lints": "智能体自动修复 Lint 错误",
+    "Agent Edits": "智能体修改",
+    "Agent finished": "智能体已完成",
+    "Agent Loading": "智能体正在加载",
+    "Agent response": "智能体响应",
+    "Agent ID:": "智能体 ID：",
+    "Agent data is not available": "智能体数据不可用",
+    "Agent encountered an internal error.": "智能体遇到内部错误",
+    "Agent execution failed.": "智能体执行失败",
+    "Agent Hooks Configuration": "智能体钩子配置",
+    "Agent asks for permission before executing commands matched by a deny list entry.": "智能体在执行匹配拒绝列表条目的命令之前会征求许可",
+    "Agent auto-executes commands matched by an allow list entry.": "智能体将自动执行匹配允许列表条目的命令",
+    "No recommended skills found in workspace": "工作区中未找到推荐的技能"
 }
