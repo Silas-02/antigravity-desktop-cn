@@ -12,7 +12,6 @@
     "Stopped": "已停止",
     "Idle": "空闲",
     "In Progress": "处理中",
-    "Automation": "自动化",
     "No Custom Agents or Plugins": "暂无自定义智能体或插件",
     "No subagents": "暂无子智能体",
     "Agent Auto-Fix Lints": "智能体自动修复 Lint 错误",

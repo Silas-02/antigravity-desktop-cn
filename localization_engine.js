@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const child_process = require('child_process');
+const vm = require('vm');
 
 if (process.platform === 'win32') {
     const defaultNodePaths = [
@@ -405,7 +406,21 @@ function generateJs() {
         return null;
     }
 
+    function isInSkillItemContext(node) {
+        let current = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+        for (let depth = 0; current && depth < 4; depth++) {
+            if (current === document.body || current === document.documentElement) break;
+            const text = current.textContent || '';
+            if (text.length <= 400 && /(?:^|[\\\\s])(?:\\\\.{2,3})?[^\\\\s]+[\\\\/\\\\]skills[\\\\/\\\\][^\\\\s]+/i.test(text)) {
+                return true;
+            }
+            current = current.parentElement || (current.getRootNode?.().host ?? null);
+        }
+        return false;
+    }
+
     function isInBlockedZone(node) {
+        if (isInSkillItemContext(node)) return true;
         let curr = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
         while (curr) {
             if (curr.nodeType === Node.ELEMENT_NODE) {
@@ -953,6 +968,30 @@ function generateJs() {
                 'Guidelines for interacting with GitHub and request permissions from the user when commands fail due to restrictions in the agent environment',
                 "与 GitHub 交互的操作准则，并在命令因智能体环境限制而失败时向用户申请权限"
             ]
+        },
+        {
+            source: 'automation',
+            display: "定时自动化",
+            descriptions: [
+                'Interactive guide to design and create a scheduled background automation. Use this skill when the user wants to create an automated or recurring scheduled task (e.g. "summarize my emails every morning", "every Monday send me a to-do list"). Also triggered by the /automation slash command.',
+                'Interactive guide to design and create a scheduled background automation.',
+                'Interactive guide to design and create a scheduled background automation',
+                "交互式设计并创建定时后台自动化的指引。当用户希望创建自动化或周期性计划任务（例如“每天早上汇总我的邮件”、“每周一向我发送待办清单”）时使用此技能。亦可通过 /automation 斜杠命令触发",
+                "交互式设计并创建定时后台自动化的指引"
+            ]
+        },
+        {
+            source: 'plugin',
+            display: "插件管理",
+            descriptions: [
+                "How to manage and create plugins — namespaced bundles of skills, agents, rules, MCP servers and hooks that install, enable and disable as a single unit. Use this skill when the user wants to enable, disable, install or uninstall a plugin, when they want to create a new plugin, or when a new customization should be packaged into a plugin rather than left loose. Also triggered by the /plugin slash command. Don't use for the underlying customization system itself — discovery roots, loading priority, or authoring a standalone skill, agent, rule, hook or MCP server outside a plugin; see the customizations guide skill for those.",
+                "How to manage and create plugins — namespaced bundles of skills, agents, rules, MCP servers and hooks that install, enable and disable as a single unit.",
+                "How to manage and create plugins -- namespaced bundles of skills, agents, rules, MCP servers and hooks that install, enable and disable as a single unit.",
+                "How to manage and create plugins",
+                "如何管理和创建插件 —— 作为单一单元进行安装、启用与禁用的命名空间技能、智能体、规则、MCP 服务器与钩子捆绑包。当用户希望启用、禁用、安装或卸载插件，想要创建新插件，或应当将新的个性化定制打包为插件而非单独留存时使用此技能。亦可通过 /plugin 斜杠命令触发。请勿用于底层个性化定制系统本身 —— 发现根目录、加载优先级，或在插件外部编写独立的技能、智能体、规则、钩子或 MCP 服务器；相关内容请参阅个性化定制指南技能",
+                "如何管理和创建插件 —— 作为单一单元进行安装、启用与禁用的命名空间技能、智能体、规则、MCP 服务器与钩子捆绑包",
+                "如何管理和创建插件"
+            ]
         }
     ];
 
@@ -1488,6 +1527,9 @@ function generateJs() {
         match = normalized.match(/^Setting up WSL:\\s*(.+)$/i);
         if (match) return "正在设置 WSL：" + match[1];
 
+        match = normalized.match(/^Deleted\\s+["“](.+?)["”][.。]?$/i);
+        if (match) return "已删除“" + match[1] + "”";
+
         // Permission options (both pure English and half-translated recovery)
         match = normalized.match(/^(?:(?:\\[\\d+\\]|\\d+[.):]?)\\s+)?(?:Yes, and always allow|是，且始终允许)(?: '(.+)')?\\s+in this project$/i);
         if (match) return match[1] ? "是，且在此项目中始终允许运行 '" + match[1] + "'" : "是，且在此项目中始终允许";
@@ -1759,6 +1801,172 @@ function generateJs() {
         return false;
     }
 
+    function translateArchiveNotice(element) {
+        if (!element) return false;
+
+        let current = element.nodeType === Node.TEXT_NODE ? element.parentElement : element;
+        for (let depth = 0; current && depth < 6; depth++) {
+            if (current === document.body || current === document.documentElement) break;
+            if (current.nodeType === Node.ELEMENT_NODE && !isInBlockedZone(current)) {
+                const textNodes = collectTextNodes(current).filter(textNode => !isInBlockedZone(textNode));
+                if (textNodes.length > 0) {
+                    const rawText = textNodes.map(tn => tn.nodeValue || '').join('');
+                    const normalized = norm(rawText);
+
+                    const activeAndArchivedMatch = normalized.match(/^(?:This will archive|这将归档)\\s+(\\d+)\\s*(?:active (?:conversations?|chats?)|个活跃会话)\\s*(?:and|及)\\s*(\\d+)\\s*(?:archived (?:conversations?|chats?)|个已归档会话)\\s*(?:within it[.。]?)?$/i);
+                    const activeOnlyMatch = normalized.match(/^(?:This will archive|这将归档)\\s+(\\d+)\\s*(?:active (?:conversations?|chats?)|个活跃会话)\\s*(?:within it[.。]?)?$/i);
+                    const archivedOnlyMatch = normalized.match(/^(?:This will archive|这将归档)\\s+(\\d+)\\s*(?:archived (?:conversations?|chats?)|个已归档会话)\\s*(?:within it[.。]?)?$/i);
+                    const countOnlyMatch = normalized.match(/^(?:This will archive|这将归档)\\s+(\\d+)\\s*(?:conversations?|chats?|会话s?|个会话)\\s*(?:within it[.。]?)?$/i);
+
+                    if (activeAndArchivedMatch) {
+                        const activeCount = activeAndArchivedMatch[1];
+                        const archivedCount = activeAndArchivedMatch[2];
+                        if (textNodes.length === 1) {
+                            return replaceTextNode(textNodes[0], "这将归档其中的 " + activeCount + " 个活跃会话及 " + archivedCount + " 个已归档会话");
+                        }
+                        const firstCountIndex = textNodes.findIndex(tn => {
+                            const val = norm(tn.nodeValue);
+                            return val === activeCount || val.startsWith(activeCount + " ");
+                        });
+                        const secondCountIndex = firstCountIndex >= 0
+                            ? textNodes.findIndex((tn, idx) => {
+                                if (idx <= firstCountIndex) return false;
+                                const val = norm(tn.nodeValue);
+                                return val === archivedCount || val.startsWith(archivedCount + " ");
+                            })
+                            : -1;
+                        if (firstCountIndex >= 0 && secondCountIndex > firstCountIndex) {
+                            let changed = replaceTextNode(textNodes[0], "这将归档其中的 ");
+                            for (let i = 1; i < firstCountIndex; i++) {
+                                changed = replaceTextNode(textNodes[i], "") || changed;
+                            }
+                            const firstIsIsolated = norm(textNodes[firstCountIndex].nodeValue) === activeCount;
+                            if (firstIsIsolated) {
+                                changed = replaceTextNode(textNodes[firstCountIndex + 1], " 个活跃会话及 ") || changed;
+                                for (let i = firstCountIndex + 2; i < secondCountIndex; i++) {
+                                    changed = replaceTextNode(textNodes[i], "") || changed;
+                                }
+                            } else {
+                                changed = replaceTextNode(textNodes[firstCountIndex], activeCount + " 个活跃会话及 ") || changed;
+                                for (let i = firstCountIndex + 1; i < secondCountIndex; i++) {
+                                    changed = replaceTextNode(textNodes[i], "") || changed;
+                                }
+                            }
+                            const secondIsIsolated = norm(textNodes[secondCountIndex].nodeValue) === archivedCount;
+                            if (secondIsIsolated) {
+                                if (secondCountIndex + 1 < textNodes.length) {
+                                    changed = replaceTextNode(textNodes[secondCountIndex + 1], " 个已归档会话") || changed;
+                                    for (let i = secondCountIndex + 2; i < textNodes.length; i++) {
+                                        changed = replaceTextNode(textNodes[i], "") || changed;
+                                    }
+                                }
+                            } else {
+                                changed = replaceTextNode(textNodes[secondCountIndex], archivedCount + " 个已归档会话") || changed;
+                                for (let i = secondCountIndex + 1; i < textNodes.length; i++) {
+                                    changed = replaceTextNode(textNodes[i], "") || changed;
+                                }
+                            }
+                            return changed;
+                        }
+                    } else if (activeOnlyMatch) {
+                        const activeCount = activeOnlyMatch[1];
+                        if (textNodes.length === 1) {
+                            return replaceTextNode(textNodes[0], "这将归档其中的 " + activeCount + " 个活跃会话");
+                        }
+                        const countIndex = textNodes.findIndex(tn => {
+                            const val = norm(tn.nodeValue);
+                            return val === activeCount || val.startsWith(activeCount + " ");
+                        });
+                        if (countIndex >= 0) {
+                            let changed = replaceTextNode(textNodes[0], "这将归档其中的 ");
+                            for (let i = 1; i < countIndex; i++) {
+                                changed = replaceTextNode(textNodes[i], "") || changed;
+                            }
+                            const isIsolated = norm(textNodes[countIndex].nodeValue) === activeCount;
+                            if (isIsolated) {
+                                if (countIndex + 1 < textNodes.length) {
+                                    changed = replaceTextNode(textNodes[countIndex + 1], " 个活跃会话") || changed;
+                                    for (let i = countIndex + 2; i < textNodes.length; i++) {
+                                        changed = replaceTextNode(textNodes[i], "") || changed;
+                                    }
+                                }
+                            } else {
+                                changed = replaceTextNode(textNodes[countIndex], activeCount + " 个活跃会话") || changed;
+                                for (let i = countIndex + 1; i < textNodes.length; i++) {
+                                    changed = replaceTextNode(textNodes[i], "") || changed;
+                                }
+                            }
+                            return changed;
+                        }
+                    } else if (archivedOnlyMatch) {
+                        const archivedCount = archivedOnlyMatch[1];
+                        if (textNodes.length === 1) {
+                            return replaceTextNode(textNodes[0], "这将归档其中的 " + archivedCount + " 个已归档会话");
+                        }
+                        const countIndex = textNodes.findIndex(tn => {
+                            const val = norm(tn.nodeValue);
+                            return val === archivedCount || val.startsWith(archivedCount + " ");
+                        });
+                        if (countIndex >= 0) {
+                            let changed = replaceTextNode(textNodes[0], "这将归档其中的 ");
+                            for (let i = 1; i < countIndex; i++) {
+                                changed = replaceTextNode(textNodes[i], "") || changed;
+                            }
+                            const isIsolated = norm(textNodes[countIndex].nodeValue) === archivedCount;
+                            if (isIsolated) {
+                                if (countIndex + 1 < textNodes.length) {
+                                    changed = replaceTextNode(textNodes[countIndex + 1], " 个已归档会话") || changed;
+                                    for (let i = countIndex + 2; i < textNodes.length; i++) {
+                                        changed = replaceTextNode(textNodes[i], "") || changed;
+                                    }
+                                }
+                            } else {
+                                changed = replaceTextNode(textNodes[countIndex], archivedCount + " 个已归档会话") || changed;
+                                for (let i = countIndex + 1; i < textNodes.length; i++) {
+                                    changed = replaceTextNode(textNodes[i], "") || changed;
+                                }
+                            }
+                            return changed;
+                        }
+                    } else if (countOnlyMatch) {
+                        const count = countOnlyMatch[1];
+                        if (textNodes.length === 1) {
+                            return replaceTextNode(textNodes[0], "这将归档其中的 " + count + " 个会话");
+                        }
+                        const countIndex = textNodes.findIndex(tn => {
+                            const val = norm(tn.nodeValue);
+                            return val === count || val.startsWith(count + " ") || val.startsWith(count + "会话");
+                        });
+                        if (countIndex >= 0) {
+                            let changed = replaceTextNode(textNodes[0], "这将归档其中的 ");
+                            for (let i = 1; i < countIndex; i++) {
+                                changed = replaceTextNode(textNodes[i], "") || changed;
+                            }
+                            const countNodeVal = norm(textNodes[countIndex].nodeValue);
+                            const isIsolated = countNodeVal === count;
+                            if (isIsolated) {
+                                if (countIndex + 1 < textNodes.length) {
+                                    changed = replaceTextNode(textNodes[countIndex + 1], " 个会话") || changed;
+                                    for (let i = countIndex + 2; i < textNodes.length; i++) {
+                                        changed = replaceTextNode(textNodes[i], "") || changed;
+                                    }
+                                }
+                            } else {
+                                changed = replaceTextNode(textNodes[countIndex], count + " 个会话") || changed;
+                                for (let i = countIndex + 1; i < textNodes.length; i++) {
+                                    changed = replaceTextNode(textNodes[i], "") || changed;
+                                }
+                            }
+                            return changed;
+                        }
+                    }
+                }
+            }
+            current = current.parentElement || (current.parentNode && current.parentNode.host);
+        }
+        return false;
+    }
+
     function translateBrowserSubagentNotice(element) {
         if (!element) return false;
 
@@ -1790,6 +1998,44 @@ function generateJs() {
                             changed = replaceTextNode(tn, "。" + restTrans) || changed;
                         } else if (/^The browser subagent can be invoked by typing \\/browser in the conversation input box\\.?$/i.test(valN)) {
                             changed = replaceTextNode(tn, "您可以通过在会话输入框中输入 /browser 来调用浏览器子智能体") || changed;
+                        }
+                    }
+                    if (changed) return true;
+                }
+            }
+            current = current.parentElement || (current.parentNode && current.parentNode.host);
+        }
+        return false;
+    }
+
+    function translateLegalHelpNotice(element) {
+        if (!element) return false;
+
+        let current = element.nodeType === Node.TEXT_NODE ? element.parentElement : element;
+        for (let depth = 0; current && depth < 6; depth++) {
+            if (current === document.body || current === document.documentElement) break;
+            if (current.nodeType === Node.ELEMENT_NODE && !isInBlockedZone(current)) {
+                const cText = current.textContent || '';
+                if (cText.length <= 300 &&
+                    /(?:Visit|访问)\\s*(?:Legal Help|法律帮助)/i.test(cText) &&
+                    /(?:to ask for content changes for legal reasons|出于法律原因)/i.test(cText)) {
+                    const textNodes = collectTextNodes(current).filter(tn => !isInBlockedZone(tn));
+                    if (textNodes.length === 0) return false;
+
+                    let changed = false;
+                    for (let i = 0; i < textNodes.length; i++) {
+                        const tn = textNodes[i];
+                        const val = tn.nodeValue || '';
+                        const valN = norm(val);
+
+                        if (/^Visit$/i.test(valN)) {
+                            changed = replaceTextNode(tn, "若出于法律原因需要申请更改内容，请访问 ") || changed;
+                        } else if (/^Legal Help$/i.test(valN)) {
+                            changed = replaceTextNode(tn, "法律帮助") || changed;
+                        } else if (/^to ask for content changes for legal reasons[.。]?$/i.test(valN)) {
+                            changed = replaceTextNode(tn, " 页面") || changed;
+                        } else if (/^Visit Legal Help to ask for content changes for legal reasons[.。]?$/i.test(valN)) {
+                            changed = replaceTextNode(tn, "若出于法律原因需要申请更改内容，请访问法律帮助页面") || changed;
                         }
                     }
                     if (changed) return true;
@@ -2141,7 +2387,7 @@ function generateJs() {
         if (textLength <= 800 && /(?:weekly limit|每周配额)/i.test(rawText)) {
             translated = translateQuotaNoticeContainer(element) || translated;
         }
-        if (textLength <= 900 && /(?:quick question without interrupting|align on a plan|team of agents to autonomously|recent successes or corrections|Boost multi-agent orchestrator|Antigravity Customization System|comprehensive guide, quick reference, and sitemap|render rich interactive HTML widgets|不中断主会话|通过访谈与我对齐|智能体团队自主应对|反思最近的成功或改进|Boost 多智能体编排器|个性化定制系统的综合指南|全面指南、快速参考和网站地图|交互式 HTML 小组件)/i.test(rawText)) {
+        if (textLength <= 1400 && /(?:quick question without interrupting|align on a plan|team of agents to autonomously|recent successes or corrections|Boost multi-agent orchestrator|Antigravity Customization System|comprehensive guide, quick reference, and sitemap|render rich interactive HTML widgets|scheduled background automation|manage and create plugins|namespaced bundles of skills|不中断主会话|通过访谈与我对齐|智能体团队自主应对|反思最近的成功或改进|Boost 多智能体编排器|个性化定制系统的综合指南|全面指南、快速参考和网站地图|交互式 HTML 小组件|定时后台自动化|计划后台自动化|管理和创建插件)/i.test(rawText)) {
             translated = translateSkillPickerEntry(element) || translated;
         }
         if (textLength <= 240 &&
@@ -2170,6 +2416,11 @@ function generateJs() {
             /(?:active (?:conversations?|chats?)|archived (?:conversations?|chats?)|个活跃会话|个已归档会话|within it)/i.test(rawText)) {
             translated = translatePermanentlyDeleteNotice(element) || translated;
         }
+        if (textLength <= 600 &&
+            /(?:This will archive|这将归档)/i.test(rawText) &&
+            /(?:conversations?|chats?|会话|within it)/i.test(rawText)) {
+            translated = translateArchiveNotice(element) || translated;
+        }
         if (textLength <= 500 &&
             /(?:Configure the browser subagent|配置浏览器子智能体)/i.test(rawText) &&
             /(?:Google Chrome|to be installed)/i.test(rawText)) {
@@ -2179,6 +2430,11 @@ function generateJs() {
             element.querySelector?.('[data-testid="plan-command-fyi-alert"]') ||
             (textLength <= 250 && /(?:Type|类型|键入)\\s*\\/\\s*(?:and\\s+select|并选择)\\s*plan/i.test(rawText))) {
             translated = translatePlanCommandAlert(element) || translated;
+        }
+        if (textLength <= 300 &&
+            /(?:Visit|访问)\\s*(?:Legal Help|法律帮助)/i.test(rawText) &&
+            /(?:to ask for content changes for legal reasons|出于法律原因)/i.test(rawText)) {
+            translated = translateLegalHelpNotice(element) || translated;
         }
         if (textLength <= 8 && element.tagName?.toUpperCase() === 'SPAN' && /^OR$/i.test(rawText.trim())) {
             translated = translateBusinessSsoOrDivider(element) || translated;
@@ -2341,6 +2597,18 @@ function generateJs() {
             const parentText = node && node.parentElement ? (node.parentElement.textContent || '') : '';
             if (/^Google Chrome$/i.test(previousText) || /(?:browser subagent|浏览器子智能体|Google Chrome)/i.test(parentText)) {
                 return "。";
+            }
+        }
+        if (/^to ask for content changes for legal reasons[.。]?$/i.test(currentText)) {
+            const parentText = node && node.parentElement ? (node.parentElement.textContent || '') : '';
+            if (/^(?:Legal Help|法律帮助)$/i.test(previousText) || /(?:Legal Help|法律帮助)/i.test(parentText)) {
+                return " 页面";
+            }
+        }
+        if (/^Visit$/i.test(currentText)) {
+            const parentText = node && node.parentElement ? (node.parentElement.textContent || '') : '';
+            if (/(?:Legal Help|法律帮助)/i.test(parentText) && /(?:to ask for content changes for legal reasons|出于法律原因)/i.test(parentText)) {
+                return "若出于法律原因需要申请更改内容，请访问 ";
             }
         }
         const toBeInstalledMatch = currentText.match(/^to be installed\\.\\s*(.+)$/i);
@@ -3100,8 +3368,8 @@ function generateJs() {
                     newVal = valNorm.replace(/^View\\s+(\\d+)\\s+side\\s+questions?$/i, (match, num) => {
                         return "查看 " + num + " 个侧边提问";
                     });
-                } else if (/^Asked\s+(\d+)\s+questions?$/i.test(valNorm)) {
-                    newVal = valNorm.replace(/^Asked\s+(\d+)\s+questions?$/i, (match, num) => {
+                } else if (/^Asked\\s+(\\d+)\\s+questions?$/i.test(valNorm)) {
+                    newVal = valNorm.replace(/^Asked\\s+(\\d+)\\s+questions?$/i, (match, num) => {
                         return "已询问 " + num + " 个问题";
                     });
                 } else if (/^This will permanently delete (\\d+) active (?:conversations?|chats?)(?: and (\\d+) archived (?:conversations?|chats?))? within it\\.?$/i.test(valNorm)) {
@@ -3115,15 +3383,30 @@ function generateJs() {
                     newVal = valNorm.replace(/^This will permanently delete (\\d+) archived (?:conversations?|chats?)\\s+within it\\.?$/i, (match, archived) => {
                         return "这将永久删除 " + archived + " 个已归档会话";
                     });
+                } else if (/^This will archive (\\d+) active (?:conversations?|chats?)(?: and (\\d+) archived (?:conversations?|chats?))? within it\\.?$/i.test(valNorm)) {
+                    newVal = valNorm.replace(/^This will archive (\\d+) active (?:conversations?|chats?)(?: and (\\d+) archived (?:conversations?|chats?))? within it\\.?$/i, (match, active, archived) => {
+                        if (archived) {
+                            return "这将归档其中的 " + active + " 个活跃会话及 " + archived + " 个已归档会话";
+                        }
+                        return "这将归档其中的 " + active + " 个活跃会话";
+                    });
+                } else if (/^This will archive (\\d+)\\s*(?:active )?(?:conversations?|chats?|会话s?|个会话)(?: within it)?\\.?$/i.test(valNorm)) {
+                    newVal = valNorm.replace(/^This will archive (\\d+)\\s*(?:active )?(?:conversations?|chats?|会话s?|个会话)(?: within it)?\\.?$/i, (match, count) => {
+                        return "这将归档其中的 " + count + " 个会话";
+                    });
                 } else if (/^(?:active (?:conversations?|chats?)|个活跃会话)\\s+within it[.。]?$/i.test(valNorm)) {
                     newVal = " 个活跃会话";
                 } else if (/^(?:archived (?:conversations?|chats?)|个已归档会话)\\s+within it[.。]?$/i.test(valNorm)) {
                     newVal = " 个已归档会话";
+                } else if (/^(?:conversations?|chats?|会话s?|个会话)\\s+within it[.。]?$/i.test(valNorm)) {
+                    newVal = " 个会话";
                 } else if (/^within it[.。]?$/i.test(valNorm)) {
                     const parentText = node && node.parentElement ? (node.parentElement.textContent || '') : '';
-                    if (/(?:This will permanently delete|这将永久删除)/i.test(parentText)) {
+                    if (/(?:This will permanently delete|这将永久删除|This will archive|这将归档)/i.test(parentText)) {
                         newVal = '';
                     }
+                } else if (/^This will archive$/i.test(valNorm)) {
+                    newVal = "这将归档其中的 ";
                 } else if (/^to be installed\\.?$/i.test(valNorm)) {
                     const parentText = node && node.parentElement ? (node.parentElement.textContent || '') : '';
                     if (/(?:browser subagent|浏览器子智能体|Google Chrome)/i.test(parentText)) {
@@ -3900,11 +4183,149 @@ function resignAppOnMac(resourcesDir) {
     return true;
 }
 
+class AsarArchive {
+    static align4(n) {
+        return (n + 3) & ~3;
+    }
+
+    static readHeader(asarPath) {
+        const fd = fs.openSync(asarPath, 'r');
+        try {
+            const sizeBuf = Buffer.alloc(8);
+            fs.readSync(fd, sizeBuf, 0, 8, 0);
+
+            const headerSize = sizeBuf.readUInt32LE(4);
+            const headerBuf = Buffer.alloc(headerSize);
+            fs.readSync(fd, headerBuf, 0, headerSize, 8);
+
+            const jsonLen = headerBuf.readUInt32LE(4);
+            const jsonStr = headerBuf.slice(8, 8 + jsonLen).toString('utf8');
+            const header = JSON.parse(jsonStr);
+            const baseOffset = 8 + headerSize;
+            return { header, baseOffset, headerSize, jsonLen };
+        } finally {
+            fs.closeSync(fd);
+        }
+    }
+
+    static createHeaderBuffer(headerJson) {
+        const jsonBuf = Buffer.from(headerJson, 'utf8');
+        const jsonLen = jsonBuf.length;
+        const alignedJsonLen = this.align4(jsonLen);
+
+        const headerPayloadSize = 4 + alignedJsonLen;
+        const headerBuf = Buffer.alloc(4 + headerPayloadSize);
+        headerBuf.writeUInt32LE(headerPayloadSize, 0);
+        headerBuf.writeUInt32LE(jsonLen, 4);
+        jsonBuf.copy(headerBuf, 8);
+
+        const sizeBuf = Buffer.alloc(8);
+        sizeBuf.writeUInt32LE(4, 0);
+        sizeBuf.writeUInt32LE(headerBuf.length, 4);
+
+        return Buffer.concat([sizeBuf, headerBuf]);
+    }
+
+    static readFile(sourceAsar, relPath) {
+        const { header, baseOffset } = this.readHeader(sourceAsar);
+        const parts = relPath.replace(/\\/g, '/').split('/');
+        let cur = header.files;
+        for (const p of parts) {
+            if (!cur || !cur[p]) return null;
+            cur = cur[p].files ? cur[p].files : cur[p];
+        }
+        if (cur.unpacked) {
+            const unpackedPath = path.join(`${sourceAsar}.unpacked`, ...parts);
+            if (fs.existsSync(unpackedPath)) return fs.readFileSync(unpackedPath);
+            return null;
+        }
+        if (cur.offset === undefined || cur.size === undefined) return null;
+        const fd = fs.openSync(sourceAsar, 'r');
+        try {
+            const buf = Buffer.alloc(cur.size);
+            fs.readSync(fd, buf, 0, cur.size, baseOffset + parseInt(cur.offset));
+            return buf;
+        } finally {
+            fs.closeSync(fd);
+        }
+    }
+
+    static patchArchive(sourceAsar, targetAsar, filePatches) {
+        const { header, baseOffset } = this.readHeader(sourceAsar);
+        const srcFd = fs.openSync(sourceAsar, 'r');
+        let destFd = null;
+
+        try {
+            const fileEntries = [];
+            function walk(dir, currentPath) {
+                for (const [name, entry] of Object.entries(dir)) {
+                    const fullPath = currentPath ? `${currentPath}/${name}` : name;
+                    if (entry.files) {
+                        walk(entry.files, fullPath);
+                    } else {
+                        fileEntries.push({ path: fullPath, entry });
+                    }
+                }
+            }
+            walk(header.files, '');
+
+            const packedFiles = fileEntries.filter(f => !f.entry.unpacked && f.entry.offset !== undefined);
+            packedFiles.sort((a, b) => parseInt(a.entry.offset) - parseInt(b.entry.offset));
+
+            for (const item of packedFiles) {
+                item.oldOffset = parseInt(item.entry.offset);
+                item.oldSize = item.entry.size;
+                const patch = filePatches[item.path];
+                if (patch !== undefined && patch !== null) {
+                    const patchBuf = Buffer.isBuffer(patch) ? patch : Buffer.from(patch, 'utf8');
+                    item.patchBuffer = patchBuf;
+                    item.entry.size = patchBuf.length;
+                }
+            }
+
+            let currentOffset = BigInt(0);
+            for (const item of packedFiles) {
+                item.entry.offset = currentOffset.toString();
+                currentOffset += BigInt(item.entry.size);
+            }
+
+            const newHeaderBuf = this.createHeaderBuffer(JSON.stringify(header));
+            destFd = fs.openSync(targetAsar, 'w');
+            fs.writeSync(destFd, newHeaderBuf, 0, newHeaderBuf.length, 0);
+
+            let writePos = newHeaderBuf.length;
+            const copyBufSize = 256 * 1024;
+            const copyBuf = Buffer.alloc(copyBufSize);
+
+            for (const item of packedFiles) {
+                if (item.patchBuffer) {
+                    fs.writeSync(destFd, item.patchBuffer, 0, item.patchBuffer.length, writePos);
+                    writePos += item.patchBuffer.length;
+                } else {
+                    let remaining = item.oldSize;
+                    let readPos = baseOffset + item.oldOffset;
+                    while (remaining > 0) {
+                        const toRead = Math.min(remaining, copyBufSize);
+                        fs.readSync(srcFd, copyBuf, 0, toRead, readPos);
+                        fs.writeSync(destFd, copyBuf, 0, toRead, writePos);
+                        readPos += toRead;
+                        writePos += toRead;
+                        remaining -= toRead;
+                    }
+                }
+            }
+        } finally {
+            if (srcFd) fs.closeSync(srcFd);
+            if (destFd) fs.closeSync(destFd);
+        }
+    }
+}
+
 function installLocalization(resourcesDir) {
     const asarPath = path.join(resourcesDir, "app.asar");
     const bakPath = path.join(resourcesDir, "app.asar.bak");
 
-    if (!fs.existsSync(asarPath)) {
+    if (!fs.existsSync(asarPath) && !fs.existsSync(bakPath)) {
         console.error(`[错误] 未在资源目录中找到 app.asar: ${resourcesDir}`);
         return false;
     }
@@ -3913,6 +4334,7 @@ function installLocalization(resourcesDir) {
         console.log(`[备份] 正在创建官方原始包备份: app.asar.bak ...`);
         try {
             fs.copyFileSync(asarPath, bakPath);
+            console.log(`[备份] 备份成功！`);
         } catch (e) {
             if (e.code === 'EACCES' || e.code === 'EPERM' || e.code === 'EROFS') {
                 reportWritePermissionError(resourcesDir, e, '备份到');
@@ -3921,59 +4343,42 @@ function installLocalization(resourcesDir) {
             }
             return false;
         }
-        console.log(`[备份] 备份成功！`);
-    } else {
-        try {
-            fs.copyFileSync(bakPath, asarPath);
-            console.log(`[还原] 已重置当前 app.asar 为官方原始备份包，以进行全新注入...`);
-        } catch (e) {
-            if (e.code === 'EACCES' || e.code === 'EPERM' || e.code === 'EROFS') {
-                reportWritePermissionError(resourcesDir, e, '写入');
-                return false;
-            }
-            console.log(`[提示] 当前 app.asar 被锁定（可能是客户端正在运行），将使用当前包进行增量注入。`);
-        }
     }
 
-    const tempDir = path.join(__dirname, "_temp_asar");
-    if (fs.existsSync(tempDir)) {
-        try {
-            fs.rmSync(tempDir, { recursive: true, force: true });
-        } catch (e) {}
+    const sourceAsar = fs.existsSync(bakPath) ? bakPath : asarPath;
+    console.log(`[读取] 正在解析应用包元数据...`);
+
+    const filePatches = {};
+
+    // 1. dist/preload.js
+    const preloadBuf = AsarArchive.readFile(sourceAsar, "dist/preload.js");
+    if (!preloadBuf) {
+        console.error(`[错误] 未能在应用包中找到 dist/preload.js`);
+        return false;
     }
-
-    try {
-        console.log(`[解包] 正在使用 npx 提取 app.asar...`);
-        const extractRes = runCommandSync(`npx -y @electron/asar extract "${asarPath}" "${tempDir}"`);
-        if (!extractRes.success || !fs.existsSync(tempDir)) {
-            console.error(`[错误] 解包失败，可能是由于系统未安装 Node.js/npm 或者网络限制。`);
-            console.error(`详情: ${extractRes.stderr}\n${extractRes.stdout}`);
-            return false;
-        }
-
-        const preloadPath = path.join(tempDir, "dist", "preload.js");
-        if (!fs.existsSync(preloadPath)) {
-            console.error(`[错误] 解压后未能在指定路径找到 preload.js: ${preloadPath}`);
-            return false;
-        }
 
     console.log(`[修改] 正在向 preload.js 注入汉化代码...`);
-    let content = fs.readFileSync(preloadPath, 'utf-8');
-
+    const content = preloadBuf.toString('utf-8');
     const cleanedContent = cleanJsContent(content);
     const translationJs = generateJs();
-    const newContent = cleanedContent + "\n" + translationJs;
 
-    fs.writeFileSync(preloadPath, newContent, 'utf-8');
-    console.log(`[修改] 注入成功！`);
+    try {
+        new vm.Script(translationJs);
+    } catch (syntaxErr) {
+        console.error(`[致命错误] 生成的汉化注入脚本存在语法错误，已中止注入以避免客户端崩溃: ${syntaxErr.message}`);
+        console.error(syntaxErr.stack);
+        return false;
+    }
 
-    const menuPath = path.join(tempDir, "dist", "menu.js");
-    if (fs.existsSync(menuPath)) {
+    filePatches["dist/preload.js"] = cleanedContent + "\n" + translationJs;
+    console.log(`[修改] preload.js 注入成功！`);
+
+    // 2. dist/menu.js
+    const menuBuf = AsarArchive.readFile(sourceAsar, "dist/menu.js");
+    if (menuBuf) {
         console.log(`[修改] 正在向 menu.js 注入菜单汉化代码...`);
-        let menuContent = fs.readFileSync(menuPath, 'utf-8');
-
+        let menuContent = menuBuf.toString('utf-8');
         const menuCleaned = cleanMenuJsContent(menuContent);
-
         const menuTranslationJs = `
     ${MENU_SIGNATURE_START}
     const translations = {
@@ -4046,18 +4451,18 @@ function installLocalization(resourcesDir) {
             patchedMenuContent = patchedMenuContent
                 .replace("return { label: 'Connect to WSL', submenu };", "return { label: '连接至 WSL', submenu };")
                 .replace("return { label: 'Reopen Locally', click: () => relaunchWithWslDistro('') };", "return { label: '在本地重新打开', click: () => relaunchWithWslDistro('') };");
-            fs.writeFileSync(menuPath, patchedMenuContent, 'utf-8');
+            filePatches["dist/menu.js"] = patchedMenuContent;
             console.log(`[修改] 菜单汉化注入成功！`);
         } else {
             console.warn(`[警告] 未能在 menu.js 中找到设定的插入点。`);
         }
     }
 
-    const trayPath = path.join(tempDir, "dist", "tray.js");
-    if (fs.existsSync(trayPath)) {
+    // 3. dist/tray.js
+    const trayBuf = AsarArchive.readFile(sourceAsar, "dist/tray.js");
+    if (trayBuf) {
         console.log(`[修改] 正在向 tray.js 注入任务栏菜单汉化...`);
-        let trayContent = fs.readFileSync(trayPath, 'utf-8');
-
+        let trayContent = trayBuf.toString('utf-8');
         let trayCleaned = cleanTrayJsContent(trayContent);
 
         const targetCreate = "function createTray(actions) {";
@@ -4097,29 +4502,15 @@ function installLocalization(resourcesDir) {
         const replacementCount = "countItem.label = count > 0 ? `${count} 个智能体运行中` : '无运行中的智能体';";
         trayPatched = trayPatched.replace(countRegex, replacementCount);
 
-        fs.writeFileSync(trayPath, trayPatched, 'utf-8');
+        filePatches["dist/tray.js"] = trayPatched;
         console.log(`[修改] 任务栏菜单汉化注入成功！`);
     }
 
-    const loadingPath = path.join(tempDir, "dist", "loadingOverlay.js");
-    if (fs.existsSync(loadingPath)) {
-        console.log(`[修改] 正在向 loadingOverlay.js 注入加载页汉化...`);
-        let loadingContent = fs.readFileSync(loadingPath, 'utf-8');
-
-        const targetText = '<div class="text">Loading Antigravity</div>';
-        const replacementText = '<div class="text">反重力引擎已启动，正在努力摆脱地心引力...</div>';
-
-        loadingContent = loadingContent.replace(targetText, replacementText);
-
-        fs.writeFileSync(loadingPath, loadingContent, 'utf-8');
-        console.log(`[修改] 加载页汉化注入成功！`);
-    }
-
-    const updaterPath = path.join(tempDir, "dist", "updater.js");
-    if (fs.existsSync(updaterPath)) {
+    // 4. dist/updater.js
+    const updaterBuf = AsarArchive.readFile(sourceAsar, "dist/updater.js");
+    if (updaterBuf) {
         console.log(`[修改] 正在向 updater.js 注入更新弹窗汉化...`);
-        let updaterContent = fs.readFileSync(updaterPath, 'utf-8');
-
+        let updaterContent = updaterBuf.toString('utf-8');
         const targetOptions = `                title: 'Check for Updates',
                 message: 'No updates available',
                 buttons: ['OK'],`;
@@ -4128,65 +4519,88 @@ function installLocalization(resourcesDir) {
                 buttons: ['确定'],`;
 
         updaterContent = updaterContent.replace(targetOptions, replacementOptions);
-        fs.writeFileSync(updaterPath, updaterContent, 'utf-8');
+        filePatches["dist/updater.js"] = updaterContent;
         console.log(`[修改] 更新弹窗汉化注入成功！`);
     }
 
-    const provisionSplashPath = path.join(tempDir, "dist", "provisionSplash.js");
-    if (fs.existsSync(provisionSplashPath)) {
+    // 5. dist/provisionSplash.js
+    const splashBuf = AsarArchive.readFile(sourceAsar, "dist/provisionSplash.js");
+    if (splashBuf) {
         console.log(`[修改] 正在向 provisionSplash.js 注入 WSL 引导遮罩汉化...`);
-        let splashContent = fs.readFileSync(provisionSplashPath, 'utf-8');
+        let splashContent = splashBuf.toString('utf-8');
         splashContent = splashContent.replace('<div>Setting up WSL: ${escapeHtml(distro)}</div>', '<div>正在设置 WSL：${escapeHtml(distro)}</div>');
-        fs.writeFileSync(provisionSplashPath, splashContent, 'utf-8');
+        filePatches["dist/provisionSplash.js"] = splashContent;
         console.log(`[修改] WSL 引导遮罩汉化注入成功！`);
     }
 
-    const wslPath = path.join(tempDir, "dist", "wsl.js");
-    if (fs.existsSync(wslPath)) {
+    // 6. dist/wsl.js
+    const wslBuf = AsarArchive.readFile(sourceAsar, "dist/wsl.js");
+    if (wslBuf) {
         console.log(`[修改] 正在向 wsl.js 注入 WSL 服务端安装提示汉化...`);
-        let wslContent = fs.readFileSync(wslPath, 'utf-8');
+        let wslContent = wslBuf.toString('utf-8');
         const brandName = BRAND_TITLE_MODE === 'translated' ? '反重力' : 'Antigravity';
         wslContent = wslContent
             .replace("onStatus?.('Downloading the Antigravity binary\\u2026');", `onStatus?.('正在下载 ${brandName} 二进制文件\\u2026');`)
             .replace("onStatus?.(`Installing into ${distro}\\u2026`);", "onStatus?.(`正在安装至 ${distro}\\u2026`);");
-        fs.writeFileSync(wslPath, wslContent, 'utf-8');
+        filePatches["dist/wsl.js"] = wslContent;
         console.log(`[修改] WSL 服务端安装提示汉化注入成功！`);
     }
 
-    const mainJsPath = path.join(tempDir, "dist", "main.js");
-    if (fs.existsSync(mainJsPath)) {
+    // 7. dist/main.js
+    const mainBuf = AsarArchive.readFile(sourceAsar, "dist/main.js");
+    if (mainBuf) {
         console.log(`[修改] 正在向 main.js 注入主进程 WSL 提示汉化...`);
-        let mainContent = fs.readFileSync(mainJsPath, 'utf-8');
+        let mainContent = mainBuf.toString('utf-8');
         mainContent = mainContent
             .replace("await electron_1.dialog.showErrorBox('WSL setup failed', msg);", "await electron_1.dialog.showErrorBox('WSL 设置失败', msg);")
             .replace("`Failed to install the server into WSL distro \"${WSL_DISTRO}\":\\n${err.message}`", "`未能将服务端安装至 WSL 分发版 \"${WSL_DISTRO}\"：\\n${err.message}`");
-        fs.writeFileSync(mainJsPath, mainContent, 'utf-8');
+        filePatches["dist/main.js"] = mainContent;
         console.log(`[修改] 主进程 WSL 提示汉化注入成功！`);
     }
 
+    // 8. 打包并写入 app.asar
+    const tempAsarPath = path.join(resourcesDir, "app.asar.tmp");
+    try {
         console.log(`[打包] 正在将修改后的内容打包回 app.asar...`);
-        const packRes = runCommandSync(`npx -y @electron/asar pack "${tempDir}" "${asarPath}"`);
+        AsarArchive.patchArchive(sourceAsar, tempAsarPath, filePatches);
 
-        if (!packRes.success) {
-            console.error(`[错误] 打包失败。`);
-            console.error(`详情: ${packRes.stderr}\n${packRes.stdout}`);
-            return false;
-        }
-
-        console.log(`[√] Antigravity 汉化部署完成！`);
-        if (process.platform === 'darwin') {
-            if (!resignAppOnMac(resourcesDir)) {
+        try {
+            if (fs.existsSync(asarPath)) {
+                fs.unlinkSync(asarPath);
+            }
+            fs.renameSync(tempAsarPath, asarPath);
+        } catch (renameErr) {
+            try {
+                fs.copyFileSync(tempAsarPath, asarPath);
+                fs.unlinkSync(tempAsarPath);
+            } catch (copyErr) {
+                if (copyErr.code === 'EBUSY' || copyErr.code === 'EPERM' || renameErr.code === 'EBUSY' || renameErr.code === 'EPERM') {
+                    console.error(`[错误] 写入 app.asar 失败：文件被锁定占用。请确保已完全退出 Antigravity 客户端后重试。`);
+                } else {
+                    console.error(`[错误] 替换 app.asar 失败: ${copyErr.message}`);
+                }
                 return false;
             }
         }
-        return true;
-    } finally {
-        if (fs.existsSync(tempDir)) {
-            try {
-                fs.rmSync(tempDir, { recursive: true, force: true });
-            } catch (e) {}
+    } catch (err) {
+        try { if (fs.existsSync(tempAsarPath)) fs.unlinkSync(tempAsarPath); } catch (e) {}
+        console.error(`[错误] 汉化打包失败: ${err.message}`);
+        return false;
+    }
+
+    // 清理可能遗留的历史临时解压目录
+    const legacyTempDir = path.join(__dirname, "_temp_asar");
+    if (fs.existsSync(legacyTempDir)) {
+        try { fs.rmSync(legacyTempDir, { recursive: true, force: true }); } catch (e) {}
+    }
+
+    console.log(`[√] Antigravity 汉化部署完成！`);
+    if (process.platform === 'darwin') {
+        if (!resignAppOnMac(resourcesDir)) {
+            return false;
         }
     }
+    return true;
 }
 
 function restoreLocalization(resourcesDir) {

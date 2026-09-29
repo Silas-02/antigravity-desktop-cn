@@ -182,8 +182,15 @@ if ! node "$SCRIPT_DIR/localization_engine.js" "${BRAND_ARGS[@]}" "$@"; then
         echo "提示：如果上方显示“权限不足”或 “EACCES”，请使用 sudo 重新运行此脚本。"
         echo "示例：sudo ./install.sh"
     fi
+    echo ""
     if [ -t 0 ]; then
         read -rp "按 Enter 键退出..." _
+    else
+        for i in 10 9 8 7 6 5 4 3 2 1; do
+            printf "\r窗口将在 %d 秒后自动关闭... " "$i"
+            sleep 1
+        done
+        printf "\n"
     fi
     exit 1
 fi
@@ -193,3 +200,14 @@ echo "[2/2] 注入完成！"
 echo ""
 echo "提示：汉化已成功部署。"
 echo "请重新启动 Antigravity 软件即可畅享全中文界面！"
+echo ""
+
+for i in 5 4 3 2 1; do
+    printf "\r窗口将在 %d 秒后自动退出（按 Enter 立即退出）... " "$i"
+    if [ -t 0 ]; then
+        read -t 1 -r && break || true
+    else
+        sleep 1
+    fi
+done
+printf "\r\033[K已就绪，正在退出...\n"

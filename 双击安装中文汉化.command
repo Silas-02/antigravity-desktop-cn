@@ -37,7 +37,7 @@ export PATH
 if ! command -v node >/dev/null 2>&1; then
     echo ""
     echo "[错误] 未检测到 Node.js 环境！"
-    echo "反重力汉化工具需要 Node.js 支持（建议 v16 或更高版本）。"
+    echo "Antigravity 汉化工具需要 Node.js 支持（建议 v16 或更高版本）。"
     echo "请访问 https://nodejs.org/ 下载安装，或使用 Homebrew 安装："
     echo "  brew install node"
     echo ""
@@ -47,13 +47,5 @@ if ! command -v node >/dev/null 2>&1; then
     exit 1
 fi
 
-set +e
-/usr/bin/env bash "$SCRIPT_DIR/install.sh" "$@"
-INSTALL_EXIT=$?
-set -e
+exec /usr/bin/env bash "$SCRIPT_DIR/install.sh" "$@"
 
-if [ -t 0 ]; then
-    echo ""
-    read -rp "按 Enter 键退出..." _
-fi
-exit $INSTALL_EXIT
