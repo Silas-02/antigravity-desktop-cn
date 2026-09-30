@@ -22,8 +22,14 @@ if exist "%LOCALAPPDATA%\Programs\node\node.exe" (
 )
 
 echo.
+echo ==========================================
 echo [错误] 未检测到 Node.js 环境！
-echo 请先安装 Node.js 后重试。
+echo ==========================================
+echo Antigravity 汉化工具需要 Node.js 运行环境支持。
+echo 请访问官方网站下载安装（建议选择 LTS 最新长期支持版本）：
+echo   https://nodejs.org/
+echo.
+echo 安装完成后，请重新双击运行此脚本。
 echo.
 pause
 exit /b 1

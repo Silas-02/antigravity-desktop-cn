@@ -43,6 +43,8 @@ if ! command -v node >/dev/null 2>&1; then
     echo ""
     if [ -t 0 ]; then
         read -rp "按 Enter 键退出..." _
+    elif [ -e /dev/tty ]; then
+        read -rp "按 Enter 键退出..." _ </dev/tty 2>/dev/null || true
     fi
     exit 1
 fi

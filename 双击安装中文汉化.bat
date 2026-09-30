@@ -22,8 +22,14 @@ if exist "%LOCALAPPDATA%\Programs\node\node.exe" (
 )
 
 echo.
+echo ==========================================
 echo [错误] 未检测到 Node.js 环境！
-echo 请先安装 Node.js 后重试。
+echo ==========================================
+echo Antigravity 汉化工具需要 Node.js 运行环境支持。
+echo 请访问官方网站下载安装（建议选择 LTS 最新长期支持版本）：
+echo   https://nodejs.org/
+echo.
+echo 安装完成后，请重新双击运行此脚本。
 echo.
 pause
 exit /b 1
@@ -38,13 +44,11 @@ echo.
 echo 请选择左上角品牌显示方式：
 echo   [1] 显示英文 Antigravity（默认推荐）
 echo   [2] 不显示品牌名
-echo   [3] 显示中文品牌名
 echo.
 set "CHOICE_VAL=1"
-set /p "CHOICE_VAL=请输入选项 [1/2/3]（直接按 Enter 默认为 1）: "
+set /p "CHOICE_VAL=请输入选项 [1/2]（直接按 Enter 默认为 1）: "
 set "BRAND_ARG=--brand-title english"
 if "%CHOICE_VAL%"=="2" set "BRAND_ARG=--brand-title hidden"
-if "%CHOICE_VAL%"=="3" set "BRAND_ARG=--brand-title translated"
 
 echo.
 echo [1/2] 正在注入汉化代码...

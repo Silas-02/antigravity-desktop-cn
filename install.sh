@@ -14,6 +14,15 @@ else
     PLATFORM_LABEL="Linux"
 fi
 
+wait_on_error() {
+    echo ""
+    if [ -t 0 ]; then
+        read -rp "按 Enter 键退出..." _
+    elif [ -e /dev/tty ]; then
+        read -rp "按 Enter 键退出..." _ </dev/tty 2>/dev/null || true
+    fi
+}
+
 # Locate Node.js runtime (handling standard paths, user NVM/fnm/volta/pnpm under sudo)
 find_node_dir() {
     if command -v node >/dev/null 2>&1; then
@@ -113,10 +122,17 @@ if [ -n "$NODE_DIR" ]; then
 fi
 
 if ! command -v node >/dev/null 2>&1; then
-    echo "[错误] 未检测到 Node.js 环境，请先安装 Node.js (v16+) 后再运行此脚本。"
+    echo ""
+    echo "[错误] 未检测到 Node.js 环境！"
+    echo "Antigravity 汉化工具需要 Node.js 支持（建议 v16 或更高版本）。"
+    echo "请访问 https://nodejs.org/ 下载安装最新 LTS 版本。"
     if [ "$OS_NAME" = "Darwin" ]; then
-        echo "提示：macOS 用户可使用 Homebrew 安装：brew install node"
+        echo "提示：macOS 用户亦可使用 Homebrew 安装："
+        echo "  brew install node"
+    else
+        echo "提示：Linux 用户亦可使用包管理器安装（例如 sudo apt install nodejs）。"
     fi
+    wait_on_error
     exit 1
 fi
 
@@ -137,6 +153,7 @@ if [ "$CHECK_STATUS" -eq 2 ] && [ "$(id -u)" -ne 0 ]; then
     else
         echo "[权限不足] 目标安装目录位于系统目录，需要管理员权限，且当前环境未找到 sudo 命令。"
         echo "请切换为 root 用户后重新运行此脚本。"
+        wait_on_error
         exit 1
     fi
 fi
@@ -160,15 +177,13 @@ if [ "$HAS_BRAND_ARG" = false ]; then
     echo "请选择左上角品牌显示方式："
     echo "  [1] 显示英文 Antigravity（默认推荐）"
     echo "  [2] 不显示品牌名"
-    echo "  [3] 显示中文品牌名"
     echo ""
     CHOICE_VAL=""
     if [ -t 0 ]; then
-        read -rp "请输入选项 [1/2/3]（直接按 Enter 默认为 1）: " CHOICE_VAL
+        read -rp "请输入选项 [1/2]（直接按 Enter 默认为 1）: " CHOICE_VAL
     fi
     case "$CHOICE_VAL" in
         2) BRAND_ARGS=(--brand-title hidden) ;;
-        3) BRAND_ARGS=(--brand-title translated) ;;
         *) BRAND_ARGS=(--brand-title english) ;;
     esac
 fi
@@ -182,16 +197,7 @@ if ! node "$SCRIPT_DIR/localization_engine.js" "${BRAND_ARGS[@]}" "$@"; then
         echo "提示：如果上方显示“权限不足”或 “EACCES”，请使用 sudo 重新运行此脚本。"
         echo "示例：sudo ./install.sh"
     fi
-    echo ""
-    if [ -t 0 ]; then
-        read -rp "按 Enter 键退出..." _
-    else
-        for i in 10 9 8 7 6 5 4 3 2 1; do
-            printf "\r窗口将在 %d 秒后自动关闭... " "$i"
-            sleep 1
-        done
-        printf "\n"
-    fi
+    wait_on_error
     exit 1
 fi
 

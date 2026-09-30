@@ -26,11 +26,7 @@ const BRAND_TITLE_ALIASES = {
     default: 'english',
     hidden: 'hidden',
     hide: 'hidden',
-    none: 'hidden',
-    translated: 'translated',
-    chinese: 'translated',
-    cn: 'translated',
-    zh: 'translated'
+    none: 'hidden'
 };
 
 function getOptionValue(name, defaultValue) {
@@ -89,10 +85,10 @@ function loadDictionary() {
             }
         }
     }
-    if (BRAND_TITLE_MODE === 'english') {
-        delete totalMap[normalizeText('Antigravity')];
-    } else if (BRAND_TITLE_MODE === 'hidden') {
+    if (BRAND_TITLE_MODE === 'hidden') {
         totalMap[normalizeText('Antigravity')] = '';
+    } else {
+        delete totalMap[normalizeText('Antigravity')];
     }
     return totalMap;
 }
@@ -4538,9 +4534,8 @@ function installLocalization(resourcesDir) {
     if (wslBuf) {
         console.log(`[修改] 正在向 wsl.js 注入 WSL 服务端安装提示汉化...`);
         let wslContent = wslBuf.toString('utf-8');
-        const brandName = BRAND_TITLE_MODE === 'translated' ? '反重力' : 'Antigravity';
         wslContent = wslContent
-            .replace("onStatus?.('Downloading the Antigravity binary\\u2026');", `onStatus?.('正在下载 ${brandName} 二进制文件\\u2026');`)
+            .replace("onStatus?.('Downloading the Antigravity binary\\u2026');", "onStatus?.('正在下载 Antigravity 二进制文件\\u2026');")
             .replace("onStatus?.(`Installing into ${distro}\\u2026`);", "onStatus?.(`正在安装至 ${distro}\\u2026`);");
         filePatches["dist/wsl.js"] = wslContent;
         console.log(`[修改] WSL 服务端安装提示汉化注入成功！`);
@@ -4769,7 +4764,7 @@ function main() {
     }
 
     if (success && wasAppRunning && !noKill) {
-        console.log("\n[启动] 检测到安装前反重力客户端处于开启状态，正在重新启动客户端...");
+        console.log("\n[启动] 检测到安装前 Antigravity 客户端处于开启状态，正在重新启动客户端...");
         try {
             let launched = false;
             let restartDeferred = false;
