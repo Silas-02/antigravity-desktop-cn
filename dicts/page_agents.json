@@ -26,5 +26,7 @@
     "Agent Hooks Configuration": "智能体钩子配置",
     "Agent asks for permission before executing commands matched by a deny list entry.": "智能体在执行匹配拒绝列表条目的命令之前会征求许可",
     "Agent auto-executes commands matched by an allow list entry.": "智能体将自动执行匹配允许列表条目的命令",
-    "No recommended skills found in workspace": "工作区中未找到推荐的技能"
+    "No recommended skills found in workspace": "工作区中未找到推荐的技能",
+    "Research": "调研",
+    "research": "调研"
 }

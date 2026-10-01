@@ -988,6 +988,32 @@ function generateJs() {
                 "如何管理和创建插件 —— 作为单一单元进行安装、启用与禁用的命名空间技能、智能体、规则、MCP 服务器与钩子捆绑包",
                 "如何管理和创建插件"
             ]
+        },
+        {
+            source: 'ui-extension',
+            display: "UI 扩展",
+            descriptions: [
+                "Build, package, run, and debug UI extensions for Antigravity: interactive web panels that render in the side pane, served by a Node.js sidecar using the built-in Sidecar SDK.",
+                "构建、打包、运行并调试 Antigravity 的 UI 扩展：在侧边面板中渲染的交互式 Web 面板，由使用内置 Sidecar SDK 的 Node.js Sidecar 提供服务"
+            ]
+        },
+        {
+            source: 'ui-plugin-navigation',
+            display: "UI 插件导航",
+            descriptions: [
+                "Discover UI plugin panels relevant to the current task and surface a one-click pill in chat to open (toggle) them in the side pane. Use when a running UI plugin's panel would help with what the user is doing, or right after the user enables a new UI plugin pane and a shortcut to open it is handy.",
+                "发现与当前任务相关的 UI 插件面板，并在聊天中提供一键胶囊按钮以便在侧边面板中打开（切换）它们。当运行中的 UI 插件面板对用户正在进行的操作有所帮助，或在用户启用新的 UI 插件面板且需要便捷快捷方式打开它时使用"
+            ]
+        },
+        {
+            source: 'research',
+            display: "调研",
+            descriptions: [
+                "Research subagent with read-only tools for exploring the codebase, searching the web, and reading files. Delegate to this agent when you need to run a task in a separate conversation context but with the same capabilities as the current agent, when a research task requires many search and file-reading steps that would clutter your context, or when you need a broad survey of the codebase or documentation. Prefer doing research yourself for quick, targeted lookups.",
+                "Research subagent with read-only tools for exploring the codebase, searching the web, and reading files.",
+                "具备只读工具的调研子智能体，用于探索代码库、搜索网络和阅读文件。当您需要在独立的会话上下文中运行具有与当前智能体相同能力的任务、研究任务需要执行大量会使上下文变得混乱的搜索与文件读取步骤，或需要对代码库或文档进行广泛调研时，请委托给该智能体。对于快速、有针对性的查询，建议由主智能体自行完成",
+                "具备只读工具的调研型子智能体，用于探索代码库、搜索网络和阅读文件"
+            ]
         }
     ];
 
@@ -4461,8 +4487,11 @@ function installLocalization(resourcesDir) {
         let trayContent = trayBuf.toString('utf-8');
         let trayCleaned = cleanTrayJsContent(trayContent);
 
-        const targetCreate = "function createTray(actions) {";
-        const replacementCreate = `function createTray(actions) {
+        let trayPatched = trayCleaned;
+        const createTrayMatch = trayCleaned.match(/function\s+createTray\s*\(\s*actions(?:\s*,\s*onClick)?\s*\)\s*\{/);
+        if (createTrayMatch) {
+            const matchedFuncHeader = createTrayMatch[0];
+            const replacementCreate = `${matchedFuncHeader}
     ${TRAY_SIGNATURE_START}
     const translations = {
         'No agents running': '无运行中的智能体',
@@ -4477,8 +4506,10 @@ function installLocalization(resourcesDir) {
         }
     }
     ${TRAY_SIGNATURE_END}`;
-
-        let trayPatched = trayCleaned.replace(targetCreate, replacementCreate);
+            trayPatched = trayCleaned.replace(matchedFuncHeader, replacementCreate);
+        } else {
+            console.warn(`[警告] 未能在 tray.js 中找到 createTray 函数的插入点。`);
+        }
 
         const targetInsert = "function insertTrayMenuItem(position, options) {";
         const replacementInsert = `function insertTrayMenuItem(position, options) {
