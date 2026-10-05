@@ -58,7 +58,7 @@
     "Manage Google Cloud resources with gcloud and bq CLI tools in a remote sandbox environment": "在远程沙箱环境中使用 gcloud 和 bq CLI 工具管理 Google Cloud 资源",
     "Manage Pub/Sub resources and publish messages. Create, list, get, update, and delete Pub/Sub topics, subscriptions, and snapshots, as well as publish messages to topics.": "管理 Pub/Sub 资源并发布消息。创建、列出、获取、更新和删除 Pub/Sub 主题、订阅和快照，以及向主题发布消息",
     "Manage your Neon backend with the Neon MCP Server: Lakebase Postgres, branching, Object Storage, Functions, and the AI Gateway": "使用 Neon MCP 服务器管理您的 Neon 后端：Lakebase Postgres、分支、对象存储、函数以及 AI 网关",
-    "Build applications with the Gemini Interactions API and Live API, including text generation, multi-turn chat, streaming, function calling, managed agents, and real-time audio/video.": "使用 Gemini Interactions API 和 Live API 构建应用，包括文本生成、多轮对话、流式传输、函数调用、托管智能体及实时音视频",
+    "Build applications with the Gemini Interactions API and Live API, including text, image, video, and speech generation, managed agents, and real-time multimodal streaming.": "使用 Gemini Interactions API 和 Live API 构建应用，包括文本、图像、视频和语音生成、托管智能体及实时多模态流式传输",
     "Neon MCP Server is an open-source tool that lets you interact with your Neon Postgres databases in natural language.": "Neon MCP 服务器是一个开源工具，允许您使用自然语言与 Neon Postgres 数据库进行交互",
     "Netlify MCP Server enables AI assistants to interact with Netlify's platform for managing sites, deployments, domains, and other web development workflows.": "Netlify MCP 服务器使 AI 助手能够与 Netlify 平台进行交互，以管理站点、部署、域名以及其他 Web 开发工作流",
     "Official Linear.app MCP Server for interacting with Linear projects, issues, and workflows.": "官方 Linear.app MCP 服务器，用于与 Linear 项目、议题和工作流进行交互",
