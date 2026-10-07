@@ -50,6 +50,8 @@ const MENU_SIGNATURE_START = "'__ANTIGRAVITY_NATIVE_MENU_TRANSLATION_START__';";
 const MENU_SIGNATURE_END = "'__ANTIGRAVITY_NATIVE_MENU_TRANSLATION_END__';";
 const TRAY_SIGNATURE_START = "'__ANTIGRAVITY_TRAY_TRANSLATION_START__';";
 const TRAY_SIGNATURE_END = "'__ANTIGRAVITY_TRAY_TRANSLATION_END__';";
+const IPC_CONTEXT_MENU_SIGNATURE_START = "'__ANTIGRAVITY_IPC_CONTEXT_MENU_TRANSLATION_START__';";
+const IPC_CONTEXT_MENU_SIGNATURE_END = "'__ANTIGRAVITY_IPC_CONTEXT_MENU_TRANSLATION_END__';";
 const LEGACY_SIGNATURE_START = ['/', '* --- ANTIGRAVITY CHINESE LOCALIZATION START --- *', '/'].join('');
 const LEGACY_SIGNATURE_END = ['/', '* --- ANTIGRAVITY CHINESE LOCALIZATION END --- *', '/'].join('');
 const LEGACY_MENU_SIGNATURE_START = ['/', '/ =========================================='].join('');
@@ -3595,6 +3597,56 @@ function generateJs() {
         } catch (e) {}
     };
 
+    const CONTEXT_MENU_EXACT_MAP = {
+        "Rename": "重命名",
+        "Mark Unread": "标记为未读",
+        "Mark Read": "标记为已读",
+        "Copy": "复制",
+        "Split": "拆分",
+        "Archive": "归档",
+        "Delete": "删除",
+        "Conversation Name": "会话名称",
+        "Conversation ID": "会话 ID",
+        "Project Name": "项目名称",
+        "Split Right": "向右拆分",
+        "Split Down": "向下拆分",
+        "Copy File Path": "复制文件路径",
+        "Copy File Name": "复制文件名称",
+        "Add to Chat": "添加到聊天",
+        "Copy Image": "复制图片",
+        "Save Image": "保存图片"
+    };
+
+    function translateContextMenuLabel(label, id) {
+        if (typeof label !== 'string' || !label) return label;
+        const itemId = String(id || '');
+        if (/^group-(?!new$|remove$)/i.test(itemId)) return label;
+        const trimmed = norm(label);
+        if (!trimmed) return label;
+        if (CONTEXT_MENU_EXACT_MAP[trimmed]) return CONTEXT_MENU_EXACT_MAP[trimmed];
+        return label;
+    }
+
+    function translateContextMenuItems(items) {
+        if (!Array.isArray(items)) return items;
+        return items.map(item => {
+            if (!item || typeof item !== 'object') return item;
+            const next = Object.assign({}, item);
+            if (typeof next.label === 'string') {
+                next.label = translateContextMenuLabel(next.label, next.id);
+            }
+            if (Array.isArray(next.submenu)) {
+                next.submenu = translateContextMenuItems(next.submenu);
+            }
+            if (Array.isArray(next.items)) {
+                next.items = translateContextMenuItems(next.items);
+            }
+            return next;
+        });
+    }
+
+    globalThis.__agTranslateContextMenuItems = translateContextMenuItems;
+
     const origAttachShadow = Element.prototype.attachShadow;
     Element.prototype.attachShadow = function() {
         const sr = origAttachShadow.apply(this, arguments);
@@ -3628,7 +3680,11 @@ function removeMarkedBlocks(content, startMark, endMark) {
 
 function cleanJsContent(content) {
     const withoutLegacy = removeMarkedBlocks(content, LEGACY_SIGNATURE_START, LEGACY_SIGNATURE_END);
-    return removeMarkedBlocks(withoutLegacy, SIGNATURE_START, SIGNATURE_END);
+    const withoutSig = removeMarkedBlocks(withoutLegacy, SIGNATURE_START, SIGNATURE_END);
+    return withoutSig.replace(
+        "showContextMenu: (items) => electron_1.ipcRenderer.invoke('window:show-context-menu', typeof globalThis.__agTranslateContextMenuItems === 'function' ? globalThis.__agTranslateContextMenuItems(items) : items),",
+        "showContextMenu: (items) => electron_1.ipcRenderer.invoke('window:show-context-menu', items),"
+    );
 }
 
 function cleanMenuJsContent(content) {
@@ -3639,6 +3695,10 @@ function cleanMenuJsContent(content) {
 function cleanTrayJsContent(content) {
     const withoutLegacy = removeMarkedBlocks(content, LEGACY_TRAY_SIGNATURE_START, LEGACY_TRAY_SIGNATURE_END);
     return removeMarkedBlocks(withoutLegacy, TRAY_SIGNATURE_START, TRAY_SIGNATURE_END);
+}
+
+function cleanIpcHandlersJsContent(content) {
+    return removeMarkedBlocks(content, IPC_CONTEXT_MENU_SIGNATURE_START, IPC_CONTEXT_MENU_SIGNATURE_END);
 }
 
 let wasAppRunning = false;
@@ -4381,7 +4441,10 @@ function installLocalization(resourcesDir) {
 
     console.log(`[修改] 正在向 preload.js 注入汉化代码...`);
     const content = preloadBuf.toString('utf-8');
-    const cleanedContent = cleanJsContent(content);
+    const cleanedContent = cleanJsContent(content).replace(
+        "showContextMenu: (items) => electron_1.ipcRenderer.invoke('window:show-context-menu', items),",
+        "showContextMenu: (items) => electron_1.ipcRenderer.invoke('window:show-context-menu', typeof globalThis.__agTranslateContextMenuItems === 'function' ? globalThis.__agTranslateContextMenuItems(items) : items),"
+    );
     const translationJs = generateJs();
 
     try {
@@ -4584,7 +4647,55 @@ function installLocalization(resourcesDir) {
         console.log(`[修改] 主进程 WSL 提示汉化注入成功！`);
     }
 
-    // 8. 打包并写入 app.asar
+    // 8. dist/ipcHandlers.js
+    const ipcHandlersBuf = AsarArchive.readFile(sourceAsar, "dist/ipcHandlers.js");
+    if (ipcHandlersBuf) {
+        console.log(`[修改] 正在向 ipcHandlers.js 注入原生右键菜单汉化...`);
+        let ipcContent = ipcHandlersBuf.toString('utf-8');
+        let ipcCleaned = cleanIpcHandlersJsContent(ipcContent);
+        const contextMenuMatch = ipcCleaned.match(/function\s+buildContextMenuTemplate\s*\(\s*items\s*,\s*onSelect\s*\)\s*\{/);
+        if (contextMenuMatch) {
+            const matchedHeader = contextMenuMatch[0];
+            const replacementHeader = `${matchedHeader}
+    ${IPC_CONTEXT_MENU_SIGNATURE_START}
+    const contextMenuTranslations = {
+        "Rename": "重命名",
+        "Mark Unread": "标记为未读",
+        "Mark Read": "标记为已读",
+        "Copy": "复制",
+        "Split": "拆分",
+        "Archive": "归档",
+        "Delete": "删除",
+        "Conversation Name": "会话名称",
+        "Conversation ID": "会话 ID",
+        "Project Name": "项目名称",
+        "Split Right": "向右拆分",
+        "Split Down": "向下拆分",
+        "Copy File Path": "复制文件路径",
+        "Copy File Name": "复制文件名称",
+        "Add to Chat": "添加到聊天",
+        "Copy Image": "复制图片",
+        "Save Image": "保存图片"
+    };
+    if (Array.isArray(items)) {
+        items = items.map((item) => {
+            if (!item || typeof item !== 'object') return item;
+            const itemId = String(item.id || '');
+            if (/^group-(?!new$|remove$)/i.test(itemId)) return item;
+            const rawLabel = typeof item.label === 'string' ? item.label.trim() : '';
+            const translatedLabel = rawLabel && contextMenuTranslations[rawLabel] ? contextMenuTranslations[rawLabel] : item.label;
+            return translatedLabel !== item.label ? Object.assign({}, item, { label: translatedLabel }) : item;
+        });
+    }
+    ${IPC_CONTEXT_MENU_SIGNATURE_END}`;
+            filePatches["dist/ipcHandlers.js"] = ipcCleaned.replace(matchedHeader, replacementHeader);
+            console.log(`[修改] 原生右键菜单汉化注入成功！`);
+        } else {
+            console.warn(`[警告] 未能在 ipcHandlers.js 中找到 buildContextMenuTemplate 函数的插入点。`);
+        }
+    }
+
+    // 9. 打包并写入 app.asar
     const tempAsarPath = path.join(resourcesDir, "app.asar.tmp");
     try {
         console.log(`[打包] 正在将修改后的内容打包回 app.asar...`);
