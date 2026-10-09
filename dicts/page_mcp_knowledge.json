@@ -11,6 +11,7 @@
     "Knowledge Generation": "知识生成",
     "Search for MCP servers": "搜索 MCP 服务器",
     "No MCP servers installed": "未安装 MCP 服务器",
+    "No MCP servers yet. Use Add to browse the store.": "暂无 MCP 服务器。使用“添加”浏览商店",
     "Use Add MCP to browse the store, or add a custom server via the MCP config.": "使用“添加 MCP”浏览商店，或通过 MCP 配置添加自定义服务器",
     "Create, inspect, restrict, and manage the lifecycle of API keys in your Google Cloud projects using natural language.": "使用自然语言创建、检查、限制并管理您的 Google Cloud 项目中 API 密钥的生命周期",
     "Interact with your Vercel projects using natural language. Vercel MCP allows AI tools to search Vercel documentation, inspect projects and deployments, analyze deployment and build logs, and manage supported Vercel resources securely.": "使用自然语言与您的 Vercel 项目进行交互。Vercel MCP 允许 AI 工具搜索 Vercel 文档、检查项目与部署、分析部署与构建日志，并安全地管理受支持的 Vercel 资源",

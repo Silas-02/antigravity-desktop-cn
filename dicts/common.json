@@ -28,6 +28,7 @@
     "Search by name or Cascade ID...": "按名称或 Cascade ID 搜索...",
     "Type to search...": "输入以搜索...",
     "Filter": "筛选",
+    "All": "全部",
     "Proceed": "继续",
     "Approve": "批准",
     "Reject": "驳回",
@@ -302,5 +303,8 @@
     "Save Image": "保存图片",
     "Failed to save video:": "保存视频失败：",
     "Failed to save image:": "保存图片失败：",
-    "Videos must be at least 1 second long": "视频时长必须至少为 1 秒"
+    "Videos must be at least 1 second long": "视频时长必须至少为 1 秒",
+    "Before": "修改前",
+    "After": "修改后",
+    "Not available": "不可用"
 }

@@ -314,5 +314,7 @@
     "Inherits your General settings": "继承您的通用设置",
     "Use theme to be imported with settings": "使用随设置导入的主题",
     "Open project settings": "打开项目设置",
-    "Edit extension settings": "编辑扩展设置"
+    "Edit extension settings": "编辑扩展设置",
+    "Skills & Rules": "技能与规则",
+    "Built In": "内置"
 }
