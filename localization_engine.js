@@ -468,6 +468,31 @@ function generateJs() {
         return false;
     }
 
+    // Folder is a product label only in the Add Context menu, alongside these
+    // fixed actions. Never add this generic word to the global dictionary.
+    function translateAttachmentMenuFolder(node, value) {
+        if (norm(value) !== 'Folder') return false;
+        const label = node.parentElement;
+        if (!label || label.tagName !== 'SPAN' || label.childNodes.length !== 1) return false;
+        const row = label.parentElement;
+        const group = row?.parentElement;
+        if (row?.getAttribute('role') !== 'menuitem' || group?.getAttribute('role') !== 'group') return false;
+        const menu = group.closest('[role="menu"]');
+        if (!menu || isInBlockedZone(menu)) return false;
+        const heading = Array.from(group.children).find(element =>
+            element.getAttribute('role') !== 'menuitem' && /^(?:Add Context|添加上下文)$/.test(norm(element.textContent)));
+        if (!heading) return false;
+        const labels = Array.from(group.children)
+            .filter(element => element.getAttribute('role') === 'menuitem')
+            .flatMap(element => Array.from(element.children)
+                .filter(child => child.tagName === 'SPAN' && child.childNodes.length === 1)
+                .map(child => norm(child.textContent)));
+        if (![['Media', '媒体'], ['Mentions', '提及'], ['Actions', '操作']]
+            .every(variants => variants.some(text => labels.includes(text)))) return false;
+        replaceTextNode(node, '文件夹');
+        return true;
+    }
+
     // The product-owned attachment label is rendered inside the protected
     // user-input container. Match its exact source structure so user text,
     // comment bodies, file names, and other descendants remain untouched.
@@ -3356,6 +3381,7 @@ function generateJs() {
                     return;
                 }
 
+                if (translateAttachmentMenuFolder(node, originalVal)) return;
                 if (translateSkillPickerNameTextNode(node, originalVal)) return;
                 if (translateCommitSummaryTextNode(node, originalVal)) return;
                 if (!parentContainersScanned && translateSpecialContainers(node.parentElement)) return;

@@ -4,6 +4,7 @@
     "Delete agent": "删除智能体",
     "Custom Agents": "自定义智能体",
     "Subagents": "子智能体",
+    "Message subagent, @ to mention, / for actions": "给子智能体发送消息，输入 @ 提及，输入 / 选择操作",
     "Skills": "技能",
     "Installed Skills": "已安装技能",
     "Active": "活跃",
@@ -24,9 +25,5 @@
     "Agent encountered an internal error.": "智能体遇到内部错误",
     "Agent execution failed.": "智能体执行失败",
     "Agent Hooks Configuration": "智能体钩子配置",
-    "Agent asks for permission before executing commands matched by a deny list entry.": "智能体在执行匹配拒绝列表条目的命令之前会征求许可",
-    "Agent auto-executes commands matched by an allow list entry.": "智能体将自动执行匹配允许列表条目的命令",
-    "No recommended skills found in workspace": "工作区中未找到推荐的技能",
-    "Research": "调研",
-    "research": "调研"
+    "No recommended skills found in workspace": "工作区中未找到推荐的技能"
 }
