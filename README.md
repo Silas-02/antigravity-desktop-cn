@@ -1,25 +1,25 @@
 # Antigravity 中文汉化引擎（Windows / macOS / Linux）
 
-> **支持系统**：Windows / macOS / Linux（含 Ubuntu 等常见发行版，已内置全平台一键安装与还原脚本及图形双击启动器）
+> **支持系统**：Windows / macOS / Linux（含 Ubuntu 等常见发行版）
 >
 > **语言支持**：简体中文
 >
-> **汉化版本**：v2.21.1
+> **汉化版本**：v2.23.0
 >
-> **匹配版本**：Antigravity v2.21.1
+> **匹配版本**：Antigravity v2.23.0
 >
-> **最近更新**：2026-10-09
+> **最近更新**：2026-10-13
 >
 > **核心运行环境**： Node.js
 >
-> **汉化范围**：当前 v2.21.1 词典面向 Antigravity v2.21.1，覆盖主界面、顶部系统菜单与任务栏菜单、加载页、设置面板、新手引导与登录流程、对话及自动化/计划任务管理、个性化定制与插件市场、MCP 服务器列表，以及各类动态状态、提示和操作反馈。少量内容可能因客户端异步渲染、第三方嵌入或官方后续新增界面而暂未覆盖。
+> **汉化范围**：当前 v2.23.0 词典面向 Antigravity v2.23.0，覆盖主界面、顶部系统菜单与任务栏菜单、加载页、设置面板、新手引导与登录流程、对话及自动化/计划任务管理、个性化定制与插件市场、MCP 服务器列表，以及各类动态状态、提示和操作反馈。少量内容可能因客户端异步渲染、第三方嵌入或官方后续新增界面而暂未覆盖。
 >
 > **注入原理**：通过 ASAR 还原与重包，安全注入 `preload.js` 动态翻译机制，macOS 端自动完成隔离属性清除与由内而外应用自签名，绝不修改核心二进制，一键安装与完美还原。
 
 > [!IMPORTANT]
 > **聊天历史记录/对话内容隔离与匹配机制说明（开发者必读）**：
 >
-> - **用户消息隔离**：Antigravity 2.21.1 会为每条已发送及历史用户消息标记 `data-testid="user-input-step"`。翻译引擎默认跳过该容器及其后代节点；仅对结构已确认的客户端固定标签（例如附件区的 `Commented on:`）使用精确例外。用户正文、评论内容和文件名仍不会参与翻译，因此不会影响用户发送的英文原文。
+> - **用户消息隔离**：Antigravity 2.23.0 会为每条已发送及历史用户消息标记 `data-testid="user-input-step"`。翻译引擎默认跳过该容器及其后代节点；仅对结构已确认的客户端固定标签（例如附件区的 `Commented on:`）使用精确例外。用户正文、评论内容和文件名仍不会参与翻译，因此不会影响用户发送的英文原文。
 > - **扩展禁区**：如需为第三方嵌入区或特殊内容区显式禁用翻译，可在容器元素上添加 `data-ag-localization-skip` 属性；该容器及其后代都不会参与翻译。
 > - **核心匹配机制**：
 >   - **精确匹配（任意长度，如 `Knowledge`）**：文本经过折叠空白、去除首尾空白和统一弯引号后，只有在完整文本节点与词条匹配时才会翻译。如果前后还有其他字符或标点（如 `Knowledge是什么`、`哈哈 Knowledge`），则不会触发该精确词条。
@@ -53,9 +53,10 @@
 - **`install.sh`**：macOS / Linux 一键汉化终端执行入口。
 - **`uninstall.sh`**：macOS / Linux 使用备份还原官方英文终端执行入口。
 - **`localization_engine.js`**：核心汉化逻辑，跨平台自动适配，负责 app.asar 的解包、代码注入、macOS 隔离修复与自签名及重新打包。
-- **`dicts/`**：汉化字典文件夹，内含按模块分类的 JSON 对照翻译字典；当前版本的核心词典为 `dicts/v2.21.1.json`。
+- **`dicts/`**：汉化字典文件夹，内含按模块分类的 JSON 对照翻译字典；当前版本的核心词典为 `dicts/v2.23.0.json`。
+- **`.agents/skills/sync-marketplace-plugins/`**：插件市场本地缓存同步与审计技能，内置 Node.js 原生比对审计工具。
 - **`AGENTS.md`**：项目通用规则。支持 `AGENTS.md` 的 AI 会将其作为项目上下文，按其中的汉化边界与动态文案处理要求工作。
-- **`.gitattributes`**：Git 属性规则。它会保护 Windows `.bat` 文件的 GBK/CRLF 字节内容与 macOS `.command` 文件的 LF 换行符，避免 Git 的自动文本转换破坏安装或卸载脚本，请保留此文件。
+- **`.gitattributes`**：Git 属性规则。它会保护 Windows `.bat` 文件的 GBK/CRLF 字节内容与 macOS `.command` 文件的 LF 换行符，避免 Git 的自动文本转换破坏安装或卸载脚本。
 
 ---
 
@@ -173,6 +174,19 @@
 
 </details>
 
+<details>
+<summary><strong>3. 方式三：一键同步与审计官方插件市场（Marketplace 🧩）</strong></summary>
+
+当 Antigravity 客户端更新版本后，官方插件市场可能会新增插件、更新建议提示词或下架旧插件。您可以直接向 AI 发送指令进行全自动对比审计：
+
+> **"请使用 `sync-marketplace-plugins` 技能审计比对官方插件市场的本地缓存，检查是否有新上架的插件、文案变动或下架插件，并输出比对报告。"**
+
+AI 会自动激活内置技能并调用原生 Node.js 工具对比本地缓存与 `dicts/marketplace_plugins.json`，呈现结构化清单并征求您的确认后再执行汉化或清理。
+
+*(开发者亦可在终端直接执行 `node .agents/skills/sync-marketplace-plugins/scripts/diff_marketplace_plugins.js` 获取实时报告。)*
+
+</details>
+
 ---
 
 ### 🔄 更新生效流程
@@ -191,11 +205,12 @@
 
 对于界面上不含变量的固定标签、按钮文字、弹窗标题等，直接维护 `dicts/` 下的 JSON 文件：
 
-- **`v2.21.1.json`**：当前版本 v2.21.1 专用词典，适配官方版本迭代的独有界面。
+- **`v2.23.0.json`**：当前版本 v2.23.0 专用词典，适配官方版本迭代的独有界面。
 - **`common.json`**：通用基础词汇、侧边栏概览、登录与引导流程、通用按钮与权限弹窗。
 - **`menu_nav.json`**：系统菜单、顶部导航与状态栏菜单。
 - **`page_agents.json`**：智能体（Agent）、任务及会话管理相关页面。
 - **`page_mcp_knowledge.json`**：MCP 服务器、知识库与扩展配置页面。
+- **`marketplace_plugins.json`**：官方插件市场、插件详情与建议提示词。
 - **`page_settings.json`**：详细参数设置面板与二级权限菜单。
 - **`page_workspaces.json`**：工作区与项目管理相关页面。
 
@@ -224,6 +239,25 @@
   - 场景：Electron 原生标题栏（`menu.js`）、系统托盘（`tray.js`）及更新检查（`updater.js`）。
   - 实现：修改引擎中对应的原生代码注入模板。
 
+---
+
+### 3. 插件市场（Marketplace）自动审计与同步
+
+官方插件市场的元数据与技能包由客户端自动下载并缓存在本地 `~/.gemini/antigravity/cache/marketplaces/antigravity-plugins-official/plugins/` 目录。项目内置了纯 Node.js 的全自动审计与比对脚本：
+
+```bash
+# 1. 运行本地官方插件缓存与字典比对（默认输出人读格式）
+node .agents/skills/sync-marketplace-plugins/scripts/diff_marketplace_plugins.js
+
+# 2. 以 JSON 格式输出分析结果（便于程序化消费）
+node .agents/skills/sync-marketplace-plugins/scripts/diff_marketplace_plugins.js --json
+```
+
+- **翻译边界标准**：
+  - **Google Workspace 官方专区**：全量汉化，包含插件卡片简介、建议提示词、斜杠技能描述及 `SKILL_PICKER_DISPLAY_ENTRIES` 上下文安全绑定。
+  - **其余官方插件专区**（Flutter、Firebase、Data Agent Kit、Modern Web等）：严格仅翻译市场通用界面控件、卡片一句话简介与官方建议提示词三项。
+
+---
 
 ## 常见问题解答 (FAQ)
 
@@ -320,7 +354,7 @@
    - 引入编码保护（GBK/CRLF 隔离）、macOS 隔离属性修复与由内而外应用自签名、以及权限自适应机制，杜绝 Windows 控制台乱码、macOS 签名失效闪退与 Linux 权限异常。
 
 2. **模块化分词典与高效版本迭代架构**：
-   - 将单体庞大词典解耦为模块化分包（`common`、`menu_nav`、`page_settings`、`page_agents` 等），结合版本独立词典机制（如 `dicts/v2.21.1.json`），大幅提升词条维护效率并保持追溯清晰。
+   - 将单体庞大词典解耦为模块化分包（`common`、`menu_nav`、`page_settings`、`page_agents` 等），结合版本独立词典机制（如 `dicts/v2.23.0.json`），大幅提升词条维护效率并保持追溯清晰。
 
 3. **严格的内容隔离与高安全渲染保护边界**：
    - **用户消息与历史对话绝对隔离**：严格适配客户端的 `data-testid="user-input-step"` 与 `data-ag-localization-skip` 禁区机制，坚决不翻译、不篡改用户提示词正文、聊天历史、代码块与终端输出，防止误译与数据污染。

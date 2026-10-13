@@ -291,6 +291,8 @@
     "Run all commands without restrictions.": "无限制运行所有命令",
     "Vetted (Preview)": "审查模式 (预览)",
     "A Gemini-powered security agent decides if commands should be auto-approved.": "由 Gemini 驱动的安全智能体判断命令是否应自动批准",
+    "Auto (Preview)": "自动 (预览)",
+    "Automatically decide if commands run.": "自动决定是否运行命令",
     "Review permissions": "审查权限",
     "Windows Subsystem for Linux": "适用于 Linux 的 Windows 子系统 (WSL)",
     "Run the app against a Linux environment. Connecting relaunches the app into the selected WSL distro.": "在 Linux 环境中运行此应用。连接后将重启应用并切换至所选的 WSL 分发版",

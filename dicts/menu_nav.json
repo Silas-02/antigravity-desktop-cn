@@ -66,5 +66,7 @@
     "Open Conversation": "打开会话",
     "Open extension": "打开扩展",
     "Open allowlist": "打开允许列表",
-    "Open in Remote Control": "在远程控制中打开"
+    "Open in Remote Control": "在远程控制中打开",
+    "Pin": "置顶",
+    "Unpin": "取消置顶"
 }

@@ -1120,6 +1120,56 @@ function generateJs() {
                 "具备只读工具的调研子智能体，用于探索代码库、搜索网络和阅读文件。当您需要在独立的会话上下文中运行具有与当前智能体相同能力的任务、研究任务需要执行大量会使上下文变得混乱的搜索与文件读取步骤，或需要对代码库或文档进行广泛调研时，请委托给该智能体。对于快速、有针对性的查询，建议由主智能体自行完成",
                 "具备只读工具的调研型子智能体，用于探索代码库、搜索网络和阅读文件"
             ]
+        },
+        {
+            source: 'gcalendar',
+            display: "Google 日历",
+            descriptions: [
+                "Read, create, and manage Google Calendar events. Use when the user shares a calendar.google.com URL, asks what is on their schedule, wants an event found, created, updated, deleted, or moved, wants to RSVP, wants free/busy or scheduling conflicts checked before proposing a time, wants focus time or an out-of-office block created, wants an event quick-added from a phrase or imported from an ICS file, or wants to know where someone is working from and which timezone they are in. Don't use for Gmail, Chat, or Tasks.",
+                "Read, create, and manage Google Calendar events.",
+                "读取、创建并管理 Google 日历日程。当用户分享 calendar.google.com 链接、询问日程安排、需要查找、创建、更新、删除或移动日程、回复邀请、在提议时间前检查空闲/忙碌或日程冲突、创建专注时间或不在办公室状态块、通过短语快速添加日程或从 ICS 文件导入，或需要了解某人的工作地点及所在时区时使用。请勿用于 Gmail、Chat 或 Google 任务",
+                "读取、创建并管理 Google 日历日程"
+            ]
+        },
+        {
+            source: 'gdocs',
+            display: "Google 文档",
+            descriptions: [
+                "Read, create, edit, and manage Google Docs. Use when the user shares a docs.google.com URL, asks to summarize or extract content from a doc, wants a doc drafted, edited, formatted, or commented on, wants tables, images, or smart chips inserted, wants markdown imported or synchronized with a doc, or wants a doc exported. Requires a known document ID — use the gdrive skill to search for or locate documents. Don't use for Google Sheets, Slides, or Drive file management.",
+                "Read, create, edit, and manage Google Docs.",
+                "读取、创建、编辑并管理 Google 文档。当用户分享 docs.google.com 链接、要求总结或提取文档内容、起草、编辑、排版或评论文档、插入表格、图片或智能画布卡片、导入或同步 Markdown 到文档，或导出文档时使用。需要已知的文档 ID —— 请使用 gdrive 技能搜索或查找文档。请勿用于 Google 表格、幻灯片或云端硬盘文件管理",
+                "读取、创建、编辑并管理 Google 文档"
+            ]
+        },
+        {
+            source: 'gdrive',
+            display: "Google 云端硬盘",
+            descriptions: [
+                "Browse, search, and manage Google Drive files and folders. Use when the user shares a drive.google.com URL, asks what is in a folder, wants a file found, downloaded, uploaded, updated in place, moved, copied, or renamed, wants a Google file exported to PDF, Markdown, or CSV, wants comments read or added, wants sharing and permissions checked or changed, or wants Drive activity watched. Don't use for editing the contents of a Doc, Sheet, or Slides deck.",
+                "Browse, search, and manage Google Drive files and folders.",
+                "浏览、搜索并管理 Google 云端硬盘文件和文件夹。当用户分享 drive.google.com 链接、询问文件夹中的内容、需要查找、下载、上传、就地更新、移动、复制或重命名文件、将 Google 文件导出为 PDF、Markdown 或 CSV、读取或添加评论、检查或更改共享权限，或监控云端硬盘动态时使用。请勿用于编辑文档、表格或幻灯片的内容",
+                "浏览、搜索并管理 Google 云端硬盘文件和文件夹"
+            ]
+        },
+        {
+            source: 'gsheets',
+            display: "Google 表格",
+            descriptions: [
+                "Read, write, format, and manage Google Sheets. Use when the user shares a sheets.google.com or docs.google.com/spreadsheets URL, asks to read or summarize spreadsheet data, wants cells written, formatted, sorted, merged, or validated, wants rows/columns inserted or deleted, wants charts, pivot tables, or tables added, wants CSV imported, or wants a spreadsheet created, copied, shared, or exported. Don't use for Google Docs, Slides, or Drive file management.",
+                "Read, write, format, and manage Google Sheets.",
+                "读取、编写、格式化并管理 Google 表格。当用户分享 sheets.google.com 或 docs.google.com/spreadsheets 链接、要求读取或总结电子表格数据、需要写入、格式化、排序、合并或验证单元格、插入或删除行/列、添加图表、数据透视表或表格、导入 CSV，或创建、复制、共享或导出电子表格时使用。请勿用于 Google 文档、幻灯片或云端硬盘文件管理",
+                "读取、编写、格式化并管理 Google 表格"
+            ]
+        },
+        {
+            source: 'gslides',
+            display: "Google 幻灯片",
+            descriptions: [
+                "Read, create, and edit Google Slides presentations. Use when creating presentations, when the user shares a slides.google.com URL, asks to summarize or extract content from a deck, wants slides drafted or updated, or wants a presentation exported. Don't use for Google Docs, Sheets, or Drive file management.",
+                "Read, create, and edit Google Slides presentations.",
+                "读取、创建并编辑 Google 幻灯片演示文稿。在创建演示文稿、用户分享 slides.google.com 链接、要求总结或提取演示文稿内容、起草或更新幻灯片，或导出演示文稿时使用。请勿用于 Google 文档、表格或云端硬盘文件管理",
+                "读取、创建并编辑 Google 幻灯片演示文稿"
+            ]
         }
     ];
 
@@ -3988,6 +4038,8 @@ function generateJs() {
         "Split": "拆分",
         "Archive": "归档",
         "Delete": "删除",
+        "Pin": "置顶",
+        "Unpin": "取消置顶",
         "Conversation Name": "会话名称",
         "Conversation ID": "会话 ID",
         "Project Name": "项目名称",
@@ -5053,6 +5105,8 @@ function installLocalization(resourcesDir) {
         "Split": "拆分",
         "Archive": "归档",
         "Delete": "删除",
+        "Pin": "置顶",
+        "Unpin": "取消置顶",
         "Conversation Name": "会话名称",
         "Conversation ID": "会话 ID",
         "Project Name": "项目名称",
