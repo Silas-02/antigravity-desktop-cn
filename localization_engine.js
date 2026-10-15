@@ -156,7 +156,7 @@ function generateJs() {
 
     function translateWithShortcut(val) {
         if (!val) return null;
-        const match = val.match(/^(.+?)\\s*\\((Ctrl|Cmd|Alt|Shift|⌘|⌥|⇧|⌃)\\+?([^)]*)\\)$/i);
+        let match = val.match(/^(.+?)\\s*\\((Ctrl|Cmd|Alt|Shift|⌘|⌥|⇧|⌃)\\+?([^)]*)\\)$/i);
         if (match) {
             const prefix = match[1].trim();
             const normPref = norm(prefix);
@@ -169,6 +169,21 @@ function generateJs() {
             }
             if (transPref) {
                 return transPref + " (" + match[2] + (match[3] ? "+" + match[3] : "") + ")";
+            }
+        }
+        match = val.match(/^(.+?)\\s+(Ctrl|Cmd|Alt|Shift|⌘|⌥|⇧|⌃)\\+([A-Za-z0-9;,.\/-]+)$/i);
+        if (match) {
+            const prefix = match[1].trim();
+            const normPref = norm(prefix);
+            const lowerPref = normPref.toLowerCase();
+            let transPref = null;
+            if (map.has(normPref)) {
+                transPref = map.get(normPref);
+            } else if (lowerMap.has(lowerPref)) {
+                transPref = lowerMap.get(lowerPref);
+            }
+            if (transPref) {
+                return transPref + " " + match[2] + "+" + match[3];
             }
         }
         return null;
@@ -434,6 +449,10 @@ function generateJs() {
     }
 
     function isInSkillItemContext(node) {
+        if (node.nodeType === Node.TEXT_NODE) {
+            const val = norm(node.nodeValue);
+            if (val.length > 40 || /[,.?!，。？！]/.test(val)) return false;
+        }
         let current = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
         for (let depth = 0; current && depth < 4; depth++) {
             if (current === document.body || current === document.documentElement) break;
@@ -986,6 +1005,16 @@ function generateJs() {
 
     const SKILL_PICKER_DISPLAY_ENTRIES = [
         {
+            source: 'compact',
+            display: "压缩会话",
+            descriptions: [
+                "Compact the conversation now (summarize history to free up the context window).",
+                "Compact the conversation now (summarize history to free up the context window)",
+                "立即压缩会话（总结历史记录以释放上下文窗口）。",
+                "立即压缩会话（总结历史记录以释放上下文窗口）"
+            ]
+        },
+        {
             source: 'btw',
             display: "快速提问",
             descriptions: [
@@ -1112,6 +1141,19 @@ function generateJs() {
             ]
         },
         {
+            source: 'sync-marketplace-plugins',
+            display: "同步插件市场",
+            descriptions: [
+                "Sync, audit, and diff official Antigravity Marketplace plugins from the local cache (~/.gemini/antigravity/cache/marketplaces/antigravity-plugins-official/) against dicts/marketplace_plugins.json. Use this skill whenever an Antigravity version upgrade occurs, or when the user requests updating, auditing, or cleaning plugin marketplace translations.",
+                "Sync, audit, and diff official Antigravity Marketplace plugins from the local cache",
+                "同步、审计并比对官方 Antigravity 插件市场插件与插件市场专用词典。在 Antigravity 版本升级或需要更新、审计及清理插件市场汉化文案时使用此技能。",
+                "同步、审计并比对官方 Antigravity 插件市场插件与插件市场专用词典",
+                "从本地缓存同步、审计并比对官方 Antigravity 插件市场插件",
+                "同步官方 Antigravity 插件市场本地缓存并进行审计与比对",
+                "同步、审计并比对官方 Antigravity 插件市场本地缓存"
+            ]
+        },
+        {
             source: 'research',
             display: "调研",
             descriptions: [
@@ -1126,19 +1168,29 @@ function generateJs() {
             display: "Google 日历",
             descriptions: [
                 "Read, create, and manage Google Calendar events. Use when the user shares a calendar.google.com URL, asks what is on their schedule, wants an event found, created, updated, deleted, or moved, wants to RSVP, wants free/busy or scheduling conflicts checked before proposing a time, wants focus time or an out-of-office block created, wants an event quick-added from a phrase or imported from an ICS file, or wants to know where someone is working from and which timezone they are in. Don't use for Gmail, Chat, or Tasks.",
-                "Read, create, and manage Google Calendar events.",
+                "Check availability, schedule events, and RSVP.",
+                "Run your Google Calendar. Find a time that works for everyone, send invites, block focus time, and get briefed on your day with any conflicts flagged.",
+                "读取、创建并管理 Google 日历日程. 当用户分享 calendar.google.com 链接、询问日程安排、需要查找、创建、更新、删除或移动日程、回复邀请、在提议时间前检查空闲/忙碌或日程冲突、创建专注时间或不在办公室状态块、通过短语快速添加日程或从 ICS 文件导入，或需要了解某人的工作地点及所在时区时使用. 请勿用于 Gmail、Chat 或 Google 任务.",
                 "读取、创建并管理 Google 日历日程。当用户分享 calendar.google.com 链接、询问日程安排、需要查找、创建、更新、删除或移动日程、回复邀请、在提议时间前检查空闲/忙碌或日程冲突、创建专注时间或不在办公室状态块、通过短语快速添加日程或从 ICS 文件导入，或需要了解某人的工作地点及所在时区时使用。请勿用于 Gmail、Chat 或 Google 任务",
-                "读取、创建并管理 Google 日历日程"
+                "查看空闲情况、安排活动并回复邀请.",
+                "查看空闲状态、安排日程并回复邀请.",
+                "运行您的 Google Calendar。找到适合每个人的时间、发送邀请、锁定专注时间，并在标记任何冲突的情况下了解您一天的安排",
+                "管理您的 Google Calendar。查找适合所有人的时间、发送邀请、预留专注时间，并获取每日日程简报及冲突提醒"
             ]
         },
         {
             source: 'gdocs',
             display: "Google 文档",
             descriptions: [
-                "Read, create, edit, and manage Google Docs. Use when the user shares a docs.google.com URL, asks to summarize or extract content from a doc, wants a doc drafted, edited, formatted, or commented on, wants tables, images, or smart chips inserted, wants markdown imported or synchronized with a doc, or wants a doc exported. Requires a known document ID — use the gdrive skill to search for or locate documents. Don't use for Google Sheets, Slides, or Drive file management.",
-                "Read, create, edit, and manage Google Docs.",
-                "读取、创建、编辑并管理 Google 文档。当用户分享 docs.google.com 链接、要求总结或提取文档内容、起草、编辑、排版或评论文档、插入表格、图片或智能画布卡片、导入或同步 Markdown 到文档，或导出文档时使用。需要已知的文档 ID —— 请使用 gdrive 技能搜索或查找文档。请勿用于 Google 表格、幻灯片或云端硬盘文件管理",
-                "读取、创建、编辑并管理 Google 文档"
+                "Read, create, edit, and manage Google Docs. Use when the user shares a docs.google.com URL, asks to summarize or extract content from a doc, wants a doc drafted, edited, formatted, or commented on, wants tables, images, or smart chips inserted, wants markdown imported or synchronized with a doc, or wants a doc exported. Requires a known document ID — to find documents, use the gdrive skill from the Google Drive plugin; if it isn't installed, ask the user for the doc link. Don't use for Google Sheets, Slides, or Drive file management.",
+                "Read, draft, and edit docs.",
+                "Read and write your Google Docs. Summarize any doc from its link, draft proposals and announcements in a new doc, and reply to and resolve open comments.",
+                "读取、创建、编辑并管理 Google 文档. 当用户分享 docs.google.com 链接、要求总结或提取文档内容、起草、编辑、排版或评论文档、插入表格、图片或智能画布卡片、导入或同步 Markdown 到文档，或导出文档时使用. 需要已知的文档 ID —— 如需查找文档，请使用 Google Drive 插件中的 gdrive 技能; 若尚未安装，请向用户索取文档链接. 请勿用于 Google 表格、幻灯片或云端硬盘文件管理.",
+                "读取、创建、编辑并管理 Google 文档。当用户分享 docs.google.com 链接、要求总结或提取文档内容、起草、编辑、排版或评论文档、插入表格、图片或智能画布卡片、导入或同步 Markdown 到文档，或导出文档时使用。需要已知的文档 ID —— 如需查找文档，请使用 Google Drive 插件中的 gdrive 技能；若尚未安装，请向用户索取文档链接。请勿用于 Google 表格、幻灯片或云端硬盘文件管理",
+                "读取、起草和编辑文档.",
+                "阅读、起草和编辑文档.",
+                "读写您的 Google Docs. 通过链接总结任意文档，在新文档中起草提案与公告，以及回复并解决未处理的评论.",
+                "阅读并编写您的 Google Docs. 通过链接总结任何文档、在新建文档中起草方案和公告，并回复和解决未结评论."
             ]
         },
         {
@@ -1146,9 +1198,13 @@ function generateJs() {
             display: "Google 云端硬盘",
             descriptions: [
                 "Browse, search, and manage Google Drive files and folders. Use when the user shares a drive.google.com URL, asks what is in a folder, wants a file found, downloaded, uploaded, updated in place, moved, copied, or renamed, wants a Google file exported to PDF, Markdown, or CSV, wants comments read or added, wants sharing and permissions checked or changed, or wants Drive activity watched. Don't use for editing the contents of a Doc, Sheet, or Slides deck.",
-                "Browse, search, and manage Google Drive files and folders.",
+                "Search, upload, download, and share files.",
+                "Find and organize your Google Drive. Search across your files, tidy up folders, share them with the right people, and download or export them as PDF, CSV, or Markdown.",
+                "浏览、搜索并管理 Google 云端硬盘文件和文件夹. 当用户分享 drive.google.com 链接、询问文件夹中的内容、需要查找、下载、上传、就地更新、移动、复制或重命名文件、将 Google 文件导出为 PDF、Markdown 或 CSV、读取或添加评论、检查或更改共享权限，或监控云端硬盘动态时使用. 请勿用于编辑文档、表格或幻灯片的内容.",
                 "浏览、搜索并管理 Google 云端硬盘文件和文件夹。当用户分享 drive.google.com 链接、询问文件夹中的内容、需要查找、下载、上传、就地更新、移动、复制或重命名文件、将 Google 文件导出为 PDF、Markdown 或 CSV、读取或添加评论、检查或更改共享权限，或监控云端硬盘动态时使用。请勿用于编辑文档、表格或幻灯片的内容",
-                "浏览、搜索并管理 Google 云端硬盘文件和文件夹"
+                "搜索、上传、下载和共享文件.",
+                "查找并整理您的 Google Drive。跨文件进行搜索、整理文件夹、与合适的人共享，并将其下载或导出为 PDF、CSV 或 Markdown",
+                "查找并整理您的 Google Drive。跨文件搜索、整理文件夹、与合适的人员共享，以及将文件下载或导出为 PDF、CSV 或 Markdown"
             ]
         },
         {
@@ -1156,9 +1212,14 @@ function generateJs() {
             display: "Google 表格",
             descriptions: [
                 "Read, write, format, and manage Google Sheets. Use when the user shares a sheets.google.com or docs.google.com/spreadsheets URL, asks to read or summarize spreadsheet data, wants cells written, formatted, sorted, merged, or validated, wants rows/columns inserted or deleted, wants charts, pivot tables, or tables added, wants CSV imported, or wants a spreadsheet created, copied, shared, or exported. Don't use for Google Docs, Slides, or Drive file management.",
-                "Read, write, format, and manage Google Sheets.",
+                "Read, write, and format spreadsheets.",
+                "Read, write, and format your Google Sheets. Fill in formulas, sort and clean columns, import CSVs, build charts and pivot tables, and export the result.",
+                "读取、编写、格式化并管理 Google 表格. 当用户分享 sheets.google.com 或 docs.google.com/spreadsheets 链接、要求读取或总结电子表格数据、需要写入、格式化、排序、合并或验证单元格、插入或删除行/列、添加图表、数据透视表或表格、导入 CSV，或创建、复制、共享或导出电子表格时使用. 请勿用于 Google 文档、幻灯片或云端硬盘文件管理.",
                 "读取、编写、格式化并管理 Google 表格。当用户分享 sheets.google.com 或 docs.google.com/spreadsheets 链接、要求读取或总结电子表格数据、需要写入、格式化、排序、合并或验证单元格、插入或删除行/列、添加图表、数据透视表或表格、导入 CSV，或创建、复制、共享或导出电子表格时使用。请勿用于 Google 文档、幻灯片或云端硬盘文件管理",
-                "读取、编写、格式化并管理 Google 表格"
+                "读取、编写和格式化电子表格.",
+                "阅读、编写和格式化电子表格.",
+                "读写并格式化您的 Google Sheets。填充公式、排序和清理列、导入 CSV、构建图表与数据透视表，并导出结果",
+                "阅读、编写和格式化您的 Google Sheets。填充公式、对列进行排序和清洗、导入 CSV、构建图表和数据透视表，并导出结果"
             ]
         },
         {
@@ -1166,9 +1227,14 @@ function generateJs() {
             display: "Google 幻灯片",
             descriptions: [
                 "Read, create, and edit Google Slides presentations. Use when creating presentations, when the user shares a slides.google.com URL, asks to summarize or extract content from a deck, wants slides drafted or updated, or wants a presentation exported. Don't use for Google Docs, Sheets, or Drive file management.",
-                "Read, create, and edit Google Slides presentations.",
+                "Read, edit, and export presentations.",
+                "Build and polish your Google Slides. Turn notes into a deck, add slides, images, and speaker notes, and export the result to PDF or PowerPoint.",
+                "读取、创建并编辑 Google 幻灯片演示文稿. 在创建演示文稿、用户分享 slides.google.com 链接、要求总结或提取演示文稿内容、起草或更新幻灯片，或导出演示文稿时使用. 请勿用于 Google 文档、表格或云端硬盘文件管理.",
                 "读取、创建并编辑 Google 幻灯片演示文稿。在创建演示文稿、用户分享 slides.google.com 链接、要求总结或提取演示文稿内容、起草或更新幻灯片，或导出演示文稿时使用。请勿用于 Google 文档、表格或云端硬盘文件管理",
-                "读取、创建并编辑 Google 幻灯片演示文稿"
+                "读取、编辑和导出演示文稿.",
+                "阅读、编辑和导出演示文稿.",
+                "构建并润色您的 Google Slides。将笔记转化为演示文稿，添加幻灯片、图片和演讲者备注，并将结果导出为 PDF 或 PowerPoint",
+                "构建并润色您的 Google Slides。将笔记整理成演示文稿、添加幻灯片、图片和演讲者备注，并将结果导出为 PDF 或 PowerPoint"
             ]
         }
     ];
@@ -1178,21 +1244,19 @@ function generateJs() {
         return SKILL_PICKER_DISPLAY_ENTRIES.find(entry => {
             const hasName = values.includes(entry.source) || values.includes(entry.display);
             const hasDescription = entry.descriptions.some(description => {
-                const cleanDesc = description.replace(/[.。]+$/, '');
-                return values.some(value => {
-                    const cleanVal = value.replace(/[.。]+$/, '');
-                    return cleanVal === cleanDesc || cleanVal.includes(cleanDesc);
-                });
+                return values.some(value => value === description || value.includes(description));
             });
             return hasName && hasDescription;
         }) || null;
     }
 
     function translateSkillPickerEntry(element) {
-        if (!element || element.nodeType !== Node.ELEMENT_NODE || isInBlockedZone(element)) return false;
+        if (!element || element.nodeType !== Node.ELEMENT_NODE) return false;
+        if (element.hasAttribute(SKIP_TRANSLATION_ATTR)) return false;
+        if (BLOCKED_TEST_IDS.has(element.getAttribute('data-testid'))) return false;
 
         const textNodes = collectTextNodes(element);
-        if (textNodes.length < 2 || textNodes.some(textNode => isInBlockedZone(textNode))) return false;
+        if (textNodes.length < 2) return false;
         const entry = getSkillPickerDisplayEntry(textNodes);
         if (!entry) return false;
 
@@ -1200,8 +1264,26 @@ function generateJs() {
             return !!getSkillPickerDisplayEntry(collectTextNodes(child));
         })) return false;
 
-        const nameNode = textNodes.find(textNode => norm(textNode.nodeValue) === entry.source);
-        return nameNode ? replaceTextNode(nameNode, entry.display) : false;
+        let changed = false;
+        const nameNode = textNodes.find(textNode => {
+            const v = norm(textNode.nodeValue);
+            return v === entry.source || v === entry.display;
+        });
+        if (nameNode && norm(nameNode.nodeValue) === entry.source) {
+            if (replaceTextNode(nameNode, entry.display)) changed = true;
+        }
+
+        for (const tn of textNodes) {
+            if (tn === nameNode) continue;
+            const rawVal = norm(tn.nodeValue);
+            if (!rawVal || rawVal.length < 4) continue;
+            const trans = map.get(rawVal) || lowerMap.get(rawVal.toLowerCase());
+            if (trans && replaceTextNode(tn, trans)) {
+                changed = true;
+            }
+        }
+
+        return changed;
     }
 
     function translateSkillPickerNameTextNode(node, value) {
@@ -1213,6 +1295,23 @@ function generateJs() {
         let current = node.parentElement;
         for (let depth = 0; current && depth < 4; depth++) {
             if (translateSkillPickerEntry(current)) return true;
+            current = current.parentElement || (current.getRootNode?.().host ?? null);
+        }
+        return false;
+    }
+
+    function translateUsedSkillNameTextNode(node, value) {
+        const normalized = norm(value);
+        const entry = SKILL_PICKER_DISPLAY_ENTRIES.find(entry => entry.source === normalized);
+        if (!entry) return false;
+
+        let current = node.parentElement;
+        for (let depth = 0; current && depth < 6; depth++) {
+            if (current === document.body || current === document.documentElement) break;
+            const text = current.textContent || '';
+            if (text.length <= 2500 && /(?:Skills?\\s+Used|已使用的技能)/i.test(text)) {
+                return replaceTextNode(node, entry.display);
+            }
             current = current.parentElement || (current.getRootNode?.().host ?? null);
         }
         return false;
@@ -1469,7 +1568,7 @@ function generateJs() {
 
             replaceTextNode(textNodes[prefixIndex], "输入已禁用，因为 ");
 
-            replaceTextNode(middleNodes[0], " 不存在。请在此");
+            replaceTextNode(middleNodes[0], " 不存在. 请在此");
             for (let i = 1; i < middleNodes.length; i++) {
                 replaceTextNode(middleNodes[i], '');
             }
@@ -1674,27 +1773,27 @@ function generateJs() {
         if (match) return "启用后，" + match[1] + " 会收集使用数据，以帮助 Google 改进性能和功能";
 
         match = normalized.match(/^Receive product updates, tips, and promotions from Google\\s+(.+?)\\s+via email\\.$/i);
-        if (match) return "通过电子邮件接收 Google " + match[1] + " 的产品更新、使用技巧和推广信息";
+        if (match) return "通过电子邮件接收 Google " + match[1] + " 的产品更新、使用技巧和推广信息.";
 
         match = normalized.match(/^When toggled on,\\s+(.+?)\\s+will use your AI credits to fulfill model requests once you're out of model quota\\.\\s+\\1\\s+will always use your model quota first before using AI credits\\.$/i);
-        if (match) return "启用后，当模型配额用尽时，" + match[1] + " 将使用您的 AI 额度处理模型请求。系统会优先使用模型配额，之后才使用 AI 额度";
+        if (match) return "启用后，当模型配额用尽时，" + match[1] + " 将使用您的 AI 额度处理模型请求. 系统会优先使用模型配额，之后才使用 AI 额度.";
 
         match = normalized.match(/^Build with\\s+(.+?)\\s+Plugins$/i);
         if (match) return "使用 " + match[1] + " 插件构建";
 
         match = normalized.match(/^Plugins are packaged collections of skills and MCPs to help the Agent in\\s+(.+?)\\s+work with Google developer products\\. You can always change your choices in Settings\\.$/i);
-        if (match) return "插件是打包的技能与 MCP 集合，用于帮助 " + match[1] + " 中的智能体使用 Google 开发者产品。您随时可以在设置中更改选择";
+        if (match) return "插件是打包的技能与 MCP 集合，用于帮助 " + match[1] + " 中的智能体使用 Google 开发者产品. 您随时可以在设置中更改选择.";
 
         match = normalized.match(/^Manage\\s+(project|workspace)\\s+folders, agent settings, and permissions\\.$/i);
         if (match) {
             const scope = match[1].toLowerCase() === "project" ? "项目" : "工作区";
-            return "管理" + scope + "文件夹、智能体设置和权限";
+            return "管理" + scope + "文件夹、智能体设置和权限.";
         }
 
         match = normalized.match(/^Agent settings and permissions for conversations outside of\\s+(projects|workspaces)\\.$/i);
         if (match) {
             const scope = match[1].toLowerCase() === "projects" ? "项目" : "工作区";
-            return "用于不属于任何" + scope + "的会话的智能体设置和权限";
+            return "用于不属于任何" + scope + "的会话的智能体设置和权限.";
         }
 
         match = normalized.match(/^File exceeds the (\\d+(?:\\.\\d+)?\\s*(?:[KMGTP]?B|bytes?))\\s+display limit(?:\\s*\\(([^)]+)\\))?\\.?$/i);
@@ -1703,7 +1802,7 @@ function generateJs() {
         }
 
         match = normalized.match(/^Setting up WSL:\\s*(.+)$/i);
-        if (match) return "正在设置 WSL：" + match[1];
+        if (match) return "正在设置 WSL: " + match[1];
 
         match = normalized.match(/^Deleted\\s+["“](.+?)["”][.。]?$/i);
         if (match) return "已删除“" + match[1] + "”";
@@ -1746,7 +1845,13 @@ function generateJs() {
         if (match) {
             const entity = match[1].toLowerCase() === "automation" ? "自动化" : "计划任务";
             const scope = match[2].toLowerCase() === "project" ? "项目" : "工作区";
-            return "由此" + entity + "创建的智能体会在具有独立权限的专用" + scope + "中运行。您可以在" + scope + "设置页面中更改这些权限";
+            return "由此" + entity + "创建的智能体会在具有独立权限的专用" + scope + "中运行. 您可以在" + scope + "设置页面中更改这些权限.";
+        }
+
+        match = normalized.match(/^Marked\\s+(\\d+)\\s+conversations?\\s+as\\s+(read|unread)[.。]?$/i);
+        if (match) {
+            const state = match[2].toLowerCase() === "read" ? "已读" : "未读";
+            return "已将 " + match[1] + " 个会话标记为" + state;
         }
 
         match = normalized.match(/^All (scheduled tasks|automations) run (?:as|with the)\\s+(.+?)(?:\\s+model)?[.。]?$/i);
@@ -2235,16 +2340,16 @@ function generateJs() {
                         const valN = norm(val);
 
                         if (/^Configure the browser subagent\\.\\s*It requires$/i.test(valN)) {
-                            changed = replaceTextNode(tn, "配置浏览器子智能体。它需要安装 ") || changed;
+                            changed = replaceTextNode(tn, "配置浏览器子智能体. 它需要安装 ") || changed;
                         } else if (/^to be installed\\.?$/i.test(valN)) {
-                            changed = replaceTextNode(tn, "。") || changed;
+                            changed = replaceTextNode(tn, ". ") || changed;
                         } else if (/^to be installed\\.\\s*(.+)$/i.test(valN)) {
                             const match = valN.match(/^to be installed\\.\\s*(.+)$/i);
                             const rest = match[1];
                             const restTrans = map.get(norm(rest)) || lowerMap.get(norm(rest).toLowerCase()) || rest;
-                            changed = replaceTextNode(tn, "。" + restTrans) || changed;
+                            changed = replaceTextNode(tn, ". " + restTrans) || changed;
                         } else if (/^The browser subagent can be invoked by typing \\/browser in the conversation input box\\.?$/i.test(valN)) {
-                            changed = replaceTextNode(tn, "您可以通过在会话输入框中输入 /browser 来调用浏览器子智能体") || changed;
+                            changed = replaceTextNode(tn, "您可以通过在会话输入框中输入 /browser 来调用浏览器子智能体.") || changed;
                         }
                     }
                     if (changed) return true;
@@ -2656,16 +2761,16 @@ function generateJs() {
 
         if (strongIdx >= 0 && strongIdx < globalIdx) {
             setRangeText(0, strongIdx, "此" + scope + "是为 ");
-            setRangeText(strongIdx + 1, globalIdx, " 自动化创建的。在此" + scope + "中工作时还包括 ");
+            setRangeText(strongIdx + 1, globalIdx, " 自动化创建的. 在此" + scope + "中工作时还包括 ");
         } else {
             const prefix = hasAutoPrefix
-                ? "此" + scope + "是为自动化创建的。在此" + scope + "中工作时还包括 "
+                ? "此" + scope + "是为自动化创建的. 在此" + scope + "中工作时还包括 "
                 : "在此" + scope + "中工作时还包括 ";
             setRangeText(0, globalIdx, prefix);
         }
 
         if (linkIdx > globalIdx) {
-            setRangeText(globalIdx + 1, linkIdx, "。");
+            setRangeText(globalIdx + 1, linkIdx, ". ");
             setRangeText(linkIdx + 1, childNodes.length, "");
         } else {
             setRangeText(globalIdx + 1, childNodes.length, "");
@@ -2744,11 +2849,11 @@ function generateJs() {
             const brIdx = childNodes.findIndex((node, idx) => idx > svg0Idx && idx < svg1Idx && node.nodeType === Node.ELEMENT_NODE && node.tagName?.toUpperCase() === 'BR');
             if (brIdx > svg0Idx) {
                 changed = setRangeText(childNodes, svg0Idx + 1, brIdx, " 搜索会话") || changed;
-                changed = setRangeText(childNodes, brIdx + 1, svg1Idx, "在侧边栏（") || changed;
+                changed = setRangeText(childNodes, brIdx + 1, svg1Idx, "在侧边栏(") || changed;
             } else {
-                changed = setRangeText(childNodes, svg0Idx + 1, svg1Idx, " 搜索会话。在侧边栏（") || changed;
+                changed = setRangeText(childNodes, svg0Idx + 1, svg1Idx, " 搜索会话. 在侧边栏(") || changed;
             }
-            changed = setRangeText(childNodes, svg1Idx + 1, childNodes.length, " 菜单）中查看已归档会话") || changed;
+            changed = setRangeText(childNodes, svg1Idx + 1, childNodes.length, " 菜单)中查看已归档会话") || changed;
             return changed;
         }
 
@@ -2805,7 +2910,7 @@ function generateJs() {
         const textLength = rawText.length;
         let translated = false;
 
-        if (textLength <= 160 && /(?:(?:Also\\s+modified|Modified)\\s+in|修改于|也修改于)/i.test(rawText)) {
+        if (textLength <= 160 && /(?:(?:Also\s+modified|Modified)\s+in|修改于|也修改于)/i.test(rawText)) {
             translated = translateSettingOverrides(element) || translated;
         }
         if (textLength <= 360 && /(?:Also includes|when working in this|在此(?:项目|工作区)中工作时还包括)/i.test(rawText)) {
@@ -2824,7 +2929,7 @@ function generateJs() {
         if (textLength <= 320 && /(?:Input disabled because|输入已禁用[，,]因为|does not exist|Create the folder in this)/i.test(rawText)) {
             translated = translateInputDisabledNotice(element) || translated;
         }
-        if (textLength <= 80 && /(?:Show\\s+\\d+\\s+more|显示另外\\s+\\d+\\s+个)/i.test(rawText)) {
+        if (textLength <= 80 && /(?:Show\s+\d+\s+more|显示另外\s+\d+\s+个)/i.test(rawText)) {
             translated = translateShowMoreStatus(element) || translated;
         }
         if (textLength <= 1600 && /(?:baseline quota|基础配额)/i.test(rawText)) {
@@ -2833,7 +2938,7 @@ function generateJs() {
         if (textLength <= 800 && /(?:weekly limit|每周配额)/i.test(rawText)) {
             translated = translateQuotaNoticeContainer(element) || translated;
         }
-        if (textLength <= 1400 && /(?:quick question without interrupting|align on a plan|team of agents to autonomously|recent successes or corrections|Boost multi-agent orchestrator|Antigravity Customization System|comprehensive guide, quick reference, and sitemap|render rich interactive HTML widgets|scheduled background automation|manage and create plugins|namespaced bundles of skills|不中断主会话|通过访谈与我对齐|智能体团队自主应对|反思最近的成功或改进|Boost 多智能体编排器|个性化定制系统的综合指南|全面指南、快速参考和网站地图|交互式 HTML 小组件|定时后台自动化|计划后台自动化|管理和创建插件)/i.test(rawText)) {
+        if (textLength <= 1400 && /(?:quick question without interrupting|align on a plan|team of agents to autonomously|recent successes or corrections|Boost multi-agent orchestrator|Antigravity Customization System|comprehensive guide, quick reference, and sitemap|render rich interactive HTML widgets|scheduled background automation|manage and create plugins|namespaced bundles of skills|manage Google Docs|draft, and edit docs|and write your Google Docs|schedule events, and RSVP|format spreadsheets|edit, and export presentations|upload, download, and share files|不中断主会话|通过访谈与我对齐|智能体团队自主应对|反思最近的成功或改进|Boost 多智能体编排器|个性化定制系统的综合指南|全面指南、快速参考和网站地图|交互式 HTML 小组件|定时后台自动化|计划后台自动化|管理和创建插件|管理 Google 文档|起草和编辑文档|安排活动并回复邀请|编写和格式化电子表格|导出演示文稿|上传、下载和共享文件)/i.test(rawText)) {
             translated = translateSkillPickerEntry(element) || translated;
         }
         if (textLength <= 240 &&
@@ -3043,7 +3148,7 @@ function generateJs() {
         if (/^to be installed\\.?$/i.test(currentText)) {
             const parentText = node && node.parentElement ? (node.parentElement.textContent || '') : '';
             if (/^Google Chrome$/i.test(previousText) || /(?:browser subagent|浏览器子智能体|Google Chrome)/i.test(parentText)) {
-                return "。";
+                return ". ";
             }
         }
         if (/^to ask for content changes for legal reasons[.。]?$/i.test(currentText)) {
@@ -3064,14 +3169,14 @@ function generateJs() {
             if (/^Google Chrome$/i.test(previousText) || /(?:browser subagent|浏览器子智能体|Google Chrome)/i.test(parentText)) {
                 const rest = toBeInstalledMatch[1];
                 const restTrans = map.get(norm(rest)) || lowerMap.get(norm(rest).toLowerCase()) || rest;
-                return "。" + restTrans;
+                return ". " + restTrans;
             }
         }
 
         const commentCountMatch = currentText.match(/^[（(]\\s*(\\d+)\\s*[)）]$/);
         if (commentCountMatch && /^(?:Comments?|评论)$/i.test(previousText)) {
             replaceTextNode(previous, "评论");
-            return "（" + commentCountMatch[1] + "）";
+            return "(" + commentCountMatch[1] + ")";
         }
 
         const statusItemMatch = currentText.match(new RegExp('^(files?|folders?|pages?|search(?:es)?|tasks?|commands?|tools?|rules?|repos(?:itories)?|images?|actions?)(\\s*,\\s*|\\s*' + EXPLORED_STATUS_SUFFIX + ')?$', 'i'));
@@ -3433,6 +3538,7 @@ function generateJs() {
 
                 if (translateAttachmentMenuFolder(node, originalVal)) return;
                 if (translateSkillPickerNameTextNode(node, originalVal)) return;
+                if (translateUsedSkillNameTextNode(node, originalVal)) return;
                 if (translateCommitSummaryTextNode(node, originalVal)) return;
                 if (!parentContainersScanned && translateSpecialContainers(node.parentElement)) return;
                 if (translateCombinedTextChildren(node.parentElement)) return;
@@ -3629,11 +3735,11 @@ function generateJs() {
                     newVal = "您的 5 小时配额将在不到 1 分钟后刷新";
                 } else if (/^You have hit your 5-hour limit, it will refresh in (\\d+) days?, (\\d+) hours?\\. If on a supported paid plan, you can use AI credits in the interim\\.$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^You have hit your 5-hour limit, it will refresh in (\\d+) days?, (\\d+) hours?\\. If on a supported paid plan, you can use AI credits in the interim\\.$/i, (match, d, h) => {
-                        return "您已达到 5 小时配额限制，将在 " + d + " 天 " + h + " 小时后刷新。如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度";
+                        return "您已达到 5 小时配额限制，将在 " + d + " 天 " + h + " 小时后刷新. 如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度.";
                     });
                 } else if (/^You have hit your 5-hour limit, it will refresh in (\\d+) hours?, (\\d+) minutes?\\. If on a supported paid plan, you can use AI credits in the interim\\.$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^You have hit your 5-hour limit, it will refresh in (\\d+) hours?, (\\d+) minutes?\\. If on a supported paid plan, you can use AI credits in the interim\\.$/i, (match, h, m) => {
-                        return "您已达到 5 小时配额限制，将在 " + h + " 小时 " + m + " 分钟后刷新。如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度";
+                        return "您已达到 5 小时配额限制，将在 " + h + " 小时 " + m + " 分钟后刷新. 如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度.";
                     });
                 } else if (/^Error ID:\\s*(.+)$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^Error ID:\\s*(.+)$/i, (match, id) => {
@@ -3674,18 +3780,18 @@ function generateJs() {
                     }
                 } else if (/^You have hit your 5-hour limit, it will refresh in (\\d+) days?\\. If on a supported paid plan, you can use AI credits in the interim\\.$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^You have hit your 5-hour limit, it will refresh in (\\d+) days?\\. If on a supported paid plan, you can use AI credits in the interim\\.$/i, (match, d) => {
-                        return "您已达到 5 小时配额限制，将在 " + d + " 天后刷新。如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度";
+                        return "您已达到 5 小时配额限制，将在 " + d + " 天后刷新. 如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度.";
                     });
                 } else if (/^You have hit your 5-hour limit, it will refresh in (\\d+) hours?\\. If on a supported paid plan, you can use AI credits in the interim\\.$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^You have hit your 5-hour limit, it will refresh in (\\d+) hours?\\. If on a supported paid plan, you can use AI credits in the interim\\.$/i, (match, h) => {
-                        return "您已达到 5 小时配额限制，将在 " + h + " 小时后刷新。如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度";
+                        return "您已达到 5 小时配额限制，将在 " + h + " 小时后刷新. 如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度.";
                     });
                 } else if (/^You have hit your 5-hour limit, it will refresh in (\\d+) minutes?\\. If on a supported paid plan, you can use AI credits in the interim\\.$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^You have hit your 5-hour limit, it will refresh in (\\d+) minutes?\\. If on a supported paid plan, you can use AI credits in the interim\\.$/i, (match, m) => {
-                        return "您已达到 5 小时配额限制，将在 " + m + " 分钟后刷新。如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度";
+                        return "您已达到 5 小时配额限制，将在 " + m + " 分钟后刷新. 如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度.";
                     });
                 } else if (/^You have hit your 5-hour limit, it will refresh in less than a minute\\. If on a supported paid plan, you can use AI credits in the interim\\.$/i.test(valNorm)) {
-                    newVal = "您已达到 5 小时配额限制，将在不到 1 分钟后刷新。如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度";
+                    newVal = "您已达到 5 小时配额限制，将在不到 1 分钟后刷新. 如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度.";
                 } else if (/^You have hit your weekly limit, it will fully refresh in (\\d+) days?, (\\d+) hours?\\.$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^You have hit your weekly limit, it will fully refresh in (\\d+) days?, (\\d+) hours?\\.$/i, (match, d, h) => {
                         return "您已达到每周配额限制，将在 " + d + " 天 " + h + " 小时后完全刷新";
@@ -3785,7 +3891,7 @@ function generateJs() {
                     });
                 } else if (/^Individual quota reached\\. Please upgrade your subscription to increase your limits\\. Resets in (.+?)\\.?$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^Individual quota reached\\. Please upgrade your subscription to increase your limits\\. Resets in (.+?)\\.?$/i, (match, t) => {
-                        return "个人配额已达上限。请升级订阅以提高限额。将于 " + t + " 后重置";
+                        return "个人配额已达上限. 请升级订阅以提高限额. 将于 " + t + " 后重置";
                     });
                 } else if (/^Mark\\s+(\\d+)\\s+conversations?\\s+as\\s+read$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^Mark\\s+(\\d+)\\s+conversations?\\s+as\\s+read$/i, (match, num) => {
@@ -3867,7 +3973,7 @@ function generateJs() {
                 } else if (/^to be installed\\.?$/i.test(valNorm)) {
                     const parentText = node && node.parentElement ? (node.parentElement.textContent || '') : '';
                     if (/(?:browser subagent|浏览器子智能体|Google Chrome)/i.test(parentText)) {
-                        newVal = '。';
+                        newVal = '. ';
                     }
                 } else if (/^to be installed\\.\\s*(.+)$/i.test(valNorm)) {
                     const parentText = node && node.parentElement ? (node.parentElement.textContent || '') : '';
@@ -3875,7 +3981,7 @@ function generateJs() {
                         const match = valNorm.match(/^to be installed\\.\\s*(.+)$/i);
                         const rest = match[1];
                         const restTrans = map.get(norm(rest)) || lowerMap.get(norm(rest).toLowerCase()) || rest;
-                        newVal = '。' + restTrans;
+                        newVal = '. ' + restTrans;
                     }
                 } else if (/^(.+?): context deadline exceeded$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^(.+?): context deadline exceeded$/i, (match, prefix) => {
@@ -3887,7 +3993,7 @@ function generateJs() {
                     });
                 } else if (/^Are you sure you want to delete (the |this )?project (.+?)\\??$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^Are you sure you want to delete (the |this )?project (.+?)\\??$/i, (match, article, name) => {
-                        return "您确定要删除项目 " + name + " 吗？";
+                        return "您确定要删除项目 " + name + " 吗?";
                     });
                 } else if (/^Permanently delete (.+?) including (\\d+) active conversations? and (\\d+) archived conversations?\\.?$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^Permanently delete (.+?) including (\\d+) active conversations? and (\\d+) archived conversations?\\.?$/i, (match, name, active, archived) => {
@@ -3922,19 +4028,19 @@ function generateJs() {
                         return "您的 5 小时配额将在 " + m + " 分钟后刷新";
                     });
                     newVal = newVal.replace(/You have hit your 5-hour limit, it will refresh in (\\d+) days?, (\\d+) hours?\\. If on a supported paid plan, you can use AI credits in the interim\\./gi, (match, d, h) => {
-                        return "您已达到 5 小时配额限制，将在 " + d + " 天 " + h + " 小时后刷新。如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度";
+                        return "您已达到 5 小时配额限制，将在 " + d + " 天 " + h + " 小时后刷新. 如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度.";
                     });
                     newVal = newVal.replace(/You have hit your 5-hour limit, it will refresh in (\\d+) hours?, (\\d+) minutes?\\. If on a supported paid plan, you can use AI credits in the interim\\./gi, (match, h, m) => {
-                        return "您已达到 5 小时配额限制，将在 " + h + " 小时 " + m + " 分钟后刷新。如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度";
+                        return "您已达到 5 小时配额限制，将在 " + h + " 小时 " + m + " 分钟后刷新. 如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度.";
                     });
                     newVal = newVal.replace(/You have hit your 5-hour limit, it will refresh in (\\d+) days?\\. If on a supported paid plan, you can use AI credits in the interim\\./gi, (match, d) => {
-                        return "您已达到 5 小时配额限制，将在 " + d + " 天后刷新。如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度";
+                        return "您已达到 5 小时配额限制，将在 " + d + " 天后刷新. 如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度.";
                     });
                     newVal = newVal.replace(/You have hit your 5-hour limit, it will refresh in (\\d+) hours?\\. If on a supported paid plan, you can use AI credits in the interim\\./gi, (match, h) => {
-                        return "您已达到 5 小时配额限制，将在 " + h + " 小时后刷新。如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度";
+                        return "您已达到 5 小时配额限制，将在 " + h + " 小时后刷新. 如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度.";
                     });
                     newVal = newVal.replace(/You have hit your 5-hour limit, it will refresh in (\\d+) minutes?\\. If on a supported paid plan, you can use AI credits in the interim\\./gi, (match, m) => {
-                        return "您已达到 5 小时配额限制，将在 " + m + " 分钟后刷新。如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度";
+                        return "您已达到 5 小时配额限制，将在 " + m + " 分钟后刷新. 如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度.";
                     });
                     newVal = newVal.replace(/You have used some of your weekly limit, it will fully refresh in (\\d+) days?, (\\d+) hours?\\./gi, (match, d, h) => {
                         return "您已使用部分每周配额，将在 " + d + " 天 " + h + " 小时后完全刷新";
@@ -3969,7 +4075,7 @@ function generateJs() {
                     newVal = newVal.replace(/You have used some of your weekly limit, it will fully refresh in less than a minute\\./gi, "您已使用部分每周配额，将在不到 1 分钟后完全刷新");
                     newVal = newVal.replace(/You have hit your weekly limit, it will fully refresh in less than a minute\\./gi, "您已达到每周配额限制，将在不到 1 分钟后完全刷新");
                     newVal = newVal.replace(/Your 5-hour limit will refresh in less than a minute\\./gi, "您的 5 小时配额将在不到 1 分钟后刷新");
-                    newVal = newVal.replace(/You have hit your 5-hour limit, it will refresh in less than a minute\\. If on a supported paid plan, you can use AI credits in the interim\\./gi, "您已达到 5 小时配额限制，将在不到 1 分钟后刷新。如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度");
+                    newVal = newVal.replace(/You have hit your 5-hour limit, it will refresh in less than a minute\\. If on a supported paid plan, you can use AI credits in the interim\\./gi, "您已达到 5 小时配额限制，将在不到 1 分钟后刷新. 如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度.");
                     newVal = newVal.replace(/Match case \\((.+)\\)/gi, (m, k) => "区分大小写 (" + k + ")");
                     newVal = newVal.replace(/Match whole word \\((.+)\\)/gi, (m, k) => "全字匹配 (" + k + ")");
                     newVal = newVal.replace(/Use regular expression \\((.+)\\)/gi, (m, k) => "使用正则表达式 (" + k + ")");
@@ -4053,7 +4159,9 @@ function generateJs() {
         "Copy File Name": "复制文件名称",
         "Add to Chat": "添加到聊天",
         "Copy Image": "复制图片",
-        "Save Image": "保存图片"
+        "Save Image": "保存图片",
+        "Copy Video": "复制视频",
+        "Save Video": "保存视频"
     };
 
     function translateContextMenuLabel(label, id) {
@@ -5120,7 +5228,9 @@ function installLocalization(resourcesDir) {
         "Copy File Name": "复制文件名称",
         "Add to Chat": "添加到聊天",
         "Copy Image": "复制图片",
-        "Save Image": "保存图片"
+        "Save Image": "保存图片",
+        "Copy Video": "复制视频",
+        "Save Video": "保存视频"
     };
     if (Array.isArray(items)) {
         items = items.map((item) => {

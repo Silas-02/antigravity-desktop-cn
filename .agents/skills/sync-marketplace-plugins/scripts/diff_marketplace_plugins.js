@@ -10,7 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-const DEFAULT_CACHE_DIR = path.join(os.homedir(), '.gemini/antigravity/cache/marketplaces/antigravity-plugins-official/plugins');
+const DEFAULT_CACHE_DIR = path.join(os.homedir(), '.gemini', 'antigravity', 'cache', 'marketplaces', 'antigravity-plugins-official', 'plugins');
 const DEFAULT_DICT_PATH = path.resolve(__dirname, '../../../../dicts/marketplace_plugins.json');
 
 const GOOGLE_WORKSPACE_PLUGINS = new Set([
@@ -84,23 +84,17 @@ function parseCache(cacheDir) {
       workspace_skills: []
     };
 
-    // 若属于 Google Workspace 专区，提取对应 SKILL.md 中的斜杠技能描述
+    // 若属于 Google Workspace 专区，提取对应 SKILL.md 中的完整技能说明
     if (isWorkspace) {
-      const skillMds = findFilesRecursively(pPath, 'SKILL.md');
+      const targetDir = path.dirname(targetPj);
+      const skillMds = findFilesRecursively(targetDir, 'SKILL.md');
       for (const smd of skillMds) {
         try {
           const scontent = fs.readFileSync(smd, 'utf-8');
           const match = scontent.match(/description:\s*([\s\S]+?)(?=\n---|\n[a-z]+:)/i);
           if (match) {
             const sdesc = match[1].trim();
-            let sfirst = sdesc.split('. ')[0].trim();
-            if (!sfirst.endsWith('.')) {
-              sfirst += '.';
-            }
-            info.workspace_skills.push({
-              full: sdesc,
-              first: sfirst
-            });
+            info.workspace_skills.push(sdesc);
           }
         } catch {
           // 忽略解析失败的文件
@@ -132,7 +126,7 @@ function diffPlugins(cachePlugins, dictData) {
 
     if (info.is_workspace) {
       for (const sk of skills) {
-        if (!(sk.full in dictData) || !(sk.first in dictData)) {
+        if (!(sk in dictData)) {
           skillsMissing.push(sk);
         }
       }
@@ -183,7 +177,7 @@ function printReport(cachePlugins, diffResult, dictData) {
 
   for (const [pId, info] of Object.entries(cachePlugins)) {
     const tag = info.is_workspace ? '[Google Workspace]' : '[通用插件]';
-    const descOk = (info.description in dictData) ? '✅ 描述已译' : '❌ 描述缺失';
+    const descOk = (info.description in dictData) ? '✅ 描述已译' : '❌ 描述缺失/已变更';
     const promptCnt = info.suggestedPrompts.length;
     const promptCov = info.suggestedPrompts.filter(pr => pr in dictData).length;
     const promptsStatus = (promptCnt === promptCov) ? `✅ 提示词 (${promptCov}/${promptCnt})` : `⚠️ 提示词 (${promptCov}/${promptCnt})`;
@@ -209,7 +203,7 @@ function printReport(cachePlugins, diffResult, dictData) {
 
   if (missDesc.length > 0) {
     hasIssues = true;
-    console.log(`\n⚠️ 【卡片基础描述待翻译】共 ${missDesc.length} 条:`);
+    console.log(`\n⚠️ 【卡片基础描述待翻译/变更（若为版本升级请更新替换旧词条）】共 ${missDesc.length} 条:`);
     for (const item of missDesc) {
       console.log(`   [${item.id}] ${item.desc}`);
     }
@@ -225,9 +219,9 @@ function printReport(cachePlugins, diffResult, dictData) {
 
   if (missSkills.length > 0) {
     hasIssues = true;
-    console.log(`\n⚠️ 【Google Workspace 斜杠技能描述待补充】共 ${missSkills.length} 条:`);
+    console.log(`\n⚠️ 【Google Workspace 插件技能详情完整说明待补充】共 ${missSkills.length} 条:`);
     for (const item of missSkills) {
-      console.log(`   [${item.id}] ${item.skill.first}`);
+      console.log(`   [${item.id}] ${item.skill.slice(0, 80)}...`);
     }
   }
 
