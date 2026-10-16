@@ -288,6 +288,7 @@
   "Use Global Settings": "使用全局设置",
   "This project overrides your global permission settings.": "此项目覆盖了您的全局权限设置.",
   "Inherits your Global Permissions when working in this project.": "在此项目中工作时继承您的全局权限.",
+  "Inherits your Global Permissions when working in these conversations.": "在这些对话中工作时继承您的全局权限.",
   "Every command requires approval.": "每个命令都需要审批.",
   "Ask before sensitive operations.": "执行敏感操作前询问.",
   "Run all commands without restrictions.": "无限制运行所有命令.",

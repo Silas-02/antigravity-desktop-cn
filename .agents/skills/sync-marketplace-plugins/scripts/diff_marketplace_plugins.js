@@ -1,19 +1,15 @@
 #!/usr/bin/env node
-/**
- * Antigravity 插件市场官方缓存与汉化字典比对工具 (Node.js 原生版)
- * 纯原生 Node.js 实现，零外部依赖。
- * 用于对比本地缓存包 (~/.gemini/antigravity/cache/marketplaces/antigravity-plugins-official/plugins)
- * 与仓库中的 dicts/marketplace_plugins.json，自动检测新上架插件、文案变更及已下架插件。
- */
 
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const zlib = require('zlib');
 
-const DEFAULT_CACHE_DIR = path.join(os.homedir(), '.gemini', 'antigravity', 'cache', 'marketplaces', 'antigravity-plugins-official', 'plugins');
+const OFFICIAL_REMOTE_MARKETPLACE_URL = 'https://www.gstatic.com/antigravity/plugins/marketplace.json';
+const DEFAULT_LOCAL_MARKETPLACE_PATH = path.join(os.homedir(), '.gemini', 'antigravity', 'cache', 'marketplaces', 'antigravity-plugins-official', 'marketplace.json');
 const DEFAULT_DICT_PATH = path.resolve(__dirname, '../../../../dicts/marketplace_plugins.json');
 
-const GOOGLE_WORKSPACE_PLUGINS = new Set([
+const KNOWN_WORKSPACE_PLUGINS = new Set([
   'gcalendar',
   'gdocs',
   'gdrive',
@@ -21,84 +17,118 @@ const GOOGLE_WORKSPACE_PLUGINS = new Set([
   'gslides'
 ]);
 
-// 递归查找匹配文件名的文件
-function findFilesRecursively(dir, targetName) {
-  let results = [];
-  try {
-    const list = fs.readdirSync(dir);
-    for (const item of list) {
-      const fullPath = path.join(dir, item);
-      try {
-        const stat = fs.statSync(fullPath);
-        if (stat.isDirectory()) {
-          results = results.concat(findFilesRecursively(fullPath, targetName));
-        } else if (item === targetName) {
-          results.push(fullPath);
-        }
-      } catch (err) {
-        // 忽略无权限或已删除的文件
-      }
-    }
-  } catch (err) {
-    // 忽略目录不可读
-  }
-  return results;
+function isWorkspacePlugin(pId) {
+  if (KNOWN_WORKSPACE_PLUGINS.has(pId)) return true;
+  if (/^g(mail|tasks|meet|chat|forms|keep|sites)$/i.test(pId)) return true;
+  return false;
 }
 
-function parseCache(cacheDir) {
-  if (!fs.existsSync(cacheDir) || !fs.statSync(cacheDir).isDirectory()) {
-    return { plugins: null, error: `缓存目录不存在: ${cacheDir}` };
+// 解析 ZIP Buffer 提取 SKILL.md 技能说明
+function extractSkillsFromZipBuffer(buf) {
+  const skills = [];
+  let offset = 0;
+  while (offset < buf.length - 4) {
+    if (buf.readUInt32LE(offset) === 0x04034b50) {
+      const compression = buf.readUInt16LE(offset + 8);
+      const compressedSize = buf.readUInt32LE(offset + 18);
+      const uncompressedSize = buf.readUInt32LE(offset + 22);
+      const fileNameLen = buf.readUInt16LE(offset + 26);
+      const extraLen = buf.readUInt16LE(offset + 28);
+      const fileName = buf.toString('utf-8', offset + 30, offset + 30 + fileNameLen);
+      const fileDataStart = offset + 30 + fileNameLen + extraLen;
+
+      if (fileName.endsWith('SKILL.md')) {
+        let content;
+        if (compression === 0) {
+          content = buf.toString('utf-8', fileDataStart, fileDataStart + uncompressedSize);
+        } else if (compression === 8) {
+          const compData = buf.subarray(fileDataStart, fileDataStart + compressedSize);
+          try {
+            content = zlib.inflateRawSync(compData).toString('utf-8');
+          } catch (e) {}
+        }
+        if (content) {
+          const match = content.match(/description:\s*([\s\S]+?)(?=\n---|\n[a-z]+:)/i);
+          if (match) {
+            skills.push(match[1].trim());
+          }
+        }
+      }
+      offset = fileDataStart + compressedSize;
+    } else {
+      offset++;
+    }
+  }
+  return skills;
+}
+
+async function loadMarketplaceCatalog(targetPath, forceRemote = false) {
+  if (!forceRemote) {
+    let resolvedPath = targetPath;
+    if (fs.existsSync(resolvedPath)) {
+      if (fs.statSync(resolvedPath).isDirectory()) {
+        const inDir = path.join(resolvedPath, 'marketplace.json');
+        const inParent = path.join(path.dirname(resolvedPath), 'marketplace.json');
+        if (fs.existsSync(inDir)) resolvedPath = inDir;
+        else if (fs.existsSync(inParent)) resolvedPath = inParent;
+      }
+    }
+
+    if (fs.existsSync(resolvedPath) && fs.statSync(resolvedPath).isFile()) {
+      try {
+        const text = fs.readFileSync(resolvedPath, 'utf-8');
+        return { catalog: JSON.parse(text), source: `本地文件 (${resolvedPath})`, error: null };
+      } catch (err) {
+        return { catalog: null, source: null, error: `解析本地 marketplace.json 失败: ${err.message}` };
+      }
+    }
   }
 
+  // 回退拉取官方云端数据
+  try {
+    const res = await fetch(OFFICIAL_REMOTE_MARKETPLACE_URL);
+    if (!res.ok) {
+      return { catalog: null, source: null, error: `拉取官方远端市场失败，HTTP 状态码: ${res.status}` };
+    }
+    const text = await res.text();
+    return { catalog: JSON.parse(text), source: `官方云端 (${OFFICIAL_REMOTE_MARKETPLACE_URL})`, error: null };
+  } catch (err) {
+    return { catalog: null, source: null, error: `无法获取官方市场清单: ${err.message}` };
+  }
+}
+
+async function parseMarketplace(catalog) {
   const plugins = {};
-  const entries = fs.readdirSync(cacheDir).sort();
+  if (!catalog || !Array.isArray(catalog.plugins)) {
+    return { plugins, error: '市场元数据格式不正确，缺少 plugins 数组' };
+  }
 
-  for (const pId of entries) {
-    const pPath = path.join(cacheDir, pId);
-    try {
-      if (!fs.statSync(pPath).isDirectory()) continue;
-    } catch {
-      continue;
-    }
-
-    const pluginJsonFiles = findFilesRecursively(pPath, 'plugin.json').sort();
-    if (pluginJsonFiles.length === 0) continue;
-
-    // 读取最新版本的 plugin.json
-    const targetPj = pluginJsonFiles[pluginJsonFiles.length - 1];
-    let meta = {};
-    try {
-      meta = JSON.parse(fs.readFileSync(targetPj, 'utf-8'));
-    } catch (err) {
-      continue;
-    }
-
-    const isWorkspace = GOOGLE_WORKSPACE_PLUGINS.has(pId);
+  for (const p of catalog.plugins) {
+    const pId = p.name;
+    const isWorkspace = isWorkspacePlugin(pId);
     const info = {
       id: pId,
-      displayName: meta.displayName || meta.name || pId,
-      version: meta.version || 'unknown',
-      description: (meta.description || '').trim(),
-      suggestedPrompts: Array.isArray(meta.suggestedPrompts) ? meta.suggestedPrompts : [],
+      displayName: p.displayName || p.name || pId,
+      version: p.version || 'unknown',
+      description: (p.description || '').trim(),
+      suggestedPrompts: Array.isArray(p.suggestedPrompts) ? p.suggestedPrompts : [],
       is_workspace: isWorkspace,
-      workspace_skills: []
+      workspace_skills: [],
+      sourceUrl: (p.source && p.source.url) ? p.source.url : null
     };
 
-    // 若属于 Google Workspace 专区，提取对应 SKILL.md 中的完整技能说明
-    if (isWorkspace) {
-      const targetDir = path.dirname(targetPj);
-      const skillMds = findFilesRecursively(targetDir, 'SKILL.md');
-      for (const smd of skillMds) {
-        try {
-          const scontent = fs.readFileSync(smd, 'utf-8');
-          const match = scontent.match(/description:\s*([\s\S]+?)(?=\n---|\n[a-z]+:)/i);
-          if (match) {
-            const sdesc = match[1].trim();
-            info.workspace_skills.push(sdesc);
+    // Workspace 专区插件流式提取技能说明
+    if (isWorkspace && info.sourceUrl) {
+      try {
+        const res = await fetch(info.sourceUrl);
+        if (res.ok) {
+          const buf = Buffer.from(await res.arrayBuffer());
+          const memSkills = extractSkillsFromZipBuffer(buf);
+          if (memSkills.length > 0) {
+            info.workspace_skills = memSkills;
           }
-        } catch {
-          // 忽略解析失败的文件
         }
+      } catch (err) {
       }
     }
 
@@ -158,7 +188,7 @@ function diffPlugins(cachePlugins, dictData) {
   };
 }
 
-function printReport(cachePlugins, diffResult, dictData) {
+function printReport(cachePlugins, diffResult, dictData, catalogSource) {
   const totalCache = Object.keys(cachePlugins).length;
   const newP = diffResult.newPlugins;
   const missDesc = diffResult.missingDescriptions;
@@ -166,9 +196,10 @@ function printReport(cachePlugins, diffResult, dictData) {
   const missSkills = diffResult.missingWorkspaceSkills;
 
   console.log('==================================================================');
-  console.log('    Antigravity 插件市场（Marketplace）本地缓存与字典比对报告');
+  console.log('    Antigravity 插件市场（Marketplace）全量元数据与字典比对报告');
   console.log('==================================================================');
-  console.log(`📦 本地缓存插件总数: ${totalCache} 个`);
+  console.log(`🌐 权威数据来源: ${catalogSource}`);
+  console.log(`📦 官方插件总数: ${totalCache} 个`);
   console.log(`📖 当前字典词条总数: ${Object.keys(dictData).length} 条\n`);
 
   console.log('------------------------------------------------------------------');
@@ -182,9 +213,9 @@ function printReport(cachePlugins, diffResult, dictData) {
     const promptCov = info.suggestedPrompts.filter(pr => pr in dictData).length;
     const promptsStatus = (promptCnt === promptCov) ? `✅ 提示词 (${promptCov}/${promptCnt})` : `⚠️ 提示词 (${promptCov}/${promptCnt})`;
     
-    const pIdPadded = pId.padEnd(25, ' ');
+    const pIdPadded = pId.padEnd(26, ' ');
     const verPadded = `v${info.version}`.padEnd(10, ' ');
-    const tagPadded = tag.padEnd(18, ' ');
+    const tagPadded = tag.padEnd(19, ' ');
     console.log(`  • ${pIdPadded} ${verPadded} ${tagPadded} ${descOk} | ${promptsStatus}`);
   }
 
@@ -219,14 +250,14 @@ function printReport(cachePlugins, diffResult, dictData) {
 
   if (missSkills.length > 0) {
     hasIssues = true;
-    console.log(`\n⚠️ 【Google Workspace 插件技能详情完整说明待补充】共 ${missSkills.length} 条:`);
+    console.log(`\n⚠️ 【Google Workspace 专区技能详情完整说明待补充】共 ${missSkills.length} 条:`);
     for (const item of missSkills) {
       console.log(`   [${item.id}] ${item.skill.slice(0, 80)}...`);
     }
   }
 
   if (!hasIssues) {
-    console.log('🎉 当前字典与本地官方插件缓存已 100% 同步并满足规范！无缺失词条。');
+    console.log('🎉 当前字典与官方插件市场全量元数据已 100% 同步并满足规范！无缺失词条。');
   }
 
   console.log('==================================================================');
@@ -234,39 +265,49 @@ function printReport(cachePlugins, diffResult, dictData) {
 
 function parseCliArgs() {
   const args = process.argv.slice(2);
-  let cacheDir = DEFAULT_CACHE_DIR;
+  let marketplacePath = DEFAULT_LOCAL_MARKETPLACE_PATH;
   let dictFile = DEFAULT_DICT_PATH;
   let isJson = false;
+  let forceRemote = false;
 
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--cache-dir' && args[i + 1]) {
-      cacheDir = path.resolve(args[++i]);
+    if ((args[i] === '--cache-dir' || args[i] === '--marketplace-file') && args[i + 1]) {
+      marketplacePath = path.resolve(args[++i]);
     } else if (args[i] === '--dict-file' && args[i + 1]) {
       dictFile = path.resolve(args[++i]);
     } else if (args[i] === '--json') {
       isJson = true;
+    } else if (args[i] === '--remote') {
+      forceRemote = true;
     } else if (args[i] === '--help' || args[i] === '-h') {
       console.log(`用法: node diff_marketplace_plugins.js [选项]
 
 选项:
-  --cache-dir <path>   本地插件缓存路径 (默认: ~/.gemini/antigravity/cache/.../plugins)
-  --dict-file <path>   市场字典路径 (默认: dicts/marketplace_plugins.json)
-  --json               以 JSON 结构化格式输出比对结果
-  -h, --help           显示此帮助信息
+  --marketplace-file <path>   marketplace.json 路径或目录 (默认: 自动定位本地缓存，缺失时回退云端)
+  --dict-file <path>          市场字典路径 (默认: dicts/marketplace_plugins.json)
+  --remote                    强制拉取官方云端最新 marketplace.json
+  --json                      以 JSON 结构化格式输出比对结果
+  -h, --help                  显示此帮助信息
 `);
       process.exit(0);
     }
   }
 
-  return { cacheDir, dictFile, isJson };
+  return { marketplacePath, dictFile, isJson, forceRemote };
 }
 
-function main() {
-  const { cacheDir, dictFile, isJson } = parseCliArgs();
+async function main() {
+  const { marketplacePath, dictFile, isJson, forceRemote } = parseCliArgs();
 
-  const { plugins: cachePlugins, error } = parseCache(cacheDir);
-  if (error) {
-    console.error(`错误: ${error}`);
+  const { catalog, source: catalogSource, error: loadErr } = await loadMarketplaceCatalog(marketplacePath, forceRemote);
+  if (loadErr) {
+    console.error(`错误: ${loadErr}`);
+    process.exit(1);
+  }
+
+  const { plugins: cachePlugins, error: parseErr } = await parseMarketplace(catalog);
+  if (parseErr) {
+    console.error(`错误: ${parseErr}`);
     process.exit(1);
   }
 
@@ -287,13 +328,14 @@ function main() {
 
   if (isJson) {
     const output = {
-      totalCachePlugins: Object.keys(cachePlugins).length,
+      catalogSource,
+      totalPlugins: Object.keys(cachePlugins).length,
       dictEntriesCount: Object.keys(dictData).length,
       diff: diffResult
     };
     console.log(JSON.stringify(output, null, 2));
   } else {
-    printReport(cachePlugins, diffResult, dictData);
+    printReport(cachePlugins, diffResult, dictData, catalogSource);
   }
 }
 

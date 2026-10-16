@@ -54,7 +54,7 @@
 - **`uninstall.sh`**：macOS / Linux 使用备份还原官方英文终端执行入口。
 - **`localization_engine.js`**：核心汉化逻辑，跨平台自动适配，负责 app.asar 的解包、代码注入、macOS 隔离修复与自签名及重新打包。
 - **`dicts/`**：汉化字典文件夹，内含按模块分类的 JSON 对照翻译字典；当前版本的核心词典为 `dicts/v2.24.0.json`。
-- **`.agents/skills/sync-marketplace-plugins/`**：插件市场本地缓存同步与审计技能，内置 Node.js 原生比对审计工具。
+- **`.agents/skills/sync-marketplace-plugins/`**：官方插件市场同步与审计技能，内置基于官方权威元数据与内存零落盘技术的比对审计工具。
 - **`AGENTS.md`**：项目通用规则。支持 `AGENTS.md` 的 AI 会将其作为项目上下文，按其中的汉化边界与动态文案处理要求工作。
 - **`.gitattributes`**：Git 属性规则。它会保护 Windows `.bat` 文件的 GBK/CRLF 字节内容与 macOS `.command` 文件的 LF 换行符，避免 Git 的自动文本转换破坏安装或卸载脚本。
 
@@ -159,13 +159,13 @@
 <details>
 <summary><strong>3. 方式三：一键同步与审计官方插件市场（Marketplace 🧩）</strong></summary>
 
-当 Antigravity 客户端更新版本后，官方插件市场可能会新增插件、更新建议提示词或下架旧插件。您可以直接向 AI 发送指令进行全自动对比审计：
+当 Antigravity 客户端更新版本后，官方插件市场可能会新增插件、更新建议提示词或下架旧插件。您可以直接向 AI 发送指令进行全自动比对审计：
 
-> **"请使用 `sync-marketplace-plugins` 技能审计比对官方插件市场的本地缓存，检查是否有新上架的插件、文案变动或下架插件，并输出比对报告。"**
+> **"请使用 `sync-marketplace-plugins` 技能比对官方插件市场元数据，检查是否有新上架的插件、文案变动或下架插件，并输出比对报告。"**
 
-AI 会自动激活内置技能并调用原生 Node.js 工具对比本地缓存与 `dicts/marketplace_plugins.json`，呈现结构化清单并征求您的确认后再执行汉化或清理。
+AI 会自动激活内置技能并调用原生 Node.js 工具，以官方权威清单（`marketplace.json`）为基准比对 `dicts/marketplace_plugins.json`，并采用流式内存零落盘技术精准提取 Google Workspace 技能详情，呈现结构化清单并征求您的确认后再执行汉化或清理。
 
-*(开发者亦可在终端直接执行 `node .agents/skills/sync-marketplace-plugins/scripts/diff_marketplace_plugins.js` 获取实时报告。)*
+*(开发者亦可在终端直接执行 `node .agents/skills/sync-marketplace-plugins/scripts/diff_marketplace_plugins.js` 获取实时报告，支持 `--remote` 强制拉取官方云端源。)*
 
 </details>
 
@@ -228,19 +228,25 @@ AI 会自动激活内置技能并调用原生 Node.js 工具对比本地缓存�
 
 ### 3. 插件市场（Marketplace）自动审计与同步
 
-官方插件市场的元数据与技能包由客户端自动下载并缓存在本地用户主目录的 `.gemini/antigravity/cache/marketplaces/antigravity-plugins-official/plugins/` 目录（Linux/macOS 为 `~/.gemini/...`，Windows 为 `%USERPROFILE%\.gemini\...`）。项目内置了纯 Node.js 的全自动审计与比对脚本：
+项目内置了基于官方权威元数据与流式内存零落盘技术的全自动比对工具：
 
 ```bash
-# 1. 运行本地官方插件缓存与字典比对（默认输出人读格式）
+# 1. 运行官方插件市场元数据与字典比对（默认自动定位本地缓存，按需流式提取）
 node .agents/skills/sync-marketplace-plugins/scripts/diff_marketplace_plugins.js
 
-# 2. 以 JSON 格式输出分析结果（便于程序化消费）
+# 2. 强制拉取官方云端最新权威元数据进行实时比对
+node .agents/skills/sync-marketplace-plugins/scripts/diff_marketplace_plugins.js --remote
+
+# 3. 以 JSON 格式输出分析结果
 node .agents/skills/sync-marketplace-plugins/scripts/diff_marketplace_plugins.js --json
 ```
 
+- **权威数据源与零落盘设计**：
+  - **唯一权威源**：以官方发布的 `marketplace.json` 全量清单为准，覆盖官方全部插件及 `suggestedPrompts` 官方建议提示词。
+  - **内存流式提取**：针对 Google Workspace 专区插件深层技能定义，自动流式拉取归档至内存 Buffer 并在内存中解压提取 `SKILL.md`，全程零磁盘落盘、零临时文件，保障与官方最新发布版本绝对一致。
 - **翻译边界标准**：
-  - **Google Workspace 官方专区**：全量汉化，包含插件卡片简介、建议提示词、斜杠技能描述及 `SKILL_PICKER_DISPLAY_ENTRIES` 上下文安全绑定。
-  - **其余官方插件专区**（Flutter、Firebase、Data Agent Kit、Modern Web等）：严格仅翻译市场通用界面控件、卡片一句话简介与官方建议提示词三项。
+  - **Google Workspace 官方协同办公专区**（开放集合，如 `gcalendar`、`gdocs`、`gdrive`、`gsheets`、`gslides` 及后续同族套件）：完全汉化，涵盖卡片简介、建议提示词、斜杠技能详情说明及 `SKILL_PICKER_DISPLAY_ENTRIES` 上下文安全绑定。
+  - **其余官方插件专区**（Flutter、Firebase、Data Agent Kit、Modern Web、Android CLI 等）：严格仅翻译市场通用界面控件、卡片基础简介与官方建议提示词三项。
 
 </details>
 
@@ -337,7 +343,7 @@ node .agents/skills/sync-marketplace-plugins/scripts/diff_marketplace_plugins.js
 在此基础上，为了提升汉化长期维护性、系统兼容性与渲染安全边界，本项目进行了深度的工程化重构与迭代，主要特性包括：
 
 1. **跨平台原生支持与脚本体验重构**：
-   - 完备支持 Windows、macOS 与 Linux（含 Ubuntu/Debian 等主流发行版），提供开箱即用的一键安装（`install.sh` / `.bat` / `.command`）与无损还原（`uninstall.sh` / `.bat` / `.command`）方案。
+   - 完备支持 Windows、macOS 与 Linux（含Ubuntu等主流发行版），提供开箱即用的一键安装（`install.sh` / `.bat` / `.command`）与无损还原（`uninstall.sh` / `.bat` / `.command`）方案。
    - 引入编码保护（GBK/CRLF 隔离）、macOS 隔离属性修复与由内而外应用自签名、以及权限自适应机制，杜绝 Windows 控制台乱码、macOS 签名失效闪退与 Linux 权限异常。
 
 2. **模块化分词典与高效版本迭代架构**：
@@ -353,6 +359,6 @@ node .agents/skills/sync-marketplace-plugins/scripts/diff_marketplace_plugins.js
    - **严格体积守恒**：精准继承官方 `--unpack` 机制，防止将外部二进制及 MCP 工具重复打包进 ASAR，避免体积膨胀。
 
 5. **官方插件市场与技能体系自动化同步与审计**：
-   - **专用分包与清晰边界**：独立收录 `dicts/marketplace_plugins.json`，全量覆盖 Google Workspace 官方专区插件，严格隔离第三方扩展与底层技术标识符。
-   - **内置原生自动化比对工具**：提供纯 Node.js 的全自动比对工具（`.agents/skills/sync-marketplace-plugins/`），实现与官方本地缓存的零遗漏原位升级审计。
-   - **技能选择器（Skill Picker）安全有界绑定**：在斜杠命令与技能选择器中提供中文友好展示，防止底层路径或技术标识符被意外汉化污染。
+   - **专用分包与清晰边界**：独立收录 `dicts/marketplace_plugins.json`，全量覆盖 Google Workspace 官方专区插件。
+   - **权威元数据与内存零落盘比对架构**：以官方发布的 `marketplace.json` 为唯一权威来源，针对 Google Workspace 专区插件采用流式内存零落盘解压技术。
+   - **技能选择器安全有界绑定**：在斜杠命令与技能选择器中提供中文友好展示，防止底层路径或技术标识符被意外汉化污染。

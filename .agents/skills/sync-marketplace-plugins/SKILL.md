@@ -4,9 +4,9 @@ description: >-
   同步、审计并比对官方 Antigravity 插件市场插件与插件市场专用词典。在 Antigravity 版本升级或需要更新、审计及清理插件市场汉化文案时使用此技能。
 ---
 
-# Antigravity 插件市场本地同步与审计技能
+# Antigravity 插件市场官方同步与审计技能
 
-本技能采用渐进式披露规范，专门用于在 Antigravity 客户端发生版本更新后当用户提出个性化定制插件市场区域更新需求时，自动解析本地官方插件缓存，与汉化词典进行精细化增量比对，并依据项目确立的边界标准向用户呈现比对结果。
+本技能采用渐进式披露规范，专门用于在 Antigravity 客户端发生版本更新或需要维护插件市场区域时，以官方权威元数据（`marketplace.json`）为唯一基准，采用流式内存零落盘技术精准提取核心技能详情，与汉化词典进行精细化增量比对，并依据项目确立的边界标准向用户呈现比对结果。
 
 ---
 
@@ -14,8 +14,8 @@ description: >-
 
 在处理插件市场相关文案时，**严格按以下标准分类处理**，严禁过度翻译：
 
-### 🟢 Google Workspace 官方专区（完全汉化）
-包含以下 5 个官方核心插件：
+### 🟢 Google Workspace 官方协同办公专区（完全汉化）
+指 Google 官方第一方 Workspace 协同办公生态系列插件。当前已上架的核心插件包括（**此清单为开放集合，非封闭闭集；后续若官方增补如 `gmail`、`gtasks`、`gmeet` 等同族套件，同理归入本专区**）：
 - **Google Calendar** (`gcalendar`)
 - **Google Docs** (`gdocs`)
 - **Google Drive** (`gdrive`)
@@ -23,10 +23,10 @@ description: >-
 - **Google Slides** (`gslides`)
 
 **收录范围与文案分类说明**：
-1. **插件描述**（来自 `plugin.json` 中的 `description`，如 `Read, draft, and edit docs.`。插件市场卡片与技能栏/斜杠命令展示的均是这套统一描述）。
-2. **官方建议提示词**（来自 `plugin.json` 中的 `suggestedPrompts`）。
-3. **技能详情完整说明**（来自各插件目录下的 `SKILL.md` frontmatter `description` 完整段落，负责插件技能详情页及路由规则展示）。
-4. **技能选择器安全展示绑定**：在 `localization_engine.js` 中的 `SKILL_PICKER_DISPLAY_ENTRIES` 为技能添加行上下文绑定的显示转换规则（如 `gcalendar` -> `Google 日历`，`gdocs` -> `Google 文档`，需兼容不同版本缓存客户端中的统一描述），防止污染全局代码与终端路径。
+1. **插件基础描述**（来自 `description`，如 `Read, draft, and edit docs.`。市场卡片与技能栏展示的统一描述）。
+2. **官方建议提示词**（来自 `suggestedPrompts` 快速操作提示词列表）。
+3. **技能详情完整说明**（来自各插件归档内部 `SKILL.md` frontmatter `description` 完整段落，负责插件技能详情页及路由规则展示）。
+4. **技能选择器安全展示绑定**：在 `localization_engine.js` 中的 `SKILL_PICKER_DISPLAY_ENTRIES` 为技能添加行上下文绑定的显示转换规则（如 `gcalendar` -> `Google 日历`，`gdocs` -> `Google 文档`），防止污染全局代码与终端路径。
 
 ---
 
@@ -38,7 +38,7 @@ description: >-
 2. **插件卡片基础展示简介**（各插件在市场卡片列表展示的一句话简介与概述描述）。
 3. **官方建议提示词列表**（各插件配套的 `suggestedPrompts` 快速操作提示词）。
 
-**严格禁止收录以下内容（绝不汉化）**：
+**严格禁止收录以下内容**：
 - ❌ **严禁收录各插件抽屉详情的 README/文档长篇 Markdown**（如功能详情长段、前置依赖配置、自动化评测用例、开源协议免责声明等）。
 - ❌ **严禁收录各插件内部单个技能函数的功能说明**（如内部小技能描述），避免产生大量污染并增加字典维护负担。
 
@@ -50,30 +50,23 @@ description: >-
 
 ---
 
-## 2. 本地缓存包路径与多版本解析规则
+## 2. 官方权威元数据与内存零落盘解析体系
 
-官方插件市场的元数据与技能包由客户端自动下载并缓存在当前用户主目录下的 `.gemini/` 目录中。
+### 唯一权威来源：官方 `marketplace.json`
 
-### 跨平台默认缓存路径
+比对工具统一以官方发布的 `marketplace.json` 清单为唯一数据源：
+- **默认优先**：自动定位读取本地客户端缓存的官方市场元数据：
+  - Windows: `%USERPROFILE%\.gemini\antigravity\cache\marketplaces\antigravity-plugins-official\marketplace.json`
+  - Linux / macOS: `~/.gemini/antigravity/cache/marketplaces/antigravity-plugins-official/marketplace.json`
+- **云端回退 / 独立运行**：若本地客户端尚未生成缓存（如纯净环境或 CI 构建），或附加 `--remote` 参数时，直接从 Google 官方权威源拉取：
+  - URL: `https://www.gstatic.com/antigravity/plugins/marketplace.json`
 
-各操作系统上的标准路径如下（Node.js 比对工具通过 `os.homedir()` 自动跨平台解析）：
+### Google Workspace 技能详情：流式内存零落盘提取
 
-| 操作系统 | 默认缓存路径 |
-| :--- | :--- |
-| **Linux / macOS** | `~/.gemini/antigravity/cache/marketplaces/antigravity-plugins-official/plugins/`<br>（或 `$HOME/.gemini/antigravity/...`） |
-| **Windows** | `%USERPROFILE%\.gemini\antigravity\cache\marketplaces\antigravity-plugins-official\plugins\` |
-
-> [!NOTE]
-> - **通用表示法**：在文档与跨平台说明中，通常使用标准波浪号 `~/.gemini/...` 或 `<user_home>/.gemini/...` 作为通用缩写。
-> - **自定义路径支持**：若在特殊环境或沙箱中修改了缓存位置，比对脚本支持通过 `--cache-dir <path>` 显式指定目录。
-
-每个插件子目录下包含各版本目录（如 `0.0.5/`、`0.0.6/`、`1.0.0/` 等），内部包含：
-- `plugin.json`：插件基本元数据、版本、显示名称、卡片简介及 `suggestedPrompts`。
-- `skills/<skill_name>/SKILL.md`：技能定义文件（Google Workspace 专区需读取其 frontmatter `description`）。
-
-> [!IMPORTANT]
-> **多版本缓存扫描准则（严禁递归历史目录）**：
-> 本地缓存目录中可能并存多个历史版本。比对脚本与人工审计**必须仅锁定并解析最高版本（最新版）目录**（依据 semver 语义化版本排序取最大值），严禁递归全量扫描历史旧版本目录。否则会将已废弃的历史旧文案误识别为“未汉化增量”，进而错误引入废弃冗余词条。
+针对 Google Workspace 专区插件深层 `SKILL.md` 描述的提取：
+1. **纯内存流拉取**：从 `marketplace.json` 中记载的官方 `source.url` 归档地址直接将约 40KB 的 zip 数据拉入内存 `Buffer`；
+2. **纯原生解压提取**：使用 Node.js 内置 `zlib` 在内存中解压提取 `skills/*/SKILL.md` 的 frontmatter `description`；
+3. **零落盘立即回收**：提取完毕后内存缓冲区立即由垃圾回收器（GC）释放。
 
 ---
 
@@ -82,9 +75,13 @@ description: >-
 当用户要求更新插件市场、或者在版本升级审计过程中需要检查插件时，请执行以下流程：
 
 ### 步骤 1：运行自动化比对脚本
-在项目根目录下执行自带的对比工具：
+在项目根目录下执行自带的比对工具（默认自动加载本地官方缓存，按需流式提取 Workspace 技能）：
 ```bash
 node .agents/skills/sync-marketplace-plugins/scripts/diff_marketplace_plugins.js
+```
+若需要强制拉取官方云端最新清单：
+```bash
+node .agents/skills/sync-marketplace-plugins/scripts/diff_marketplace_plugins.js --remote
 ```
 若需要程序化结构体，可添加 `--json` 参数：
 ```bash
@@ -93,12 +90,12 @@ node .agents/skills/sync-marketplace-plugins/scripts/diff_marketplace_plugins.js
 
 ### 步骤 2：分析比对结果
 脚本将自动输出三类结果：
-1. **新上架插件**：本地缓存中出现，但 `dicts/marketplace_plugins.json` 尚未收录的全新插件。
+1. **新上架插件**：官方清单中出现，但 `dicts/marketplace_plugins.json` 尚未收录的全新插件。
 2. **待翻译/变更文案**：
    - 基础卡片简介变动或新增；
    - 新增的 `suggestedPrompts` 建议提示词；
-   - （若是 Google Workspace 插件）最新版本中新增或变更的斜杠技能描述。
-3. **已下架/待清理插件**：本地缓存中已不存在，但字典中可能残存的孤立词条。
+   - （Google Workspace 专区插件）官方最新版本中新增或变更的斜杠技能完整描述。
+3. **已下架/待清理插件**：官方清单中已不存在，但字典中可能残存的孤立词条。
 
 ### 步骤 3：向用户呈现结构化报告并征求确认
 将比对得出的分析结论呈现给用户：
