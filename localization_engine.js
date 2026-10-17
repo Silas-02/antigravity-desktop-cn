@@ -1778,6 +1778,38 @@ function generateJs() {
         match = normalized.match(/^When toggled on,\\s+(.+?)\\s+will use your AI credits to fulfill model requests once you're out of model quota\\.\\s+\\1\\s+will always use your model quota first before using AI credits\\.$/i);
         if (match) return "启用后，当模型配额用尽时，" + match[1] + " 将使用您的 AI 额度处理模型请求. 系统会优先使用模型配额，之后才使用 AI 额度.";
 
+        match = normalized.match(/^(.+?)\\s+Weekly Limit(:?)$/i);
+        if (match) {
+            const prefix = match[1].trim();
+            const isYour = /^your$/i.test(prefix);
+            const colon = match[2] ? ":" : "";
+            return (isYour ? "您的" : prefix + " ") + "每周配额限制" + colon;
+        }
+
+        match = normalized.match(/^(.+?)\\s+Weekly Limit Remaining(:?)$/i);
+        if (match) {
+            const prefix = match[1].trim();
+            const isYour = /^your$/i.test(prefix);
+            const colon = match[2] ? ":" : "";
+            return (isYour ? "您的" : prefix + " ") + "每周配额剩余" + colon;
+        }
+
+        match = normalized.match(/^(.+?)\\s+(?:5-Hour|Five Hour)\\s+Limit(:?)$/i);
+        if (match) {
+            const prefix = match[1].trim();
+            const isYour = /^your$/i.test(prefix);
+            const colon = match[2] ? ":" : "";
+            return (isYour ? "您的" : prefix + " ") + "5 小时配额限制" + colon;
+        }
+
+        match = normalized.match(/^(.+?)\\s+(?:5-Hour|Five Hour)\\s+Limit Remaining(:?)$/i);
+        if (match) {
+            const prefix = match[1].trim();
+            const isYour = /^your$/i.test(prefix);
+            const colon = match[2] ? ":" : "";
+            return (isYour ? "您的" : prefix + " ") + "5 小时配额剩余" + colon;
+        }
+
         match = normalized.match(/^Build with\\s+(.+?)\\s+Plugins$/i);
         if (match) return "使用 " + match[1] + " 插件构建";
 
@@ -4153,7 +4185,9 @@ function generateJs() {
         "Worktree Name": "工作树名称",
         "Split Right": "向右拆分",
         "Split Down": "向下拆分",
+        "Replace with New": "替换为新会话",
         "Replace With New": "替换为新会话",
+        "Remove from Split": "从拆分中移除",
         "Remove From Split": "从拆分中移除",
         "Copy File Path": "复制文件路径",
         "Copy File Name": "复制文件名称",
@@ -5233,7 +5267,9 @@ function installLocalization(resourcesDir) {
         "Delete Project": "删除项目",
         "Split Right": "向右拆分",
         "Split Down": "向下拆分",
+        "Replace with New": "替换为新会话",
         "Replace With New": "替换为新会话",
+        "Remove from Split": "从拆分中移除",
         "Remove From Split": "从拆分中移除",
         "Copy File Path": "复制文件路径",
         "Copy File Name": "复制文件名称",
