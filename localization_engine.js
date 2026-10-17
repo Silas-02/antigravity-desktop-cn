@@ -97,7 +97,7 @@ function loadDictionary() {
 
 function generateJs() {
     const fullDict = loadDictionary();
-    const longEntries = Object.entries(fullDict).sort((a, b) => b[0].length - a[0].length);
+    const longEntries = Object.entries(fullDict).filter(([k]) => k.length > 20).sort((a, b) => b[0].length - a[0].length);
 
     const dictJson = JSON.stringify(fullDict, null, 4);
     const entriesJson = JSON.stringify(longEntries);
@@ -171,7 +171,7 @@ function generateJs() {
                 return transPref + " (" + match[2] + (match[3] ? "+" + match[3] : "") + ")";
             }
         }
-        match = val.match(/^(.+?)\\s+(Ctrl|Cmd|Alt|Shift|⌘|⌥|⇧|⌃)\\+([A-Za-z0-9;,.\/-]+)$/i);
+        match = val.match(/^(.+?)\\s+(Ctrl|Cmd|Alt|Shift|⌘|⌥|⇧|⌃)\\+([A-Za-z0-9;,.\\/-]+)$/i);
         if (match) {
             const prefix = match[1].trim();
             const normPref = norm(prefix);
@@ -347,9 +347,6 @@ function generateJs() {
         match = normalized.match(/^(\\d+)\\s+(?:Side\\s+Questions?|个?侧边提问)(?:\\s*([>v›❯〉→∨˅⌄▼▽⋁↓]))?$/i);
         if (match) return match[1] + " 个侧边提问" + (match[2] ? " " + match[2] : "");
 
-        match = normalized.match(/^(?:Listed|列出了)\\s*(\\d+)\\s*(?:tasks?|个任务\\s*s?)(?:\\s*([>v›❯〉→∨˅⌄▼▽⋁↓]))?$/i);
-        if (match) return "列出了 " + match[1] + " 个任务" + (match[2] ? " " + match[2] : "");
-
         match = normalized.match(/^[（(]\\s*(\\d+)\\s*(?:subagents?|个?\\s*子智能体s?)\\s*[)）]$/i);
         if (match) return "（" + match[1] + " 个子智能体）";
 
@@ -373,15 +370,53 @@ function generateJs() {
         return null;
     }
 
-    function getWorkingStatusTranslation(value) {
+    function getLiveStatusTranslation(value) {
+        if (!value) return null;
         const normalized = norm(value).replace(/[\\u200B-\\u200D\\uFEFF]/g, '');
-        if (/^Working(?:\\s*\\.){3}$/i.test(normalized) || /^Working\\s*…$/i.test(normalized)) {
+        if (/^Working(?:\\s*\\.){1,3}$/i.test(normalized) || /^Working\\s*…$/i.test(normalized) || /^(?:处理中|工作中)(?:(?:\\s*\\.)|(?:\\s*…))+$/i.test(normalized)) {
             return "工作中...";
         }
-        if (/^(?:处理中|工作中)(?:(?:\\s*\\.)|(?:\\s*…))+$/i.test(normalized)) {
-            return "工作中...";
+        if (/^Working$/i.test(normalized)) {
+            return "工作中";
+        }
+        if (/^Compacting(?:\\s*\\.){1,3}$/i.test(normalized) || /^Compacting\\s*…$/i.test(normalized) || /^(?:压缩中|正在压缩)(?:(?:\\s*\\.)|(?:\\s*…))+$/i.test(normalized)) {
+            return "正在压缩...";
+        }
+        if (/^Compacting$/i.test(normalized)) {
+            return "正在压缩";
         }
         return null;
+    }
+
+    function getWorkingStatusTranslation(value) {
+        return getLiveStatusTranslation(value);
+    }
+
+    function getExecutionTimingTranslation(value) {
+        if (!value) return null;
+        const valNorm = norm(value);
+        const durationMatch = valNorm.match(/^(Worked for|Stopped after)\\s+([\\d\\w\\s,.]+?)(?:\\s*[>›])?\\s*$/i);
+        if (!durationMatch) return null;
+
+        const action = durationMatch[1].toLowerCase();
+        let actionStr = "工作了 ";
+        if (action === "stopped after") actionStr = "在 ";
+
+        let durationStr = durationMatch[2]
+            .replace(/(\\d+)\\s*d(?:ays?)?/gi, (m, n) => n + " 天 ")
+            .replace(/(\\d+)\\s*h(?:ours?)?/gi, (m, n) => n + " 小时 ")
+            .replace(/([\\d\\.]+)\\s*ms/gi, (m, n) => n + " 毫秒 ")
+            .replace(/(\\d+)\\s*m(?:in(?:ute)?s?)?(?![a-z])/gi, (m, n) => n + " 分钟 ")
+            .replace(/([\\d\\.]+)\\s*s(?:ec(?:ond)?s?)?/gi, (m, n) => n + " 秒 ")
+            .replace(/,/g, "")
+            .replace(/\\s+/g, " ")
+            .trim();
+
+        if (action === "stopped after") {
+            return "在 " + durationStr + " 后停止";
+        } else {
+            return actionStr + durationStr;
+        }
     }
 
     function getSearchingStatusTranslation(value) {
@@ -448,16 +483,38 @@ function generateJs() {
         return null;
     }
 
+    function getBoundedTextContent(element, maxNodes = 32, maxLen = 1600) {
+        if (!element) return null;
+        let out = '';
+        let count = 0;
+        const visit = (n) => {
+            if (++count > maxNodes) return false;
+            if (n.nodeType === Node.TEXT_NODE) {
+                out += n.nodeValue || '';
+                return out.length <= maxLen;
+            }
+            const ch = n.childNodes;
+            if (ch) {
+                for (let i = 0; i < ch.length; i++) {
+                    if (!visit(ch[i])) return false;
+                }
+            }
+            return true;
+        };
+        return visit(element) ? out : null;
+    }
+
     function isInSkillItemContext(node) {
-        if (node.nodeType === Node.TEXT_NODE) {
-            const val = norm(node.nodeValue);
-            if (val.length > 40 || /[,.?!，。？！]/.test(val)) return false;
-        }
-        let current = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+        if (!node || node.nodeType !== Node.TEXT_NODE) return false;
+        const val = norm(node.nodeValue);
+        if (!val || val.length > 40 || /[,.?!:，。？！：]/.test(val)) return false;
+        let current = node.parentElement;
         for (let depth = 0; current && depth < 4; depth++) {
             if (current === document.body || current === document.documentElement) break;
-            const text = current.textContent || '';
-            if (text.length <= 400 && /(?:^|[\\\\s])(?:\\\\.{2,3})?[^\\\\s]+[\\\\/\\\\]skills[\\\\/\\\\][^\\\\s]+/i.test(text)) {
+            if (current.children && current.children.length > 6) break;
+            const text = getBoundedTextContent(current, 16, 400);
+            if (text === null) break;
+            if (/(?:^|[\\\\s])(?:\\\\.{2,3})?[^\\\\s]+[\\\\/\\\\]skills[\\\\/\\\\][^\\\\s]+/i.test(text)) {
                 return true;
             }
             current = current.parentElement || (current.getRootNode?.().host ?? null);
@@ -465,16 +522,92 @@ function generateJs() {
         return false;
     }
 
+    function markThoughtContentSibling(node) {
+        if (!node) return;
+        try {
+            let curr = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+            for (let depth = 0; depth < 3 && curr; depth++) {
+                if (curr === document.body || curr === document.documentElement) break;
+                const tag = curr.tagName ? curr.tagName.toUpperCase() : '';
+                if (tag === 'DETAILS') {
+                    for (const child of curr.children) {
+                        if (child.tagName !== 'SUMMARY') {
+                            child.setAttribute(SKIP_TRANSLATION_ATTR, 'true');
+                        }
+                    }
+                    return;
+                }
+                if (depth === 0 || tag === 'SPAN' || tag === 'BUTTON' || tag === 'SUMMARY') {
+                    curr.setAttribute('data-ag-thought-header', 'true');
+                }
+                const next = curr.nextElementSibling;
+                const prev = curr.previousElementSibling;
+                if ((next && next.tagName && next.tagName.toUpperCase() === 'SVG') ||
+                    (prev && prev.tagName && prev.tagName.toUpperCase() === 'SVG')) {
+                    if (curr.parentElement && curr.parentElement !== document.body) {
+                        curr.parentElement.setAttribute('data-ag-thought-header', 'true');
+                    }
+                }
+                const parent = curr.parentElement;
+                if (next && parent && parent.children.length === 2 && curr === parent.firstElementChild) {
+                    const nextTag = next.tagName ? next.tagName.toUpperCase() : '';
+                    if (nextTag === 'DIV' || nextTag === 'SECTION') {
+                        curr.setAttribute('data-ag-thought-header', 'true');
+                        next.setAttribute(SKIP_TRANSLATION_ATTR, 'true');
+                        return;
+                    }
+                }
+                curr = parent;
+            }
+        } catch (e) {}
+    }
+
+    function isIsolatedUiControlLabel(node, word, originalVal) {
+        if (!node) return false;
+        if (!/^[a-zA-Z]+$/.test(word)) return true;
+        if (typeof originalVal === 'string' && originalVal !== word) return false;
+
+        let curr = node.parentElement;
+        for (let depth = 0; curr && depth < 4; depth++) {
+            const tag = curr.tagName ? curr.tagName.toUpperCase() : '';
+            if (tag === 'P' || tag === 'LI' || tag === 'BLOCKQUOTE' || tag === 'PRE' || tag === 'CODE' || tag === 'ARTICLE') {
+                return false;
+            }
+            if (tag === 'BUTTON' || tag === 'SUMMARY' || tag === 'OPTION' || tag === 'LABEL' || tag === 'TH') {
+                return true;
+            }
+            const role = curr.getAttribute ? curr.getAttribute('role') : null;
+            if (role === 'button' || role === 'tab' || role === 'menuitem' || role === 'switch' || role === 'option') {
+                return true;
+            }
+            const cls = curr.className;
+            if (typeof cls === 'string' && cls.length > 0) {
+                if (/(?:whitespace-pre|break-words|prose|markdown|select-text)/i.test(cls)) {
+                    return false;
+                }
+            }
+            if (depth === 0 && curr.childNodes && curr.childNodes.length > 3) {
+                return false;
+            }
+            curr = curr.parentElement;
+        }
+        return true;
+    }
+
     function isInBlockedZone(node) {
-        if (isInSkillItemContext(node)) return true;
         let curr = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
         while (curr) {
             if (curr.nodeType === Node.ELEMENT_NODE) {
                 if (curr.hasAttribute(SKIP_TRANSLATION_ATTR)) return true;
+                const prev = curr.previousElementSibling;
+                if (prev && prev.hasAttribute('data-ag-thought-header') && curr.parentElement && curr.parentElement.children.length === 2) {
+                    curr.setAttribute(SKIP_TRANSLATION_ATTR, 'true');
+                    return true;
+                }
                 if (BLOCKED_TEST_IDS.has(curr.getAttribute('data-testid'))) return true;
 
-                const tag = curr.tagName.toUpperCase();
-                if (BLOCKED_TAGS.includes(tag)) return true;
+                const tag = curr.tagName ? curr.tagName.toUpperCase() : '';
+                if (tag && BLOCKED_TAGS.includes(tag)) return true;
                 if (curr.getAttribute('contenteditable') === 'true') return true;
 
                 const className = curr.className || '';
@@ -484,6 +617,7 @@ function generateJs() {
             }
             curr = curr.parentElement || (curr.parentNode && curr.parentNode.host);
         }
+        if (node.nodeType === Node.TEXT_NODE && isInSkillItemContext(node)) return true;
         return false;
     }
 
@@ -545,10 +679,14 @@ function generateJs() {
             return lowerMap.get(lower) ?? null;
         }
 
+        if (!/^(?:Searching|No\\b|\\.|…|正在搜索)/i.test(normalized)) return null;
+
         let searchingContainer = null;
         let p = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
         for (let depth = 0; p && depth < 4; depth++) {
-            const pText = norm(p.textContent);
+            const pRaw = getBoundedTextContent(p, 12, 120);
+            if (pRaw === null) break;
+            const pText = norm(pRaw);
             if (/^Searching(?:\\s*\\.){1,3}$/i.test(pText) || /^Searching\\s*…$/i.test(pText)) {
                 searchingContainer = p;
                 break;
@@ -753,15 +891,20 @@ function generateJs() {
 
     function findPreviousTextNode(node) {
         let current = node;
-        while (current) {
+        for (let depth = 0; current && depth < 4; depth++) {
             if (current === document.body || current === document.documentElement) break;
             let sibling = current.previousSibling;
-            while (sibling) {
-                const found = findLastTextNode(sibling);
-                if (found) return found;
+            let steps = 0;
+            while (sibling && ++steps <= 8) {
+                if (sibling.nodeType !== Node.ELEMENT_NODE || !sibling.children || sibling.children.length <= 6) {
+                    const found = findLastTextNode(sibling);
+                    if (found) return found;
+                }
                 sibling = sibling.previousSibling;
             }
-            current = current.parentNode || current.host || null;
+            const parent = current.parentNode || current.host || null;
+            if (parent && parent.children && parent.children.length > 10) break;
+            current = parent;
         }
         return null;
     }
@@ -776,109 +919,64 @@ function generateJs() {
 
     const EXPLORED_STATUS_SUFFIX = '[>v›∨˅⌄▼▽⋁\\u2228\\u02c5\\u2304\\u25bc\\u25bd\\u276f\\u2193]';
 
-    function getExploredStatusUnit(type) {
-        const normalizedType = String(type || '').toLowerCase();
-        if (/^files?$/.test(normalizedType)) return "个文件";
-        if (/^folders?$/.test(normalizedType)) return "个文件夹";
-        if (/^pages?$/.test(normalizedType)) return "个页面";
-        if (/^search(?:es)?$/.test(normalizedType)) return "次搜索";
-        if (/^tasks?$/.test(normalizedType)) return "个任务";
-        if (/^commands?$/.test(normalizedType)) return "条命令";
-        if (/^tools?$/.test(normalizedType)) return "个工具";
-        if (/^rules?$/.test(normalizedType)) return "条规则";
-        if (/^repos(?:itories)?$/.test(normalizedType)) return "个仓库";
-        if (/^images?$/.test(normalizedType)) return "张图片";
-        if (/^actions?$/.test(normalizedType)) return "次操作";
-        return null;
-    }
-
-    function translateExploredStatus(str) {
-        if (!str || typeof str !== 'string') return null;
+    function isCollapsibleActivityHeader(str) {
+        if (!str || typeof str !== 'string') return false;
         const trimmed = str.trim();
+        if (trimmed.length > 160) return false;
+        if (!/^(?:Thought|Thinking|Explored|Exploring|Ran|Running|Edited|Editing)\\b/i.test(trimmed)) return false;
+
+        if (/^(?:Thought for|Thinking for)\\s+[\\d\\w\\s,.<]+?(?:\\s*[>v›❯〉→∨˅⌄▼▽⋁↓])?\\s*$/i.test(trimmed)) {
+            return true;
+        }
+        if (/^Thinking(?:(?:\\s*\\.)|(?:\\s*…))*\\s*$/i.test(trimmed)) {
+            return true;
+        }
+
         const match = trimmed.match(new RegExp('^(?:(Explored)\\\\s+)?(.+?)(\\\\s*' + EXPLORED_STATUS_SUFFIX + ')?\\\\s*$', 'i'));
         if (match) {
             const rawContent = match[2].trim().replace(/,\\s*$/, '');
             const items = rawContent.split(/\\s*,\\s*/);
-            const exploredItems = [];
-            const ranItems = [];
             let countedValid = true;
-
             for (const item of items) {
-                const itemMatch = item.trim().match(/^(?:(ran|run|executed)\\s+)?(\\d+)\\s+(files?|folders?|pages?|search(?:es)?|tasks?|commands?|tools?|rules?|repos(?:itories)?|images?|actions?)$/i);
+                const itemMatch = item.trim().match(/^(?:(explored|ran|run|executed|edited)\\s+)?(\\d+)\\s+(files?|folders?|pages?|search(?:es)?|tasks?|commands?|tools?|rules?|repos(?:itories)?|images?|actions?|artifacts?)$/i);
                 if (!itemMatch) {
                     countedValid = false;
                     break;
                 }
-                const verb = itemMatch[1];
-                const count = itemMatch[2];
-                const unit = getExploredStatusUnit(itemMatch[3]);
-                if (!unit) {
-                    countedValid = false;
-                    break;
-                }
-
-                if (verb) {
-                    ranItems.push("运行了 " + count + " " + unit);
-                } else {
-                    exploredItems.push(count + " " + unit);
-                }
             }
-
-            if (countedValid) {
-                const parts = [];
-                if (exploredItems.length > 0) {
-                    const expPrefix = match[1] ? "探索了 " : "";
-                    parts.push(expPrefix + exploredItems.join("、"));
-                }
-                if (ranItems.length > 0) {
-                    parts.push(ranItems.join("、"));
-                }
-
-                if (parts.length > 0) {
-                    return parts.join("，") + (match[3] || "");
-                }
-            }
+            if (countedValid && items.length > 0) return true;
         }
 
         const suffixMatch = trimmed.match(new RegExp('^(.+?)(\\\\s*' + EXPLORED_STATUS_SUFFIX + ')?\\\\s*$', 'i'));
-        if (!suffixMatch) return null;
+        if (!suffixMatch) return false;
         const clauseSource = suffixMatch[1].trim().replace(/,\\s*$/, '');
         const clauses = clauseSource.split(/\\s*,\\s*/);
-        const translatedClauses = [];
         let hasNoun = false;
 
         for (const clause of clauses) {
             const c = clause.trim();
             let cm = c.match(/^(Exploring|Explored)(?:\\s+(files?|artifacts?))?$/i);
             if (cm) {
-                const isActive = /^exploring$/i.test(cm[1]);
-                const noun = cm[2] ? (/^artifacts?$/i.test(cm[2]) ? "交付件" : "文件") : "";
-                if (noun) hasNoun = true;
-                translatedClauses.push(noun ? ((isActive ? "正在探索" : "探索了") + noun) : (isActive ? "正在探索" : "已探索"));
+                if (cm[2]) hasNoun = true;
                 continue;
             }
             cm = c.match(/^(Running|Ran)\\s+(commands?)$/i);
             if (cm) {
                 hasNoun = true;
-                const isActive = /^running$/i.test(cm[1]);
-                translatedClauses.push(isActive ? "正在运行命令" : "运行了命令");
                 continue;
             }
             cm = c.match(/^(Editing|Edited)(?:\\s+(files?|artifacts?))?$/i);
             if (cm) {
-                const isActive = /^editing$/i.test(cm[1]);
-                const noun = cm[2] ? (/^artifacts?$/i.test(cm[2]) ? "交付件" : "文件") : "";
-                if (noun) hasNoun = true;
-                translatedClauses.push(noun ? ((isActive ? "正在编辑" : "编辑了") + noun) : (isActive ? "正在编辑" : "已编辑"));
+                if (cm[2]) hasNoun = true;
                 continue;
             }
-            return null;
+            return false;
         }
 
-        if (translatedClauses.length === 0 || (translatedClauses.length === 1 && !hasNoun && !suffixMatch[2])) {
-            return null;
+        if (clauses.length === 0 || (clauses.length === 1 && !hasNoun && !suffixMatch[2])) {
+            return false;
         }
-        return translatedClauses.join("，") + (suffixMatch[2] || "");
+        return true;
     }
 
     function collectTextNodes(element) {
@@ -2935,14 +3033,46 @@ function generateJs() {
     }
 
     function translateSpecialContainers(element) {
-        if (!element || element.nodeType !== Node.ELEMENT_NODE || isInBlockedZone(element)) return false;
+        if (!element || element.nodeType !== Node.ELEMENT_NODE) return false;
         if (!element.childNodes || element.childNodes.length === 0) return false;
+        if (element.children && element.children.length > 8) return false;
 
-        const rawText = element.textContent || '';
+        if ((!element.children || element.children.length === 0) && element.childNodes.length === 1) {
+            const firstChild = element.firstChild;
+            if (!firstChild || firstChild.nodeType !== Node.TEXT_NODE) return false;
+            const singleVal = firstChild.nodeValue || '';
+            if (singleVal.length <= 160 && isCollapsibleActivityHeader(singleVal)) {
+                markThoughtContentSibling(element);
+                return 'skip_children';
+            }
+            if (singleVal.length <= 8 && element.tagName?.toUpperCase() === 'SPAN' && /^OR$/i.test(singleVal.trim())) {
+                if (isInBlockedZone(element)) return false;
+                return translateBusinessSsoOrDivider(element);
+            }
+            if (element.getAttribute?.('data-testid') === 'agent-loading') {
+                if (isInBlockedZone(element)) return false;
+                return translateAgentLoadingStatus(element);
+            }
+            if (singleVal.length <= 1600 && /(?:baseline quota|基础配额)/i.test(singleVal)) {
+                if (isInBlockedZone(element)) return false;
+                return translateBaselineQuotaNotice(element);
+            }
+            return false;
+        }
+
+        const rawText = getBoundedTextContent(element, 36, 1600);
+        if (rawText === null) return false;
         const textLength = rawText.length;
+        if (textLength === 0) return false;
+        if (isInBlockedZone(element)) return false;
+
+        if (textLength <= 160 && isCollapsibleActivityHeader(rawText)) {
+            markThoughtContentSibling(element);
+            return 'skip_children';
+        }
         let translated = false;
 
-        if (textLength <= 160 && /(?:(?:Also\s+modified|Modified)\s+in|修改于|也修改于)/i.test(rawText)) {
+        if (textLength <= 160 && /(?:(?:Also\\s+modified|Modified)\\s+in|修改于|也修改于)/i.test(rawText)) {
             translated = translateSettingOverrides(element) || translated;
         }
         if (textLength <= 360 && /(?:Also includes|when working in this|在此(?:项目|工作区)中工作时还包括)/i.test(rawText)) {
@@ -2961,7 +3091,7 @@ function generateJs() {
         if (textLength <= 320 && /(?:Input disabled because|输入已禁用[，,]因为|does not exist|Create the folder in this)/i.test(rawText)) {
             translated = translateInputDisabledNotice(element) || translated;
         }
-        if (textLength <= 80 && /(?:Show\s+\d+\s+more|显示另外\s+\d+\s+个)/i.test(rawText)) {
+        if (textLength <= 80 && /(?:Show\\s+\\d+\\s+more|显示另外\\s+\\d+\\s+个)/i.test(rawText)) {
             translated = translateShowMoreStatus(element) || translated;
         }
         if (textLength <= 1600 && /(?:baseline quota|基础配额)/i.test(rawText)) {
@@ -3037,6 +3167,9 @@ function generateJs() {
         const workingStatusTranslation = getWorkingStatusTranslation(normalized);
         if (workingStatusTranslation) return workingStatusTranslation;
 
+        const executionTimingTranslation = getExecutionTimingTranslation(normalized);
+        if (executionTimingTranslation) return executionTimingTranslation;
+
         const compactCountLabelTranslation = getCompactCountLabelTranslation(normalized);
         if (compactCountLabelTranslation) return compactCountLabelTranslation;
 
@@ -3082,9 +3215,6 @@ function generateJs() {
         const geminiAvailableMatch = normalized.match(/^Gemini\\s+(.+?)\\s+is now available$/i);
         if (geminiAvailableMatch) return "Gemini " + geminiAvailableMatch[1] + " 现已可用";
 
-        const exploredTrans = translateExploredStatus(normalized);
-        if (exploredTrans) return exploredTrans;
-
         const toolMatch = normalized.match(/^(\\d+)\\s+tools?\\s+enabled$/i);
         if (toolMatch) return toolMatch[1] + " 个工具已启用";
 
@@ -3105,16 +3235,32 @@ function generateJs() {
             const countText = viewArchivedMatch[1] ? " " + viewArchivedMatch[1] + " 个" : "";
             return "查看" + countText + "已归档会话" + (/in$/i.test(normalized) ? "，请前往 " : "");
         }
+        const deleteProjectPrefixMatch = normalized.match(/^Are you sure you want to delete\\s+(?:the\\s+|this\\s+)?(project|workspace|项目|工作区)$/i);
+        if (deleteProjectPrefixMatch) {
+            const scope = /^(?:workspace|工作区)$/i.test(deleteProjectPrefixMatch[1]) ? "工作区" : "项目";
+            return "您确定要删除" + scope + (/\\s$/.test(value) ? " " : "");
+        }
 
         return null;
     }
 
     function translateCombinedTextChildren(element) {
-        if (!element || element.nodeType !== Node.ELEMENT_NODE || isInBlockedZone(element)) {
+        if (!element || element.nodeType !== Node.ELEMENT_NODE || !element.childNodes || element.childNodes.length < 2) {
             return false;
         }
 
-        if (getCompactCountLabelTranslation(element.textContent || '')) return false;
+        let hasAdjacentTextNodes = false;
+        for (let i = 0; i < element.childNodes.length - 1; i++) {
+            if (element.childNodes[i].nodeType === Node.TEXT_NODE && element.childNodes[i + 1].nodeType === Node.TEXT_NODE) {
+                hasAdjacentTextNodes = true;
+                break;
+            }
+        }
+        if (!hasAdjacentTextNodes) return false;
+        if (isInBlockedZone(element)) return false;
+
+        const boundedText = getBoundedTextContent(element, 16, 240);
+        if (boundedText !== null && getCompactCountLabelTranslation(boundedText)) return false;
 
         let textRun = [];
         const translateRun = () => {
@@ -3174,31 +3320,46 @@ function generateJs() {
 
     function translateFragmentedStatus(node, originalVal) {
         const currentText = norm(originalVal);
-        const previous = findPreviousTextNode(node);
-        const previousText = previous ? norm(previous.nodeValue) : '';
+        if (!currentText || currentText.length > 120) return null;
+
+        let _prevLoaded = false;
+        let _previous = null;
+        let _previousText = '';
+        const getPrev = () => {
+            if (!_prevLoaded) {
+                _prevLoaded = true;
+                _previous = findPreviousTextNode(node);
+                _previousText = _previous ? norm(_previous.nodeValue) : '';
+            }
+            return _previous;
+        };
+        const getPrevText = () => {
+            getPrev();
+            return _previousText;
+        };
 
         if (/^to be installed\\.?$/i.test(currentText)) {
-            const parentText = node && node.parentElement ? (node.parentElement.textContent || '') : '';
-            if (/^Google Chrome$/i.test(previousText) || /(?:browser subagent|浏览器子智能体|Google Chrome)/i.test(parentText)) {
+            const parentText = node && node.parentElement ? (getBoundedTextContent(node.parentElement, 16, 500) || '') : '';
+            if (/^Google Chrome$/i.test(getPrevText()) || /(?:browser subagent|浏览器子智能体|Google Chrome)/i.test(parentText)) {
                 return ". ";
             }
         }
         if (/^to ask for content changes for legal reasons[.。]?$/i.test(currentText)) {
-            const parentText = node && node.parentElement ? (node.parentElement.textContent || '') : '';
-            if (/^(?:Legal Help|法律帮助)$/i.test(previousText) || /(?:Legal Help|法律帮助)/i.test(parentText)) {
+            const parentText = node && node.parentElement ? (getBoundedTextContent(node.parentElement, 16, 400) || '') : '';
+            if (/^(?:Legal Help|法律帮助)$/i.test(getPrevText()) || /(?:Legal Help|法律帮助)/i.test(parentText)) {
                 return " 页面";
             }
         }
         if (/^Visit$/i.test(currentText)) {
-            const parentText = node && node.parentElement ? (node.parentElement.textContent || '') : '';
+            const parentText = node && node.parentElement ? (getBoundedTextContent(node.parentElement, 16, 400) || '') : '';
             if (/(?:Legal Help|法律帮助)/i.test(parentText) && /(?:to ask for content changes for legal reasons|出于法律原因)/i.test(parentText)) {
                 return "若出于法律原因需要申请更改内容，请访问 ";
             }
         }
         const toBeInstalledMatch = currentText.match(/^to be installed\\.\\s*(.+)$/i);
         if (toBeInstalledMatch) {
-            const parentText = node && node.parentElement ? (node.parentElement.textContent || '') : '';
-            if (/^Google Chrome$/i.test(previousText) || /(?:browser subagent|浏览器子智能体|Google Chrome)/i.test(parentText)) {
+            const parentText = node && node.parentElement ? (getBoundedTextContent(node.parentElement, 16, 500) || '') : '';
+            if (/^Google Chrome$/i.test(getPrevText()) || /(?:browser subagent|浏览器子智能体|Google Chrome)/i.test(parentText)) {
                 const rest = toBeInstalledMatch[1];
                 const restTrans = map.get(norm(rest)) || lowerMap.get(norm(rest).toLowerCase()) || rest;
                 return ". " + restTrans;
@@ -3206,72 +3367,70 @@ function generateJs() {
         }
 
         const commentCountMatch = currentText.match(/^[（(]\\s*(\\d+)\\s*[)）]$/);
-        if (commentCountMatch && /^(?:Comments?|评论)$/i.test(previousText)) {
-            replaceTextNode(previous, "评论");
+        if (commentCountMatch && /^(?:Comments?|评论)$/i.test(getPrevText())) {
+            replaceTextNode(getPrev(), "评论");
             return "(" + commentCountMatch[1] + ")";
         }
 
         const statusItemMatch = currentText.match(new RegExp('^(files?|folders?|pages?|search(?:es)?|tasks?|commands?|tools?|rules?|repos(?:itories)?|images?|actions?)(\\s*,\\s*|\\s*' + EXPLORED_STATUS_SUFFIX + ')?$', 'i'));
-        if (statusItemMatch && previous) {
-            const unit = getExploredStatusUnit(statusItemMatch[1]);
-            const tail = statusItemMatch[2] || '';
-            const translatedTail = /,/.test(tail) ? '、' : tail;
-            const prefixedCount = previousText.match(/^(?:Explored|探索了)\\s+(\\d+)$/i);
-            if (prefixedCount) {
-                replaceTextNode(previous, "探索了 " + prefixedCount[1]);
-                return " " + unit + translatedTail;
+        if (statusItemMatch && getPrev()) {
+            const previousText = getPrevText();
+            if (/^(?:Explored|Exploring|ran|run|executed|edited|editing)\\s+\\d+$/i.test(previousText) || /^\\d+$/.test(previousText)) {
+                markThoughtContentSibling(node);
+                return null;
             }
-            const prefixedRanCount = previousText.match(/^(?:ran|运行了)\\s+(\\d+)$/i);
-            if (prefixedRanCount) {
-                replaceTextNode(previous, "运行了 " + prefixedRanCount[1]);
-                return " " + unit + translatedTail;
-            }
-            if (/^\\d+$/.test(previousText)) return " " + unit + translatedTail;
         }
 
         let statusMatch = currentText.match(/^(?:subagents?|子智能体)(?:\\s*([>›❯〉→]))?$/i);
-        if (statusMatch && /^Found$/i.test(previousText)) {
-            replaceTextNode(previous, "已找到");
-            return "子智能体" + (statusMatch[1] ? " " + statusMatch[1] : "");
+        if (statusMatch) {
+            const previous = getPrev();
+            const previousText = getPrevText();
+            if (/^Found$/i.test(previousText)) {
+                replaceTextNode(previous, "已找到");
+                return "子智能体" + (statusMatch[1] ? " " + statusMatch[1] : "");
+            }
+            if (/^\\d+$/.test(previousText)) {
+                const foundNode = findPreviousTextNode(previous);
+                if (foundNode && /^Found$/i.test(norm(foundNode.nodeValue))) {
+                    replaceTextNode(foundNode, "找到 ");
+                    return " 个子智能体" + (statusMatch[1] ? " " + statusMatch[1] : "");
+                }
+                if (foundNode && /^(?:Killed|已中止)$/i.test(norm(foundNode.nodeValue))) {
+                    replaceTextNode(foundNode, "已中止 ");
+                    return " 个子智能体" + (statusMatch[1] ? " " + statusMatch[1] : "");
+                }
+            }
         }
 
         statusMatch = currentText.match(/^(?:Browsers?|浏览器)(?:\\s*([>›❯〉→]))?$/i);
-        if (statusMatch && /^Found$/i.test(previousText)) {
-            replaceTextNode(previous, "已找到");
+        if (statusMatch && /^Found$/i.test(getPrevText())) {
+            replaceTextNode(getPrev(), "已找到");
             return "浏览器" + (statusMatch[1] ? " " + statusMatch[1] : "");
         }
 
         statusMatch = currentText.match(/^(\\d+)\\s+subagents?(?:\\s*([>›❯〉→]))?$/i);
-        if (statusMatch && /^Found$/i.test(previousText)) {
-            replaceTextNode(previous, "找到");
-            return " " + statusMatch[1] + " 个子智能体" + (statusMatch[2] ? " " + statusMatch[2] : "");
-        }
-        if (statusMatch && /^(?:Killed|已中止)$/i.test(previousText)) {
-            replaceTextNode(previous, "已中止");
-            return " " + statusMatch[1] + " 个子智能体" + (statusMatch[2] ? " " + statusMatch[2] : "");
-        }
-        statusMatch = currentText.match(/^subagents?(?:\\s*([>›❯〉→]))?$/i);
-        if (statusMatch && /^\\d+$/.test(previousText)) {
-            const foundNode = findPreviousTextNode(previous);
-            if (foundNode && /^Found$/i.test(norm(foundNode.nodeValue))) {
-                replaceTextNode(foundNode, "找到 ");
-                return " 个子智能体" + (statusMatch[1] ? " " + statusMatch[1] : "");
+        if (statusMatch) {
+            const previous = getPrev();
+            const previousText = getPrevText();
+            if (/^Found$/i.test(previousText)) {
+                replaceTextNode(previous, "找到");
+                return " " + statusMatch[1] + " 个子智能体" + (statusMatch[2] ? " " + statusMatch[2] : "");
             }
-            if (foundNode && /^(?:Killed|已中止)$/i.test(norm(foundNode.nodeValue))) {
-                replaceTextNode(foundNode, "已中止 ");
-                return " 个子智能体" + (statusMatch[1] ? " " + statusMatch[1] : "");
+            if (/^(?:Killed|已中止)$/i.test(previousText)) {
+                replaceTextNode(previous, "已中止");
+                return " " + statusMatch[1] + " 个子智能体" + (statusMatch[2] ? " " + statusMatch[2] : "");
             }
         }
 
         statusMatch = currentText.match(/^(\\d+)\\s+(seconds?|minutes?|hours?)(?:\\s*([>›❯〉→]))?$/i);
-        if (statusMatch && /^Timed$/i.test(previousText)) {
+        if (statusMatch && /^Timed$/i.test(getPrevText())) {
             const unit = /^second/i.test(statusMatch[2]) ? "秒" : /^minute/i.test(statusMatch[2]) ? "分钟" : "小时";
-            replaceTextNode(previous, "耗时");
+            replaceTextNode(getPrev(), "耗时");
             return " " + statusMatch[1] + " " + unit + (statusMatch[3] ? " " + statusMatch[3] : "");
         }
         statusMatch = currentText.match(/^(seconds?|minutes?|hours?)(?:\\s*([>›❯〉→]))?$/i);
-        if (statusMatch && /^\\d+$/.test(previousText)) {
-            const timedNode = findPreviousTextNode(previous);
+        if (statusMatch && /^\\d+$/.test(getPrevText())) {
+            const timedNode = findPreviousTextNode(getPrev());
             if (timedNode && /^Timed$/i.test(norm(timedNode.nodeValue))) {
                 const unit = /^second/i.test(statusMatch[1]) ? "秒" : /^minute/i.test(statusMatch[1]) ? "分钟" : "小时";
                 replaceTextNode(timedNode, "耗时 ");
@@ -3280,31 +3439,33 @@ function generateJs() {
         }
 
         statusMatch = currentText.match(/^Root\\s+Agent(?:\\s*([>›❯〉→]))?$/i);
-        if (statusMatch && /^Messaged$/i.test(previousText)) {
-            replaceTextNode(previous, "已向");
+        if (statusMatch && /^Messaged$/i.test(getPrevText())) {
+            replaceTextNode(getPrev(), "已向");
             return "主智能体发送消息" + (statusMatch[1] ? " " + statusMatch[1] : "");
         }
 
         statusMatch = currentText.match(/^(\\d+)\\s+active\\s+goals?$/i);
-        if (statusMatch && /^(\\d+)\\s+tasks?\\s+running,?$/i.test(previousText)) {
-            const taskCount = previousText.match(/^(\\d+)/)[1];
-            replaceTextNode(previous, taskCount + " 个任务正在运行，");
+        if (statusMatch && /^(\\d+)\\s+tasks?\\s+running,?$/i.test(getPrevText())) {
+            const taskCount = getPrevText().match(/^(\\d+)/)[1];
+            replaceTextNode(getPrev(), taskCount + " 个任务正在运行，");
             return statusMatch[1] + " 个活跃目标";
         }
-        if (/^active\\s+goals?$/i.test(currentText) && /^\\d+$/.test(previousText)) {
+        if (/^active\\s+goals?$/i.test(currentText) && /^\\d+$/.test(getPrevText())) {
             return " 个活跃目标";
         }
 
-        if (/^found$/i.test(currentText) && previousText === "项目") {
-            const noNode = findPreviousTextNode(previous);
+        if (/^found$/i.test(currentText) && getPrevText() === "项目") {
+            const noNode = findPreviousTextNode(getPrev());
             if (noNode && /^No$/i.test(norm(noNode.nodeValue))) {
                 replaceTextNode(noNode, '');
-                replaceTextNode(previous, "未找到项目");
+                replaceTextNode(getPrev(), "未找到项目");
                 return '';
             }
         }
 
-        if (/^(?:when not in a project|in this project|in this workspace|in this conversation)$/i.test(currentText) && previous) {
+        if (/^(?:when not in a project|in this project|in this workspace|in this conversation)$/i.test(currentText) && getPrev()) {
+            const previous = getPrev();
+            const previousText = getPrevText();
             const isAllow = /^(?:Yes, and always allow|是，且始终允许)$/i.test(previousText);
             const isSaveRule = /^(?:Yes, save rule|是，保存规则)$/i.test(previousText);
             if (isAllow || isSaveRule) {
@@ -3323,18 +3484,19 @@ function generateJs() {
             }
         }
 
-        if (/^s\\s+enabled$/i.test(currentText) && previous) {
-            const countAndTool = previousText.match(/^(\\d+)\\s+tools?$/i);
+        if (/^s\\s+enabled$/i.test(currentText) && getPrev()) {
+            const countAndTool = getPrevText().match(/^(\\d+)\\s+tools?$/i);
             if (countAndTool) {
-                replaceTextNode(previous, countAndTool[1] + " 个工具已启用");
+                replaceTextNode(getPrev(), countAndTool[1] + " 个工具已启用");
                 return '';
             }
         }
 
         const isEnabledSuffix = /^s\\s+enabled$/i.test(currentText) || /^enabled$/i.test(currentText);
-        if (isEnabledSuffix && previous) {
+        if (isEnabledSuffix && getPrev()) {
+            const previous = getPrev();
             let toolNode = previous;
-            let toolText = previousText;
+            let toolText = getPrevText();
 
             if (/^s$/i.test(toolText) && /^enabled$/i.test(currentText)) {
                 toolNode = findPreviousTextNode(previous);
@@ -3350,17 +3512,19 @@ function generateJs() {
             }
         }
 
-        if (previousText === "所有计划任务均以" && currentText && !/[\\u4e00-\\u9fff]/.test(currentText)) {
+        if (currentText.length <= 40 && !/[\\u4e00-\\u9fff]/.test(currentText) &&
+            node.parentElement && node.parentElement.childNodes && node.parentElement.childNodes.length >= 2 &&
+            getPrevText() === "所有计划任务均以") {
             const model = currentText.replace(/[.。]+$/, '').trim();
             if (model) return model + " 模型运行";
         }
 
-        if (/^[.。]$/.test(currentText) && /模型运行$/.test(previousText)) {
+        if (/^[.。]$/.test(currentText) && /模型运行$/.test(getPrevText())) {
             return '';
         }
 
-        if (/^\\?\\s*(?:This action cannot be undone\\.?)?$/i.test(currentText) && previous) {
-            let candidate = previous;
+        if (/^\\?\\s*(?:This action cannot be undone\\.?)?$/i.test(currentText) && getPrev()) {
+            let candidate = getPrev();
             for (let i = 0; i < 6 && candidate; i++) {
                 if (/^您确定要删除(?:计划)?任务$/.test(norm(candidate.nodeValue))) {
                     return /This action cannot be undone/i.test(currentText)
@@ -3371,8 +3535,25 @@ function generateJs() {
             }
         }
 
-        if (currentText === '?' && previous) {
-            let candidate = previous;
+        const deletePrefixMatch = currentText.match(/^Are you sure you want to delete(?:\\s+(?:the|this))?(?:\\s+(project|workspace|项目|工作区))?$/i);
+        if (deletePrefixMatch) {
+            let container = node && node.parentElement;
+            for (let depth = 0; container && depth < 3; depth++) {
+                if (container === document.body || container === document.documentElement) break;
+                const containerText = getBoundedTextContent(container, 16, 320) || '';
+                if (/^Are you sure you want to delete\\s+(?:the\\s+|this\\s+)?(?:project|workspace|项目|工作区)\\s+.+\\?$/i.test(containerText)) {
+                    if (deletePrefixMatch[1]) {
+                        const scope = /^(?:workspace|工作区)$/i.test(deletePrefixMatch[1]) ? "工作区" : "项目";
+                        return "您确定要删除" + scope + (/\\s$/.test(originalVal) ? " " : "");
+                    }
+                    return "您确定要删除";
+                }
+                container = container.parentElement;
+            }
+        }
+
+        if (currentText === '?' && getPrev()) {
+            let candidate = getPrev();
             let hasProjectScope = false;
             for (let i = 0; i < 8 && candidate; i++) {
                 const candidateText = norm(candidate.nodeValue);
@@ -3380,30 +3561,36 @@ function generateJs() {
                     hasProjectScope = true;
                 } else if (candidateText === "您确定要删除" && hasProjectScope) {
                     return " 吗？";
+                } else if (/^您确定要删除(?:项目|工作区)$/.test(candidateText)) {
+                    return " 吗？";
                 }
                 candidate = findPreviousTextNode(candidate);
             }
         }
 
-        if (/^in$/i.test(currentText) && (previousText === "个已归档会话" || previousText === "已归档会话" || previousText === "个已归档对话" || previousText === "已归档对话" || previousText === "archived conversation" || previousText === "archived conversations")) {
-            let viewNode = findPreviousTextNode(previous);
-            let hasNumber = false;
-            if (viewNode && /^\\d+$/.test(norm(viewNode.nodeValue))) {
-                hasNumber = true;
-                viewNode = findPreviousTextNode(viewNode);
-            }
-            const articleNodes = [];
-            while (viewNode && /^(?:a|an|个)$/i.test(norm(viewNode.nodeValue))) {
-                articleNodes.push(viewNode);
-                viewNode = findPreviousTextNode(viewNode);
-            }
-            if (viewNode && /^(?:View|视图|查看)$/i.test(norm(viewNode.nodeValue))) {
-                for (const articleNode of articleNodes) replaceTextNode(articleNode, '');
-                replaceTextNode(viewNode, "查看");
-                if (!hasNumber) {
-                    replaceTextNode(previous, "已归档的会话");
+        if (/^in$/i.test(currentText)) {
+            const previous = getPrev();
+            const previousText = getPrevText();
+            if (previousText === "个已归档会话" || previousText === "已归档会话" || previousText === "个已归档对话" || previousText === "已归档对话" || previousText === "archived conversation" || previousText === "archived conversations") {
+                let viewNode = findPreviousTextNode(previous);
+                let hasNumber = false;
+                if (viewNode && /^\\d+$/.test(norm(viewNode.nodeValue))) {
+                    hasNumber = true;
+                    viewNode = findPreviousTextNode(viewNode);
                 }
-                return "，请前往 ";
+                const articleNodes = [];
+                while (viewNode && /^(?:a|an|个)$/i.test(norm(viewNode.nodeValue))) {
+                    articleNodes.push(viewNode);
+                    viewNode = findPreviousTextNode(viewNode);
+                }
+                if (viewNode && /^(?:View|视图|查看)$/i.test(norm(viewNode.nodeValue))) {
+                    for (const articleNode of articleNodes) replaceTextNode(articleNode, '');
+                    replaceTextNode(viewNode, "查看");
+                    if (!hasNumber) {
+                        replaceTextNode(previous, "已归档的会话");
+                    }
+                    return "，请前往 ";
+                }
             }
         }
 
@@ -3420,15 +3607,28 @@ function generateJs() {
             }
 
             if (node.nodeType === Node.ELEMENT_NODE) {
+                if (node.hasAttribute(SKIP_TRANSLATION_ATTR)) return;
+                const prev = node.previousElementSibling;
+                if (prev && prev.hasAttribute('data-ag-thought-header') && node.parentElement && node.parentElement.children.length === 2) {
+                    node.setAttribute(SKIP_TRANSLATION_ATTR, 'true');
+                    return;
+                }
+
                 const tag = node.tagName.toUpperCase();
+                const className = typeof node.className === 'string' ? node.className : '';
+
+                if (className && /(?:^|\\s)(?:view-lines|view-line|minimap|margin-view-overlays|decorationsOverviewRuler|xterm|terminal)(?:\\s|$)/.test(className)) {
+                    if (node.getAttribute('translate') !== 'no') node.setAttribute('translate', 'no');
+                    try {
+                        if (!node.classList.contains('notranslate')) node.classList.add('notranslate');
+                    } catch (e) {}
+                    return;
+                }
 
                 let isBlocked = BLOCKED_TAGS.includes(tag);
-                if (!isBlocked) {
-                    const className = node.className || '';
-                    if (typeof className === 'string') {
-                        if (BLOCKED_CLASSES.some(cls => className.includes(cls))) {
-                            isBlocked = true;
-                        }
+                if (!isBlocked && className) {
+                    if (BLOCKED_CLASSES.some(cls => className.includes(cls))) {
+                        isBlocked = true;
                     }
                 }
                 if (node.getAttribute('contenteditable') === 'true') {
@@ -3438,13 +3638,10 @@ function generateJs() {
                         const value = node.getAttribute(attr);
                         if (!value) continue;
                         const normalizedValue = norm(value);
-                        const shortcutTranslation = translateWithShortcut(normalizedValue);
-                        const versionControlTranslation = getVersionControlUiTranslation(normalizedValue);
-                        let target = null;
-                        if (versionControlTranslation) target = versionControlTranslation;
-                        else if (shortcutTranslation) target = shortcutTranslation;
-                        else if (map.has(normalizedValue)) target = map.get(normalizedValue);
-                        else if (lowerMap.has(normalizedValue.toLowerCase())) target = lowerMap.get(normalizedValue.toLowerCase());
+                        const target = getVersionControlUiTranslation(normalizedValue)
+                            || translateWithShortcut(normalizedValue)
+                            || map.get(normalizedValue)
+                            || lowerMap.get(normalizedValue.toLowerCase());
                         if (target && target !== value) node.setAttribute(attr, target);
                     }
                 }
@@ -3472,21 +3669,13 @@ function generateJs() {
                                     node.setAttribute(attr, searchingTrans);
                                 } else if (!isInBlockedZone(node.parentElement)) {
                                     const t = norm(v);
-                                    const shortcutTrans = translateWithShortcut(t);
-                                    const versionControlTrans = getVersionControlUiTranslation(t);
-                                    const dynamicSubagentTrans = getDynamicSubagentStatusTranslation(t);
-                                    const dynamicProductUiTrans = getDynamicProductUiTranslation(t);
-                                    const compactCountTrans = getCompactCountLabelTranslation(t);
-                                    const exploredTrans = translateExploredStatus(t);
-                                    let target = null;
-                                    if (versionControlTrans) target = versionControlTrans;
-                                    else if (dynamicSubagentTrans) target = dynamicSubagentTrans;
-                                    else if (dynamicProductUiTrans) target = dynamicProductUiTrans;
-                                    else if (compactCountTrans) target = compactCountTrans;
-                                    else if (exploredTrans) target = exploredTrans;
-                                    else if (shortcutTrans) target = shortcutTrans;
-                                    else if (map.has(t)) target = map.get(t);
-                                    else if (lowerMap.has(t.toLowerCase())) target = lowerMap.get(t.toLowerCase());
+                                    const target = getVersionControlUiTranslation(t)
+                                        || getDynamicSubagentStatusTranslation(t)
+                                        || getDynamicProductUiTranslation(t)
+                                        || getCompactCountLabelTranslation(t)
+                                        || translateWithShortcut(t)
+                                        || map.get(t)
+                                        || lowerMap.get(t.toLowerCase());
                                     if (target && target !== v) node.setAttribute(attr, target);
                                 }
                             }
@@ -3496,7 +3685,7 @@ function generateJs() {
                 }
 
                 if (!isInBlockedZone(node)) {
-                    translateSpecialContainers(node);
+                    if (translateSpecialContainers(node) === 'skip_children') return;
                     translateCombinedTextChildren(node);
                     for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label']) {
                         const v = node.getAttribute(attr);
@@ -3506,22 +3695,14 @@ function generateJs() {
                                 node.setAttribute(attr, searchingTrans);
                             } else {
                                 const t = norm(v);
-                                const shortcutTrans = translateWithShortcut(t);
-                                const versionControlTrans = getVersionControlUiTranslation(t);
-                                const dynamicSubagentTrans = getDynamicSubagentStatusTranslation(t);
-                                const dynamicProductUiTrans = getDynamicProductUiTranslation(t);
-                                const compactCountTrans = getCompactCountLabelTranslation(t);
-                                const exploredTrans = translateExploredStatus(t);
-                                let target = null;
-                                if (versionControlTrans) target = versionControlTrans;
-                                else if (dynamicSubagentTrans) target = dynamicSubagentTrans;
-                                else if (dynamicProductUiTrans) target = dynamicProductUiTrans;
-                                else if (compactCountTrans) target = compactCountTrans;
-                                else if (exploredTrans) target = exploredTrans;
-                                else if (shortcutTrans) target = shortcutTrans;
-                                else if (map.has(t)) target = map.get(t);
-                                else if (lowerMap.has(t.toLowerCase())) target = lowerMap.get(t.toLowerCase());
-                                if (target && target !== v) node.setAttribute(attr, target);
+                                const target = getVersionControlUiTranslation(t)
+                                    || getDynamicSubagentStatusTranslation(t)
+                                    || getDynamicProductUiTranslation(t)
+                                    || getCompactCountLabelTranslation(t)
+                                    || translateWithShortcut(t)
+                                    || map.get(t)
+                                    || lowerMap.get(t.toLowerCase());
+                               if (target && target !== v) node.setAttribute(attr, target);
                             }
                         }
                     }
@@ -3573,7 +3754,7 @@ function generateJs() {
                 if (translateUsedSkillNameTextNode(node, originalVal)) return;
                 if (translateCommitSummaryTextNode(node, originalVal)) return;
                 if (!parentContainersScanned && translateSpecialContainers(node.parentElement)) return;
-                if (translateCombinedTextChildren(node.parentElement)) return;
+                if (!parentContainersScanned && translateCombinedTextChildren(node.parentElement)) return;
 
                 let newVal = originalVal;
                 const hasRecommended = /^\\(Recommended\\)(?:\\s+|$)/i.test(newVal);
@@ -3581,82 +3762,73 @@ function generateJs() {
                     newVal = newVal.replace(/^\\(Recommended\\)(?:\\s+|$)/i, '');
                 }
                 const valNorm = norm(newVal);
+                if (isCollapsibleActivityHeader(valNorm)) {
+                    markThoughtContentSibling(node);
+                    return;
+                }
                 const valLower = valNorm.toLowerCase();
 
-                const shortcutTrans = translateWithShortcut(valNorm);
-                const versionControlUiTrans = getVersionControlUiTranslation(valNorm);
-                const fragmentedStatusTrans = translateFragmentedStatus(node, originalVal);
-                const questionnaireOptionTrans = translateQuestionnaireOptionLabel(node, valNorm);
-                const timestampNowTrans = getTimestampNowTranslation(node, valNorm);
-                const recentProjectSectionTrans = getRecentProjectSectionTranslation(node, valNorm);
-                const deleteTaskConfirmationTrans = getDeleteTaskConfirmationTranslation(node, valNorm);
-                const exploredTrans = translateExploredStatus(valNorm);
-                const baselineQuotaRefreshTrans = getBaselineQuotaRefreshTranslation(valNorm);
-                const subagentStatusTrans = getDynamicSubagentStatusTranslation(valNorm);
-                const bracketedTaskStatusTrans = getBracketedTaskStatusTranslation(valNorm);
-                const productUiTrans = getDynamicProductUiTranslation(valNorm);
-                const projectDeleteSummaryTrans = getProjectDeleteSummaryTranslation(valNorm);
-                const customizationBudgetTrans = getCustomizationBudgetTranslation(valNorm);
-                const artifactFileCountTrans = getArtifactFileCountTranslation(valNorm);
-                const commandInputStatusTrans = getCommandInputStatusTranslation(valNorm);
-                const relativeTimeTrans = getRelativeTimeTranslation(valNorm);
-                const workingStatusTrans = getWorkingStatusTranslation(valNorm);
-                const searchingStatusTrans = getSearchingStatusTranslation(valNorm);
-                const compactCountLabelTrans = getCompactCountLabelTranslation(valNorm);
-                const artifactTimestampTrans = getArtifactTimestampTranslation(valNorm);
-                const quotaNoticeTrans = getQuotaNoticeTranslation(valNorm);
-                const archivedConversationNoticeTrans = getArchivedConversationNoticeTranslation(valNorm);
-                if (fragmentedStatusTrans !== null) {
-                    newVal = fragmentedStatusTrans;
-                } else if (questionnaireOptionTrans) {
-                    newVal = questionnaireOptionTrans;
-                } else if (timestampNowTrans) {
-                    newVal = timestampNowTrans;
-                } else if (recentProjectSectionTrans) {
-                    newVal = recentProjectSectionTrans;
-                } else if (deleteTaskConfirmationTrans) {
-                    newVal = deleteTaskConfirmationTrans;
-                } else if (shortcutTrans) {
-                    newVal = shortcutTrans;
-                } else if (versionControlUiTrans) {
-                    newVal = versionControlUiTrans;
-                } else if (exploredTrans) {
-                    newVal = exploredTrans;
-                } else if (baselineQuotaRefreshTrans) {
-                    newVal = baselineQuotaRefreshTrans;
-                } else if (subagentStatusTrans) {
-                    newVal = subagentStatusTrans;
-                } else if (bracketedTaskStatusTrans) {
-                    newVal = bracketedTaskStatusTrans;
-                } else if (productUiTrans) {
-                    newVal = productUiTrans;
-                } else if (projectDeleteSummaryTrans) {
-                    newVal = projectDeleteSummaryTrans;
-                } else if (customizationBudgetTrans) {
-                    newVal = customizationBudgetTrans;
-                } else if (artifactFileCountTrans) {
-                    newVal = artifactFileCountTrans;
-                } else if (commandInputStatusTrans) {
-                    newVal = commandInputStatusTrans;
-                } else if (relativeTimeTrans) {
-                    newVal = relativeTimeTrans;
-                } else if (workingStatusTrans) {
-                    newVal = workingStatusTrans;
-                } else if (searchingStatusTrans) {
-                    newVal = searchingStatusTrans;
-                } else if (compactCountLabelTrans) {
-                    newVal = compactCountLabelTrans;
-                } else if (artifactTimestampTrans) {
-                    newVal = artifactTimestampTrans;
-                } else if (quotaNoticeTrans) {
-                    newVal = quotaNoticeTrans;
-                } else if (archivedConversationNoticeTrans) {
-                    newVal = archivedConversationNoticeTrans;
-                } else if (map.has(valNorm)) {
+                let dynRes;
+                if (map.has(valNorm) && !/^(?:Build With\\b|All (?:automations|scheduled tasks)\\b|Allow reading\\b|No suggestions|Previous match|0 results|Visit$|Browsers?$|enabled$)/i.test(valNorm) && isIsolatedUiControlLabel(node, valNorm, originalVal)) {
                     newVal = map.get(valNorm);
                     if ((valNorm === 'Modified in' || valNorm === 'Also modified in') && /\\s$/.test(originalVal)) {
                         newVal += ' ';
                     }
+                } else if ((dynRes = translateFragmentedStatus(node, originalVal)) !== null) {
+                    newVal = dynRes;
+                } else if ((dynRes = translateQuestionnaireOptionLabel(node, valNorm))) {
+                    newVal = dynRes;
+                } else if ((dynRes = getTimestampNowTranslation(node, valNorm))) {
+                    newVal = dynRes;
+                } else if ((dynRes = getRecentProjectSectionTranslation(node, valNorm))) {
+                    newVal = dynRes;
+                } else if ((dynRes = getDeleteTaskConfirmationTranslation(node, valNorm))) {
+                    newVal = dynRes;
+                } else if ((dynRes = translateWithShortcut(valNorm))) {
+                    newVal = dynRes;
+                } else if ((dynRes = getVersionControlUiTranslation(valNorm))) {
+                    newVal = dynRes;
+                } else if ((dynRes = getBaselineQuotaRefreshTranslation(valNorm))) {
+                    newVal = dynRes;
+                } else if ((dynRes = getDynamicSubagentStatusTranslation(valNorm))) {
+                    newVal = dynRes;
+                } else if ((dynRes = getBracketedTaskStatusTranslation(valNorm))) {
+                    newVal = dynRes;
+                } else if ((dynRes = getDynamicProductUiTranslation(valNorm))) {
+                    newVal = dynRes;
+                } else if ((dynRes = getProjectDeleteSummaryTranslation(valNorm))) {
+                    newVal = dynRes;
+                } else if ((dynRes = getCustomizationBudgetTranslation(valNorm))) {
+                    newVal = dynRes;
+                } else if ((dynRes = getArtifactFileCountTranslation(valNorm))) {
+                    newVal = dynRes;
+                } else if ((dynRes = getCommandInputStatusTranslation(valNorm))) {
+                    newVal = dynRes;
+                } else if ((dynRes = getRelativeTimeTranslation(valNorm))) {
+                    newVal = dynRes;
+                } else if ((dynRes = getWorkingStatusTranslation(valNorm))) {
+                    markThoughtContentSibling(node);
+                    newVal = dynRes;
+                } else if ((dynRes = getExecutionTimingTranslation(valNorm))) {
+                    markThoughtContentSibling(node);
+                    newVal = dynRes;
+                } else if ((dynRes = getSearchingStatusTranslation(valNorm))) {
+                    newVal = dynRes;
+                } else if ((dynRes = getCompactCountLabelTranslation(valNorm))) {
+                    newVal = dynRes;
+                } else if ((dynRes = getArtifactTimestampTranslation(valNorm))) {
+                    newVal = dynRes;
+                } else if ((dynRes = getQuotaNoticeTranslation(valNorm))) {
+                    newVal = dynRes;
+                } else if ((dynRes = getArchivedConversationNoticeTranslation(valNorm))) {
+                    newVal = dynRes;
+                } else if (map.has(valNorm) && isIsolatedUiControlLabel(node, valNorm, originalVal)) {
+                    newVal = map.get(valNorm);
+                    if ((valNorm === 'Modified in' || valNorm === 'Also modified in') && /\\s$/.test(originalVal)) {
+                        newVal += ' ';
+                    }
+                } else if (lowerMap.has(valLower) && isIsolatedUiControlLabel(node, valNorm, originalVal)) {
+                    newVal = lowerMap.get(valLower);
                 } else if (/^(?:Also\\s+modified|Modified)\\s+in\\s+(\\d+)\\s*(?:projects?|个?项目)$/i.test(valNorm)) {
                     const isAlso = /^Also/i.test(valNorm);
                     newVal = valNorm.replace(/^(?:Also\\s+modified|Modified)\\s+in\\s+(\\d+)\\s*(?:projects?|个?项目)$/i, (m, count) => (isAlso ? "也修改于 " : "修改于 ") + count + " 个项目");
@@ -3674,8 +3846,6 @@ function generateJs() {
                     });
                 } else if (/^Gemini\\s+(.+?)\\s+is now available$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^Gemini\\s+(.+?)\\s+is now available$/i, (m, model) => "Gemini " + model + " 现已可用");
-                } else if (lowerMap.has(valLower)) {
-                    newVal = lowerMap.get(valLower);
                 } else if (/^Refreshes in (\\d+) days?, (\\d+) hours?$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^Refreshes in (\\d+) days?, (\\d+) hours?$/i, (match, d, h) => {
                         return d + " 天 " + h + " 小时后刷新";
@@ -3785,31 +3955,6 @@ function generateJs() {
                     newVal = valNorm.replace(/^Executor is not currently running \\(error ID:\\s*(.+)\\)$/i, (match, id) => {
                         return "执行器当前未运行 (错误 ID: " + id + ")";
                     });
-                } else if (/^(?:Thought for|Worked for|Stopped after)\\s+([\\d\\w\\s,.]+?)(?:\\s*(>))?$/i.test(valNorm)) {
-                    const durationMatch = valNorm.match(/^(Thought for|Worked for|Stopped after)\\s+([\\d\\w\\s,.]+?)(?:\\s*(>))?$/i);
-                    if (durationMatch) {
-                        const action = durationMatch[1].toLowerCase();
-                        const arrow = durationMatch[3] ? " >" : "";
-                        let actionStr = "工作了 ";
-                        if (action === "thought for") actionStr = "思考了 ";
-                        else if (action === "stopped after") actionStr = "在 ";
-
-                        let durationStr = durationMatch[2]
-                            .replace(/(\\d+)\\s*d(?:ays?)?/gi, "$1 天 ")
-                            .replace(/(\\d+)\\s*h(?:ours?)?/gi, "$1 小时 ")
-                            .replace(/([\\d\\.]+)\\s*ms/gi, "$1 毫秒 ")
-                            .replace(/(\\d+)\\s*m(?:in(?:ute)?s?)?(?![a-z])/gi, "$1 分钟 ")
-                            .replace(/([\\d\\.]+)\\s*s(?:ec(?:ond)?s?)?/gi, "$1 秒 ")
-                            .replace(/,/g, "")
-                            .replace(/\\s+/g, " ")
-                            .trim();
-
-                        if (action === "stopped after") {
-                            newVal = "在 " + durationStr + " 后停止" + arrow;
-                        } else {
-                            newVal = actionStr + durationStr + arrow;
-                        }
-                    }
                 } else if (/^You have hit your 5-hour limit, it will refresh in (\\d+) days?\\. If on a supported paid plan, you can use AI credits in the interim\\.$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^You have hit your 5-hour limit, it will refresh in (\\d+) days?\\. If on a supported paid plan, you can use AI credits in the interim\\.$/i, (match, d) => {
                         return "您已达到 5 小时配额限制，将在 " + d + " 天后刷新. 如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度.";
@@ -4023,9 +4168,10 @@ function generateJs() {
                     newVal = valNorm.replace(/^(.+?): i\\/o timeout$/i, (match, prefix) => {
                         return prefix + ": I/O 超时 (i/o timeout)";
                     });
-                } else if (/^Are you sure you want to delete (the |this )?project (.+?)\\??$/i.test(valNorm)) {
-                    newVal = valNorm.replace(/^Are you sure you want to delete (the |this )?project (.+?)\\??$/i, (match, article, name) => {
-                        return "您确定要删除项目 " + name + " 吗?";
+                } else if (/^Are you sure you want to delete (?:the |this )?(project|workspace|项目|工作区) (.+?)\\??$/i.test(valNorm)) {
+                    newVal = valNorm.replace(/^Are you sure you want to delete (?:the |this )?(project|workspace|项目|工作区) (.+?)\\??$/i, (match, scope, name) => {
+                        const scopeLabel = /^(?:workspace|工作区)$/i.test(scope) ? "工作区" : "项目";
+                        return "您确定要删除" + scopeLabel + " " + name + " 吗？";
                     });
                 } else if (/^Permanently delete (.+?) including (\\d+) active conversations? and (\\d+) archived conversations?\\.?$/i.test(valNorm)) {
                     newVal = valNorm.replace(/^Permanently delete (.+?) including (\\d+) active conversations? and (\\d+) archived conversations?\\.?$/i, (match, name, active, archived) => {
@@ -4035,95 +4181,89 @@ function generateJs() {
                     newVal = valNorm.replace(/^This will permanently delete (.+?) including (\\d+) active conversations? and (\\d+) archived conversations?(?:\\. This action cannot be undone\\.)?$/i, (match, name, active, archived) => {
                         return "这将永久删除 " + name + "，包含 " + active + " 个活跃会话及 " + archived + " 个已归档会话，此操作无法撤销";
                     });
-                } else {
+                } else if (/[a-zA-Z]{2,}/.test(valNorm)) {
                     if (valNorm.length > 20) {
                         for (const [key, translated] of longEntries) {
-                            if (key.length > 20 && key.length <= valNorm.length && valNorm.includes(key)) {
+                            if (key.length <= valNorm.length && valNorm.includes(key)) {
                                 newVal = replaceLongDictionaryEntry(newVal, key, translated);
                             }
                         }
                     }
 
-                    newVal = newVal.replace(/Your 5-hour limit will refresh in (\\d+) days?, (\\d+) hours?\\./gi, (match, d, h) => {
-                        return "您的 5 小时配额将在 " + d + " 天 " + h + " 小时后刷新";
-                    });
-                    newVal = newVal.replace(/Your 5-hour limit will refresh in (\\d+) hours?, (\\d+) minutes?\\./gi, (match, h, m) => {
-                        return "您的 5 小时配额将在 " + h + " 小时 " + m + " 分钟后刷新";
-                    });
-                    newVal = newVal.replace(/Your 5-hour limit will refresh in (\\d+) days?\\./gi, (match, d) => {
-                        return "您的 5 小时配额将在 " + d + " 天后刷新";
-                    });
-                    newVal = newVal.replace(/Your 5-hour limit will refresh in (\\d+) hours?\\./gi, (match, h) => {
-                        return "您的 5 小时配额将在 " + h + " 小时后刷新";
-                    });
-                    newVal = newVal.replace(/Your 5-hour limit will refresh in (\\d+) minutes?\\./gi, (match, m) => {
-                        return "您的 5 小时配额将在 " + m + " 分钟后刷新";
-                    });
-                    newVal = newVal.replace(/You have hit your 5-hour limit, it will refresh in (\\d+) days?, (\\d+) hours?\\. If on a supported paid plan, you can use AI credits in the interim\\./gi, (match, d, h) => {
-                        return "您已达到 5 小时配额限制，将在 " + d + " 天 " + h + " 小时后刷新. 如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度.";
-                    });
-                    newVal = newVal.replace(/You have hit your 5-hour limit, it will refresh in (\\d+) hours?, (\\d+) minutes?\\. If on a supported paid plan, you can use AI credits in the interim\\./gi, (match, h, m) => {
-                        return "您已达到 5 小时配额限制，将在 " + h + " 小时 " + m + " 分钟后刷新. 如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度.";
-                    });
-                    newVal = newVal.replace(/You have hit your 5-hour limit, it will refresh in (\\d+) days?\\. If on a supported paid plan, you can use AI credits in the interim\\./gi, (match, d) => {
-                        return "您已达到 5 小时配额限制，将在 " + d + " 天后刷新. 如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度.";
-                    });
-                    newVal = newVal.replace(/You have hit your 5-hour limit, it will refresh in (\\d+) hours?\\. If on a supported paid plan, you can use AI credits in the interim\\./gi, (match, h) => {
-                        return "您已达到 5 小时配额限制，将在 " + h + " 小时后刷新. 如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度.";
-                    });
-                    newVal = newVal.replace(/You have hit your 5-hour limit, it will refresh in (\\d+) minutes?\\. If on a supported paid plan, you can use AI credits in the interim\\./gi, (match, m) => {
-                        return "您已达到 5 小时配额限制，将在 " + m + " 分钟后刷新. 如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度.";
-                    });
-                    newVal = newVal.replace(/You have used some of your weekly limit, it will fully refresh in (\\d+) days?, (\\d+) hours?\\./gi, (match, d, h) => {
-                        return "您已使用部分每周配额，将在 " + d + " 天 " + h + " 小时后完全刷新";
-                    });
-                    newVal = newVal.replace(/You have used some of your weekly limit, it will fully refresh in (\\d+) hours?, (\\d+) minutes?\\./gi, (match, h, m) => {
-                        return "您已使用部分每周配额，将在 " + h + " 小时 " + m + " 分钟后完全刷新";
-                    });
-                    newVal = newVal.replace(/You have used some of your weekly limit, it will fully refresh in (\\d+) days?\\./gi, (match, d) => {
-                        return "您已使用部分每周配额，将在 " + d + " 天后完全刷新";
-                    });
-                    newVal = newVal.replace(/You have used some of your weekly limit, it will fully refresh in (\\d+) hours?\\./gi, (match, h) => {
-                        return "您已使用部分每周配额，将在 " + h + " 小时后完全刷新";
-                    });
-                    newVal = newVal.replace(/You have used some of your weekly limit, it will fully refresh in (\\d+) minutes?\\./gi, (match, m) => {
-                        return "您已使用部分每周配额，将在 " + m + " 分钟后完全刷新";
-                    });
-                    newVal = newVal.replace(/You have hit your weekly limit, it will fully refresh in (\\d+) days?, (\\d+) hours?\\./gi, (match, d, h) => {
-                        return "您已达到每周配额限制，将在 " + d + " 天 " + h + " 小时后完全刷新";
-                    });
-                    newVal = newVal.replace(/You have hit your weekly limit, it will fully refresh in (\\d+) hours?, (\\d+) minutes?\\./gi, (match, h, m) => {
-                        return "您已达到每周配额限制，将在 " + h + " 小时 " + m + " 分钟后完全刷新";
-                    });
-                    newVal = newVal.replace(/You have hit your weekly limit, it will fully refresh in (\\d+) days?\\./gi, (match, d) => {
-                        return "您已达到每周配额限制，将在 " + d + " 天后完全刷新";
-                    });
-                    newVal = newVal.replace(/You have hit your weekly limit, it will fully refresh in (\\d+) hours?\\./gi, (match, h) => {
-                        return "您已达到每周配额限制，将在 " + h + " 小时后完全刷新";
-                    });
-                    newVal = newVal.replace(/You have hit your weekly limit, it will fully refresh in (\\d+) minutes?\\./gi, (match, m) => {
-                        return "您已达到每周配额限制，将在 " + m + " 分钟后完全刷新";
-                    });
-                    newVal = newVal.replace(/You have used some of your weekly limit, it will fully refresh in less than a minute\\./gi, "您已使用部分每周配额，将在不到 1 分钟后完全刷新");
-                    newVal = newVal.replace(/You have hit your weekly limit, it will fully refresh in less than a minute\\./gi, "您已达到每周配额限制，将在不到 1 分钟后完全刷新");
-                    newVal = newVal.replace(/Your 5-hour limit will refresh in less than a minute\\./gi, "您的 5 小时配额将在不到 1 分钟后刷新");
-                    newVal = newVal.replace(/You have hit your 5-hour limit, it will refresh in less than a minute\\. If on a supported paid plan, you can use AI credits in the interim\\./gi, "您已达到 5 小时配额限制，将在不到 1 分钟后刷新. 如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度.");
-                    newVal = newVal.replace(/Match case \\((.+)\\)/gi, (m, k) => "区分大小写 (" + k + ")");
-                    newVal = newVal.replace(/Match whole word \\((.+)\\)/gi, (m, k) => "全字匹配 (" + k + ")");
-                    newVal = newVal.replace(/Use regular expression \\((.+)\\)/gi, (m, k) => "使用正则表达式 (" + k + ")");
-                    newVal = newVal.replace(/Previous match \\((.+)\\)/gi, (m, k) => "上一个匹配项 (" + k + ")");
-                    newVal = newVal.replace(/Next match \\((.+)\\)/gi, (m, k) => "下一个匹配项 (" + k + ")");
-                    newVal = newVal.replace(/Close \\((.+)\\)/gi, (m, k) => "关闭 (" + k + ")");
-                    const exploredSec3 = translateExploredStatus(newVal);
-                    if (exploredSec3) {
-                        newVal = exploredSec3;
+                    if (/(?:5-hour|weekly)\\s+limit/i.test(newVal)) {
+                        newVal = newVal.replace(/Your 5-hour limit will refresh in (\\d+) days?, (\\d+) hours?\\./gi, (match, d, h) => {
+                            return "您的 5 小时配额将在 " + d + " 天 " + h + " 小时后刷新";
+                        });
+                        newVal = newVal.replace(/Your 5-hour limit will refresh in (\\d+) hours?, (\\d+) minutes?\\./gi, (match, h, m) => {
+                            return "您的 5 小时配额将在 " + h + " 小时 " + m + " 分钟后刷新";
+                        });
+                        newVal = newVal.replace(/Your 5-hour limit will refresh in (\\d+) days?\\./gi, (match, d) => {
+                            return "您的 5 小时配额将在 " + d + " 天后刷新";
+                        });
+                        newVal = newVal.replace(/Your 5-hour limit will refresh in (\\d+) hours?\\./gi, (match, h) => {
+                            return "您的 5 小时配额将在 " + h + " 小时后刷新";
+                        });
+                        newVal = newVal.replace(/Your 5-hour limit will refresh in (\\d+) minutes?\\./gi, (match, m) => {
+                            return "您的 5 小时配额将在 " + m + " 分钟后刷新";
+                        });
+                        newVal = newVal.replace(/You have hit your 5-hour limit, it will refresh in (\\d+) days?, (\\d+) hours?\\. If on a supported paid plan, you can use AI credits in the interim\\./gi, (match, d, h) => {
+                            return "您已达到 5 小时配额限制，将在 " + d + " 天 " + h + " 小时后刷新. 如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度.";
+                        });
+                        newVal = newVal.replace(/You have hit your 5-hour limit, it will refresh in (\\d+) hours?, (\\d+) minutes?\\. If on a supported paid plan, you can use AI credits in the interim\\./gi, (match, h, m) => {
+                            return "您已达到 5 小时配额限制，将在 " + h + " 小时 " + m + " 分钟后刷新. 如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度.";
+                        });
+                        newVal = newVal.replace(/You have hit your 5-hour limit, it will refresh in (\\d+) days?\\. If on a supported paid plan, you can use AI credits in the interim\\./gi, (match, d) => {
+                            return "您已达到 5 小时配额限制，将在 " + d + " 天后刷新. 如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度.";
+                        });
+                        newVal = newVal.replace(/You have hit your 5-hour limit, it will refresh in (\\d+) hours?\\. If on a supported paid plan, you can use AI credits in the interim\\./gi, (match, h) => {
+                            return "您已达到 5 小时配额限制，将在 " + h + " 小时后刷新. 如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度.";
+                        });
+                        newVal = newVal.replace(/You have hit your 5-hour limit, it will refresh in (\\d+) minutes?\\. If on a supported paid plan, you can use AI credits in the interim\\./gi, (match, m) => {
+                            return "您已达到 5 小时配额限制，将在 " + m + " 分钟后刷新. 如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度.";
+                        });
+                        newVal = newVal.replace(/You have used some of your weekly limit, it will fully refresh in (\\d+) days?, (\\d+) hours?\\./gi, (match, d, h) => {
+                            return "您已使用部分每周配额，将在 " + d + " 天 " + h + " 小时后完全刷新";
+                        });
+                        newVal = newVal.replace(/You have used some of your weekly limit, it will fully refresh in (\\d+) hours?, (\\d+) minutes?\\./gi, (match, h, m) => {
+                            return "您已使用部分每周配额，将在 " + h + " 小时 " + m + " 分钟后完全刷新";
+                        });
+                        newVal = newVal.replace(/You have used some of your weekly limit, it will fully refresh in (\\d+) days?\\./gi, (match, d) => {
+                            return "您已使用部分每周配额，将在 " + d + " 天后完全刷新";
+                        });
+                        newVal = newVal.replace(/You have used some of your weekly limit, it will fully refresh in (\\d+) hours?\\./gi, (match, h) => {
+                            return "您已使用部分每周配额，将在 " + h + " 小时后完全刷新";
+                        });
+                        newVal = newVal.replace(/You have used some of your weekly limit, it will fully refresh in (\\d+) minutes?\\./gi, (match, m) => {
+                            return "您已使用部分每周配额，将在 " + m + " 分钟后完全刷新";
+                        });
+                        newVal = newVal.replace(/You have hit your weekly limit, it will fully refresh in (\\d+) days?, (\\d+) hours?\\./gi, (match, d, h) => {
+                            return "您已达到每周配额限制，将在 " + d + " 天 " + h + " 小时后完全刷新";
+                        });
+                        newVal = newVal.replace(/You have hit your weekly limit, it will fully refresh in (\\d+) hours?, (\\d+) minutes?\\./gi, (match, h, m) => {
+                            return "您已达到每周配额限制，将在 " + h + " 小时 " + m + " 分钟后完全刷新";
+                        });
+                        newVal = newVal.replace(/You have hit your weekly limit, it will fully refresh in (\\d+) days?\\./gi, (match, d) => {
+                            return "您已达到每周配额限制，将在 " + d + " 天后完全刷新";
+                        });
+                        newVal = newVal.replace(/You have hit your weekly limit, it will fully refresh in (\\d+) hours?\\./gi, (match, h) => {
+                            return "您已达到每周配额限制，将在 " + h + " 小时后完全刷新";
+                        });
+                        newVal = newVal.replace(/You have hit your weekly limit, it will fully refresh in (\\d+) minutes?\\./gi, (match, m) => {
+                            return "您已达到每周配额限制，将在 " + m + " 分钟后完全刷新";
+                        });
+                        newVal = newVal.replace(/You have used some of your weekly limit, it will fully refresh in less than a minute\\./gi, "您已使用部分每周配额，将在不到 1 分钟后完全刷新");
+                        newVal = newVal.replace(/You have hit your weekly limit, it will fully refresh in less than a minute\\./gi, "您已达到每周配额限制，将在不到 1 分钟后完全刷新");
+                        newVal = newVal.replace(/Your 5-hour limit will refresh in less than a minute\\./gi, "您的 5 小时配额将在不到 1 分钟后刷新");
+                        newVal = newVal.replace(/You have hit your 5-hour limit, it will refresh in less than a minute\\. If on a supported paid plan, you can use AI credits in the interim\\./gi, "您已达到 5 小时配额限制，将在不到 1 分钟后刷新. 如果使用的是受支持的付费计划，您可以在此期间使用 AI 额度.");
                     }
-                    newVal = newVal.replace(/^(\\d+)\\s+searches?\\s*>?\\s*$/i, (m, n) => n + " 次搜索");
-                    newVal = newVal.replace(/^searches?\\s*>?\\s*$/i, () => "次搜索");
-                    newVal = newVal.replace(/^files?\\s*>?\\s*$/i, () => "个文件");
-                    newVal = newVal.replace(/^(\\d+)\\s+pages?(\\s*[>›]?)\\s*$/i, (m, n, suffix) => n + " 个页面" + suffix);
-                    newVal = newVal.replace(/^(?:ran|run|executed)\\s+(\\d+)\\s+commands?(\\s*[>›]?)\\s*$/i, (m, n, suffix) => "运行了 " + n + " 条命令" + (suffix || ""));
-                    newVal = newVal.replace(/^(\\d+)\\s+commands?(\\s*[>›]?)\\s*$/i, (m, n, suffix) => n + " 条命令" + (suffix || ""));
+                    if (newVal.includes('(')) {
+                        newVal = newVal.replace(/Match case \\((.+)\\)/gi, (m, k) => "区分大小写 (" + k + ")");
+                        newVal = newVal.replace(/Match whole word \\((.+)\\)/gi, (m, k) => "全字匹配 (" + k + ")");
+                        newVal = newVal.replace(/Use regular expression \\((.+)\\)/gi, (m, k) => "使用正则表达式 (" + k + ")");
+                        newVal = newVal.replace(/Previous match \\((.+)\\)/gi, (m, k) => "上一个匹配项 (" + k + ")");
+                        newVal = newVal.replace(/Next match \\((.+)\\)/gi, (m, k) => "下一个匹配项 (" + k + ")");
+                        newVal = newVal.replace(/Close \\((.+)\\)/gi, (m, k) => "关闭 (" + k + ")");
+                    }
                 }
                 if (hasRecommended) {
                     newVal = '（推荐）' + newVal;
