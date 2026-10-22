@@ -6,121 +6,122 @@ description: >-
 
 # Antigravity 插件市场官方同步与审计技能
 
-本技能采用渐进式披露规范，专门用于在 Antigravity 客户端发生版本更新或需要维护插件市场区域时，以官方权威元数据（`marketplace.json`）为唯一基准，采用流式内存零落盘技术精准提取核心技能详情，与汉化词典进行精细化增量比对，并依据项目确立的边界标准向用户呈现比对结果。
+本技能专门用于在 Antigravity 客户端发生版本更新或维护插件市场区域时，以官方权威元数据（`marketplace.json`）为唯一基准，采用流式内存零落盘与本地缓存深度解析技术，全方位比对插件市场文案与汉化词典，并支持跨字典感知与多层文案架构审计。
 
 ---
 
-## 1. 核心翻译标准与关注点边界
+## 1. Google Workspace 专区三层文案架构解析
 
-在处理插件市场相关文案时，**严格按以下标准分类处理**，严禁过度翻译：
+Google Workspace 协同办公专区插件（`gcalendar`、`gdocs`、`gdrive`、`gsheets`、`gslides` 及后续同族套件）具备**三层独立并存**的文案体系。**这三层文案在客户端界面的不同区域同时生效展示，绝非新旧版本的覆盖替换关系**：
 
-### 🟢 Google Workspace 官方协同办公专区（完全汉化）
-指 Google 官方第一方 Workspace 协同办公生态系列插件。当前已上架的核心插件包括（**此清单为开放集合，非封闭闭集；后续若官方增补如 `gmail`、`gtasks`、`gmeet` 等同族套件，同理归入本专区**）：
-- **Google Calendar** (`gcalendar`)
-- **Google Docs** (`gdocs`)
-- **Google Drive** (`gdrive`)
-- **Google Sheets** (`gsheets`)
-- **Google Slides** (`gslides`)
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                        Google Workspace 专区三层文案架构                │
+├─────────┬──────────────────────┬────────────────────────┬──────────────┤
+│ 层级    │ 文案类型             │ 数据源                 │ 客户端展示区 │
+├─────────┼──────────────────────┼────────────────────────┼──────────────┤
+│ Tier 1  │ 卡片一句话简介       │ marketplace.json /     │ 插件市场卡片 │
+│         │ (Card Description)   │ plugin.json            │ 列表与概览网格
+├─────────┼──────────────────────┼────────────────────────┼──────────────┤
+│ Tier 2  │ 详情抽屉概览描述     │ 插件包根目录           │ 点开卡片后的 │
+│         │ (Overview / README)  │ README.md (首段概览)   │ 详情抽屉首段 │
+├─────────┼──────────────────────┼────────────────────────┼──────────────┤
+│ Tier 3  │ 技能路由完整规则     │ skills/*/SKILL.md      │ 斜杠技能弹窗 │
+│         │ (Skill Routing Desc) │ frontmatter description│ 与路由调度区 │
+└─────────┴──────────────────────┴────────────────────────┴──────────────┘
+```
 
-**收录范围与文案分类说明**：
-1. **插件基础描述**（来自 `description`，如 `Read, draft, and edit docs.`。市场卡片与技能栏展示的统一描述）。
-2. **官方建议提示词**（来自 `suggestedPrompts` 快速操作提示词列表）。
-3. **技能详情完整说明**（来自各插件归档内部 `SKILL.md` frontmatter `description` 完整段落，负责插件技能详情页及路由规则展示）。
-4. **技能选择器安全展示绑定**：在 `localization_engine.js` 中的 `SKILL_PICKER_DISPLAY_ENTRIES` 为技能添加行上下文绑定的显示转换规则（如 `gcalendar` -> `Google 日历`，`gdocs` -> `Google 文档`），防止污染全局代码与终端路径。
+> [!CAUTION]
+> **严禁跨层级混淆与误删**：
+> 1. **Tier 1**（卡片简介）与 **Tier 2**（README 概览）在界面中是**同时存在**的。绝不能因为录入了 Tier 1 卡片简介，就将 Tier 2 的 README 概览描述当作“已废弃旧文案”删除！
+> 2. 只有当官方插件发布新版本、且**同一层级**的官方源文确实发生修改时，才允许对该层级进行原位更新替换。
 
 ---
+
+## 2. 核心翻译标准与收录边界
+
+在处理插件市场文案时，严格执行以下收录标准：
+
+### 🟢 Google Workspace 官方协同办公专区（全量深度汉化）
+包含 `gcalendar`、`gdocs`、`gdrive`、`gsheets`、`gslides`（以及未来官方增补的 `gmail`、`gtasks`、`gmeet` 等）：
+1. **Tier 1: 卡片一句话简介**（源自 `marketplace.json` 的 `description`）。
+2. **Tier 2: 详情抽屉概览描述**（源自插件包根目录 `README.md`，归整为单行）。
+3. **Tier 3: 技能详情完整说明**（源自 `skills/*/SKILL.md` frontmatter `description`）。
+4. **官方建议提示词**（源自 `suggestedPrompts` 快速操作提示词列表）。
+5. **技能选择器安全展示绑定**：在 `localization_engine.js` 中的 `SKILL_PICKER_DISPLAY_ENTRIES` 为技能添加行上下文绑定的安全中文转换规则（如 `gcalendar` -> `Google 日历`，`gdocs` -> `Google 文档`）。
 
 ### 🟡 其余官方插件专区（精准轻量汉化）
-包含 Flutter、Firebase、Data Agent Kit、Modern Web Guidance、Science、Chrome DevTools、Android CLI、Gemini API、Google Maps Platform 等其余所有官方插件。
-
+包含 Flutter、Firebase、Data Agent Kit、Modern Web Guidance、Science、Chrome DevTools、Android CLI、Gemini API、Google Maps Platform 等其余所有官方通用插件。
 **严格限定仅收录以下三项**：
 1. **市场通用界面与交互控制**（导航、分类筛选、安装/启用/禁用状态标签、配置/认证弹窗、错误提示等通用 DOM 控件文案）。
-2. **插件卡片基础展示简介**（各插件在市场卡片列表展示的一句话简介与概述描述）。
+2. **插件卡片一句话简介**（各插件在市场卡片列表展示的 `description`）。
 3. **官方建议提示词列表**（各插件配套的 `suggestedPrompts` 快速操作提示词）。
 
-**严格禁止收录以下内容**：
-- ❌ **严禁收录各插件抽屉详情的 README/文档长篇 Markdown**（如功能详情长段、前置依赖配置、自动化评测用例、开源协议免责声明等）。
-- ❌ **严禁收录各插件内部单个技能函数的功能说明**（如内部小技能描述），避免产生大量污染并增加字典维护负担。
-
-### 🔴 版本升级替换与废弃清理准则（严禁保留旧版冗余词条）
-
-- **1:1 原文对应，及时替换更新**：当官方插件版本升级或文案发生调整时（例如 `gdocs` 从 v0.0.5 升级到 v0.0.6 时官方描述发生变更），**必须将旧词条直接更新替换为最新词条，并彻底删除已废弃的旧英文及其旧译文**。
-- **严禁保留冗余历史变体**：字典全局保持 1:1 官方最新源文映射，严禁在 `dicts/marketplace_plugins.json` 中保留两个版本的变体或已废弃的历史孤立词条。
-- **引擎绑定同步替换**：对于 Google Workspace 核心插件的斜杠技能，若描述发生变更，必须同步在 `localization_engine.js` 的 `SKILL_PICKER_DISPLAY_ENTRIES` 中把旧的 description 描述更新为官方最新描述，彻底清除旧文案。
+**严格禁止收录**：
+- ❌ **严禁收录通用插件抽屉详情的 README/文档长篇 Markdown**（如依赖配置、环境要求、命令行使用指南、开源协议等）。
+- ❌ **严禁收录通用插件内部单个技能函数/工具的深层描述**。
 
 ---
 
-## 2. 官方权威元数据与内存零落盘解析体系
+## 3. 跨字典感知与字典归属原则
 
-### 唯一权威来源：官方 `marketplace.json`
-
-比对工具统一以官方发布的 `marketplace.json` 清单为唯一数据源：
-- **默认优先**：自动定位读取本地客户端缓存的官方市场元数据：
-  - Windows: `%USERPROFILE%\.gemini\antigravity\cache\marketplaces\antigravity-plugins-official\marketplace.json`
-  - Linux / macOS: `~/.gemini/antigravity/cache/marketplaces/antigravity-plugins-official/marketplace.json`
-- **云端回退 / 独立运行**：若本地客户端尚未生成缓存（如纯净环境或 CI 构建），或附加 `--remote` 参数时，直接从 Google 官方权威源拉取：
-  - URL: `https://www.gstatic.com/antigravity/plugins/marketplace.json`
-
-### Google Workspace 技能详情：流式内存零落盘提取
-
-针对 Google Workspace 专区插件深层 `SKILL.md` 描述的提取：
-1. **纯内存流拉取**：从 `marketplace.json` 中记载的官方 `source.url` 归档地址直接将约 40KB 的 zip 数据拉入内存 `Buffer`；
-2. **纯原生解压提取**：使用 Node.js 内置 `zlib` 在内存中解压提取 `skills/*/SKILL.md` 的 frontmatter `description`；
-3. **零落盘立即回收**：提取完毕后内存缓冲区立即由垃圾回收器（GC）释放。
+- **唯一主字典**：插件市场专区的所有卡片描述、README 概览、建议提示词、Workspace 技能说明统一收录在 `dicts/marketplace_plugins.json`。
+- **严禁跨字典重复**：严禁将上述内容重复录入到主版本字典（如 `v2.25.0.json`）或其他分包字典中。
+- **跨字典错位迁移**：比对脚本具备全字典感知能力（自动扫描 `dicts/*.json`）。
+  - 若比对报告标记 `[已存在于 dicts/xxx.json，建议迁移归位]`，说明该词条已有翻译，但放错了字典文件。应将其从原字典迁移剪切至 `dicts/marketplace_plugins.json`，严禁重复录入或判定为完全缺失。
+  - 若比对报告标记 `🚨 【跨字典重复收录警告】`，应清理其他非主字典中的冗余条目。
 
 ---
 
-## 3. 标准操作工作流
-
-当用户要求更新插件市场、或者在版本升级审计过程中需要检查插件时，请执行以下流程：
+## 4. 自动化比对与审计操作工作流
 
 ### 步骤 1：运行自动化比对脚本
-在项目根目录下执行自带的比对工具（默认自动加载本地官方缓存，按需流式提取 Workspace 技能）：
+在项目根目录下执行自带的比对工具：
 ```bash
+# 默认优先加载本地官方缓存，按需流式提取 Workspace 技能与 README
 node .agents/skills/sync-marketplace-plugins/scripts/diff_marketplace_plugins.js
-```
-若需要强制拉取官方云端最新清单：
-```bash
+
+# 强制拉取官方云端最新 marketplace.json 与 ZIP 归档（纯内存流零落盘）
 node .agents/skills/sync-marketplace-plugins/scripts/diff_marketplace_plugins.js --remote
-```
-若需要程序化结构体，可添加 `--json` 参数：
-```bash
+
+# 以结构化 JSON 格式输出结果
 node .agents/skills/sync-marketplace-plugins/scripts/diff_marketplace_plugins.js --json
 ```
 
-### 步骤 2：分析比对结果
-脚本将自动输出三类结果：
-1. **新上架插件**：官方清单中出现，但 `dicts/marketplace_plugins.json` 尚未收录的全新插件。
-2. **待翻译/变更文案**：
-   - 基础卡片简介变动或新增；
-   - 新增的 `suggestedPrompts` 建议提示词；
-   - （Google Workspace 专区插件）官方最新版本中新增或变更的斜杠技能完整描述。
-3. **已下架/待清理插件**：官方清单中已不存在，但字典中可能残存的孤立词条。
+### 步骤 2：解读结构化比对报告
+脚本自动输出以下三部分：
+1. **插件覆盖状态概览**：
+   - Workspace 插件清晰呈现四维指标：`✅ 卡片简介 | ✅ 详情概览(README) | ✅ 技能路由 (1/1) | ✅ 提示词 (3/3)`
+   - 通用插件清晰呈现双维指标：`✅ 卡片简介 | ✅ 提示词 (3/3)`
+2. **增量待补充/更新清单**：
+   - 🟢 全新上架插件
+   - ⚠️ Tier 1: 市场卡片一句话简介待翻译 / 变更
+   - ⚠️ Tier 2: 详情抽屉概览待翻译 (Workspace README.md)
+   - ⚠️ Tier 3: 技能路由完整规则待翻译 (Workspace SKILL.md)
+   - ⚠️ 官方建议提示词待翻译
+3. **跨字典错位迁移与重复收录警告**：
+   - 明确指出需要从其他字典迁移归位的词条，以及跨字典重复冗余项。
 
 ### 步骤 3：向用户呈现结构化报告并征求确认
 将比对得出的分析结论呈现给用户：
 - 列出新上架插件及其待翻译文本；
-- 列出文案变更项（注明需**更新替换**并**清理废弃旧词条**）或下架插件；
-- 询问用户：“是否确认将上述新增词条按规范翻译补充，并将变更词条更新替换进 `dicts/marketplace_plugins.json` 及引擎，清理废弃冗余条目？”
+- 列出文案变更项（注明需**原位更新替换**并**清理废弃旧词条**）；
+- 列出跨字典错位迁移建议；
+- 征询用户确认后再执行修改。
 
-### 步骤 4：执行替换更新、废弃清理与验证
+### 步骤 4：执行更新、迁移与验证
 在用户确认后：
-1. 提取英文源文，依据行业术语规范与官方原文 1:1 格式及标点对齐规范翻译为简体中文（英文带 `.` 译文必须带 `.`，断句用 `. `，冒号 `:`、感叹号 `!`、问号 `?` 严格对应半角英文标点，严禁强加中文全角语法标点）。
-2. 写入 `dicts/marketplace_plugins.json`：
-   - 新词条直接增量补充；
-   - **对于版本升级带来的文案变动，必须执行原位替换更新，彻底删除废弃的旧版本词条**
-3. 若涉及 Google Workspace 插件技能描述变更，同步更新 `localization_engine.js` 中的 `SKILL_PICKER_DISPLAY_ENTRIES`，将旧的 description 替换为官方最新文案。
-4. 全局检索确认旧词条已无残留：
+1. **严格 1:1 格式与标点对齐**：英文是什么标点，译文必须严格对应半角标点（句号 `.`、冒号 `:`、叹号 `!`、问号 `?` 严禁替换为中文全角标点）。
+2. **执行字典写入或迁移**：
+   - 增量新词条写入 `dicts/marketplace_plugins.json`；
+   - 错位词条从原字典迁移至 `dicts/marketplace_plugins.json`；
+   - 同一层级因版本升级发生变动的文案，执行原位替换并清理旧英文。
+3. 若涉及 Workspace 技能描述变更，同步更新 `localization_engine.js` 中的 `SKILL_PICKER_DISPLAY_ENTRIES`。
+4. 执行轻量字典校验：
    ```bash
-   grep -rn "<已废弃的旧英文关键词片段>" dicts/ localization_engine.js
+   node -e "require('fs').readdirSync('dicts').filter(f=>f.endsWith('.json')).forEach(f=>JSON.parse(require('fs').readFileSync('dicts/'+f,'utf8'))); console.log('Dicts valid!');"
    ```
-5. 执行字典有效性自检与动态代码注入编译验证：
+5. 再次运行比对脚本，验证是否达到 100% 同步且无任何缺失或重复：
    ```bash
-   node -e '
-   const fs = require("fs");
-   const vm = require("vm");
-   const code = fs.readFileSync("localization_engine.js", "utf-8");
-   const testCode = code.replace(/main\(\);?\s*$/, "const c = generateJs(); new vm.Script(c); console.log(\"[OK] 注入代码编译通过\");");
-   eval(testCode);
-   '
+   node .agents/skills/sync-marketplace-plugins/scripts/diff_marketplace_plugins.js
    ```

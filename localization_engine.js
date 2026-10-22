@@ -1408,6 +1408,19 @@ function generateJs() {
             ]
         },
         {
+            source: 'run-workflow',
+            display: "运行工作流",
+            descriptions: [
+                "How to write and run a dynamic workflow script with the \`run_workflow\` tool: a Python script that orchestrates many agents with \`agent\`, \`parallel\`, \`pipeline\`, and \`phase\`. Use when a task splits into many independent or staged pieces of agent work (fan out over files, modules, bugs, or review angles, then aggregate), or when the user asks for a workflow. Don't use for a single delegated task (use a subagent) or for legacy workflow files (see migrate-workflows).",
+                "How to write and run a dynamic workflow script with the run_workflow tool: a Python script that orchestrates many agents with agent, parallel, pipeline, and phase. Use when a task splits into many independent or staged pieces of agent work (fan out over files, modules, bugs, or review angles, then aggregate), or when the user asks for a workflow. Don't use for a single delegated task (use a subagent) or for legacy workflow files (see migrate-workflows).",
+                "How to write and run a dynamic workflow script with the \`run_workflow\` tool",
+                "How to write and run a dynamic workflow script with the run_workflow tool",
+                "如何使用 \`run_workflow\` 工具编写并运行动态工作流脚本: 一个通过 \`agent\`、\`parallel\`、\`pipeline\` 与 \`phase\` 编排多个智能体的 Python 脚本. 当任务拆分为多个独立或分阶段的智能体工作项(跨文件、模块、Bug 或审查视角扇出，随后聚合)，或当用户要求使用工作流时使用. 请勿用于单个委派任务(请使用子智能体)或旧版工作流文件(请参阅 migrate-workflows).",
+                "如何使用 \`run_workflow\` 工具编写并运行动态工作流脚本: 一个通过 \`agent\`、\`parallel\`、\`pipeline\` 与 \`phase\` 编排多个智能体的 Python 脚本",
+                "如何使用 \`run_workflow\` 工具编写并运行动态工作流脚本"
+            ]
+        },
+        {
             source: 'permissioned-github',
             display: "GitHub 权限规范",
             descriptions: [
