@@ -7,5 +7,6 @@
   "New Worktree": "新建工作树",
   "Worktrees are available for Git repositories": "工作树仅适用于 Git 仓库",
   "Previous Worktrees": "历史工作树",
-  "Select branch": "选择分支"
+  "Select branch": "选择分支",
+  "Local Checkout": "本地"
 }

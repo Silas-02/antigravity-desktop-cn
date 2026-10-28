@@ -4,7 +4,7 @@
 
 ## 1. 当前目标与权威基准
 
-- **当前版本**：当前汉化发布版本为 **v2.25.0**，匹配官方 **Antigravity v2.25.0** 客户端。当前版本独立词典为 `dicts/v2.25.0.json`；请始终保持版本号、发布日期与 `README.md` 一致。
+- **当前版本**：当前汉化发布版本为 **v2.28.0**，匹配官方 **Antigravity v2.28.0** 客户端。当前版本独立词典为 `dicts/v2.28.0.json`；请始终保持版本号、发布日期与 `README.md` 一致。
 - **权威依据**：以仓库实际文件与可执行行为为准。进行版本升级时，审慎迁移上一版本旧字典，只保留一个当前版本字典。保持面向用户的安装、还原、支持平台与路径说明与引擎逻辑严格一致。
 
 ## 2. 词典归属与语义规则
@@ -38,7 +38,7 @@
 
 ## 4. 引擎开发安全底线（仅修改 engine 时生效）
 
-- **DOM 保护与会话/思考流隔离边界**：严格守护 `data-testid="user-input-step"`、`data-ag-localization-skip`、模型思考正文（`markThoughtContentSibling` 标记区）、会话活动状态折叠块（`isCollapsibleActivityHeader` 命中后须返回 `'skip_children'` 阻断子树递归）、终端、Monaco 编辑器及黑名单标签，严禁使用大范围 `innerHTML` 粗暴替换，严禁向 SVG/图标节点写入翻译标记。
+- **DOM 保护与会话/思考流/路径隔离边界**：严格守护 `data-testid="user-input-step"`、`data-ag-localization-skip`、模型思考正文（`markThoughtContentSibling` 标记区）、会话活动状态折叠块（`isCollapsibleActivityHeader` 命中后须返回 `'skip_children'` 阻断子树递归）、工作区文件树（`role="tree"` / `treeitem`）、辅助面板路径面包屑（`File path breadcrumbs`）、动态文件/目录标签页、变更文件列表路径、终端、Monaco 编辑器、图标字体节点（`.google-symbols` / `.codicon` 等）及黑名单标签，严禁使用大范围 `innerHTML` 粗暴替换，严禁向 SVG/图标节点写入翻译标记。
 - **零阻塞遍历与性能底线**：严禁在高频遍历函数中对未受限的祖先或容器直接调用 `element.textContent`，必须使用 `getBoundedTextContent`（限制子节点数与字符上限）；保持 `WeakMap` 正向/负向祖先缓存以及对 `.monaco-editor`、`.view-lines` 等大型代码预览容器的整树剪枝（零子树递归）。
 - **模板字符串转义陷阱**：`generateJs()` 通过巨型模板字面量生成注入脚本：
   - 包含撇号（`'`）的字符串**严禁**放在单引号字面量中，必须使用双引号 `"` 包裹或 `JSON.stringify()` 生成，防止语法穿透；

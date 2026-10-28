@@ -118,7 +118,7 @@ function generateJs() {
     const skillContextCache = new WeakMap();
 
     const BLOCKED_CLASSES = ['monaco-editor', 'editor-container', 'terminal', 'output-view', 'debug-console', 'code-view', 'artifact-container', 'suggest-widget'];
-    const HARD_PRUNED_CLASS_REGEX = /(?:^|\\s)(?:view-lines|view-line|view-overlays|lines-content|margin|margin-view-overlays|minimap|decorationsOverviewRuler|cursors-layer|monaco-tokenized-source|xterm|terminal|output-view|debug-console)(?:\\s|$)/;
+    const HARD_PRUNED_CLASS_REGEX = /(?:^|\\s)(?:view-lines|view-line|view-overlays|lines-content|margin|margin-view-overlays|minimap|decorationsOverviewRuler|cursors-layer|monaco-tokenized-source|xterm|terminal|output-view|debug-console|material-symbols(?:-[a-z]+)?|material-icons(?:-[a-z]+)?|codicon(?:-[a-z]+)?|google-symbols)(?:\\s|$)/;
     const BLOCKED_TAGS = ['SCRIPT', 'STYLE', 'CODE', 'PRE', 'INPUT', 'TEXTAREA', 'SVG', 'CANVAS', 'SYMBOL', 'PATH'];
     const BLOCKED_TAGS_SET = new Set(BLOCKED_TAGS);
     const AUTO_TRANSLATE_PROTECTED_TAGS = new Set(['CODE', 'PRE', 'INPUT', 'TEXTAREA']);
@@ -360,7 +360,7 @@ function generateJs() {
 
     function getAutomationScheduleTranslation(value) {
         const normalized = norm(value);
-        let match = normalized.match(/^(Daily|Weekly|Monthly|每[天周月])\\s+(?:around|在)\\s+(.+)$/i);
+        let match = normalized.match(/^(Daily|Weekly|Monthly|每[天周月])\\s+(?:around|at|在)\\s+(.+)$/i);
         if (match) {
             const freqMap = {
                 daily: "每天",
@@ -373,7 +373,7 @@ function generateJs() {
             const freq = freqMap[match[1].toLowerCase()] || match[1];
             return freq + "在 " + match[2];
         }
-        match = normalized.match(/^Weekly\\s+on\\s+(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\\s+(?:around|在)\\s+(.+)$/i);
+        match = normalized.match(/^Weekly\\s+on\\s+(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\\s+(?:around|at|在)\\s+(.+)$/i);
         if (match) {
             const dayMap = {
                 monday: "星期一", tuesday: "星期二", wednesday: "星期三",
@@ -381,7 +381,7 @@ function generateJs() {
             };
             return "每周" + (dayMap[match[1].toLowerCase()] || match[1]) + "在 " + match[2];
         }
-        match = normalized.match(/^(Daily|Weekly|Monthly)\\s+around$/i);
+        match = normalized.match(/^(Daily|Weekly|Monthly)\\s+(?:around|at)$/i);
         if (match) {
             const freqMap = {
                 daily: "每天",
@@ -390,7 +390,7 @@ function generateJs() {
             };
             return freqMap[match[1].toLowerCase()] + "在";
         }
-        match = normalized.match(/^Weekly\\s+on\\s+(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\\s+around$/i);
+        match = normalized.match(/^Weekly\\s+on\\s+(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\\s+(?:around|at)$/i);
         if (match) {
             const dayMap = {
                 monday: "星期一", tuesday: "星期二", wednesday: "星期三",
@@ -768,6 +768,11 @@ function generateJs() {
             blockedZoneCache.set(el, -1);
             return 2;
         }
+        const role = el.getAttribute('role');
+        if (role === 'tree' || role === 'treeitem') {
+            blockedZoneCache.set(el, -1);
+            return 2;
+        }
         const prev = el.previousElementSibling;
         if (prev && prev.hasAttribute('data-ag-thought-header') && el.parentElement && el.parentElement.children.length === 2) {
             el.setAttribute(SKIP_TRANSLATION_ATTR, 'true');
@@ -780,15 +785,38 @@ function generateJs() {
             blockedZoneCache.set(el, -1);
             return 2;
         }
-
-        const className = el.className || '';
-        if (typeof className === 'string' && className.length > 0 && HARD_PRUNED_CLASS_REGEX.test(className)) {
+        if (tag === 'NAV' && el.getAttribute('aria-label') === 'File path breadcrumbs') {
             blockedZoneCache.set(el, -1);
             return 2;
         }
 
+        const testId = el.getAttribute('data-testid');
+        const prevTestId = prev ? prev.getAttribute?.('data-testid') : null;
+        if (testId === 'file-title-name' || prevTestId === 'file-title-name' || prevTestId === 'file-tree-node-icon') {
+            blockedZoneCache.set(el, -1);
+            return 2;
+        }
+
+        const tabId = el.getAttribute('data-tab-id');
+        if (tabId && /^(?:file|directory|artifact|bgtask)__.+/i.test(tabId)) {
+            blockedZoneCache.set(el, -1);
+            return 2;
+        }
+
+        const className = el.className || '';
+        if (typeof className === 'string' && className.length > 0) {
+            if (HARD_PRUNED_CLASS_REGEX.test(className)) {
+                blockedZoneCache.set(el, -1);
+                return 2;
+            }
+            if (className === 'whitespace-nowrap truncate' && prev && prev.className === 'shrink-0 h-4 w-4 flex items-center justify-center') {
+                blockedZoneCache.set(el, -1);
+                return 2;
+            }
+        }
+
         let ownSoftBlocked = false;
-        if (BLOCKED_TEST_IDS.has(el.getAttribute('data-testid')) || el.getAttribute('contenteditable') === 'true') {
+        if (BLOCKED_TEST_IDS.has(testId) || el.getAttribute('contenteditable') === 'true') {
             ownSoftBlocked = true;
         } else if (typeof className === 'string' && className.length > 0) {
             for (let i = 0; i < BLOCKED_CLASSES.length; i++) {
@@ -1348,12 +1376,13 @@ function generateJs() {
             ]
         },
         {
-            source: 'teamwork-preview',
-            display: "团队协作（预览）",
+            source: 'teamwork',
+            display: "团队协作",
             descriptions: [
                 'Invoke a team of agents to autonomously tackle large projects',
                 'Invoke a team of agents to autonomously tackle large projects.',
-                "调用智能体团队自主应对大型项目"
+                "调用智能体团队自主应对大型项目",
+                "调用智能体团队自主应对大型项目."
             ]
         },
         {
@@ -2292,7 +2321,10 @@ function getDynamicProductUiTranslation(value) {
             return (isYour ? "您的" : prefix + " ") + "每周配额剩余" + colon;
         }
 
-        match = normalized.match(/^(.+?)\\s+(?:5-Hour|Five Hour)\\s+Limit(:?)$/i);
+        match = normalized.match(/^(\\d+(?:\\.\\d+)?%)\\s+left$/i);
+        if (match) return match[1] + " 剩余";
+
+        match = normalized.match(/^(.+?)\\s+(?:5-Hour|Five Hour|5h)\\s+Limit(:?)$/i);
         if (match) {
             const prefix = match[1].trim();
             const isYour = /^your$/i.test(prefix);
@@ -2300,7 +2332,7 @@ function getDynamicProductUiTranslation(value) {
             return (isYour ? "您的" : prefix + " ") + "5 小时配额限制" + colon;
         }
 
-        match = normalized.match(/^(.+?)\\s+(?:5-Hour|Five Hour)\\s+Limit Remaining(:?)$/i);
+        match = normalized.match(/^(.+?)\\s+(?:5-Hour|Five Hour|5h)\\s+Limit Remaining(:?)$/i);
         if (match) {
             const prefix = match[1].trim();
             const isYour = /^your$/i.test(prefix);
@@ -3411,8 +3443,8 @@ function getDynamicProductUiTranslation(value) {
         if (!rawText) return false;
         const normText = norm(rawText);
 
-        const dayMatch = normText.match(/^Weekly\\s+on\\s+(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\\s+(?:around|在)\\s+(.+)$/i);
-        const match = normText.match(/^(Daily|Weekly|Monthly|每[天周月])\\s+(?:around|在)\\s+(.+)$/i);
+        const dayMatch = normText.match(/^(?:Weekly|每周)(?:\\s+on)?\\s+(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|星期[一二三四五六日])\\s*(?:around|at|在)\\s+(.+)$/i);
+        const match = normText.match(/^(Daily|Weekly|Monthly|每[天周月])\\s+(?:around|at|在)\\s+(.+)$/i);
         if (!match && !dayMatch) return false;
 
         const textNodes = collectTextNodes(element);
@@ -3425,14 +3457,35 @@ function getDynamicProductUiTranslation(value) {
                 thursday: "星期四", friday: "星期五", saturday: "星期六", sunday: "星期日"
             };
             const chineseDay = dayMap[dayMatch[1].toLowerCase()] || dayMatch[1];
+            let clearNextWhitespace = false;
             for (const tn of textNodes) {
+                if (clearNextWhitespace && tn.nodeValue && tn.nodeValue.trim() === '') {
+                    changed = replaceTextNode(tn, '') || changed;
+                    clearNextWhitespace = false;
+                    continue;
+                }
+                clearNextWhitespace = false;
                 const val = norm(tn.nodeValue);
-                if (/^Weekly\\s+on$/i.test(val)) {
+                if (!val) continue;
+                const fullTrans = getAutomationScheduleTranslation(val);
+                if (fullTrans) {
+                    changed = replaceTextNode(tn, fullTrans) || changed;
+                    continue;
+                }
+                const combinedWeeklyMatch = val.match(/^Weekly\\s+on\\s+(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)$/i);
+                if (combinedWeeklyMatch) {
+                    const cDay = dayMap[combinedWeeklyMatch[1].toLowerCase()] || combinedWeeklyMatch[1];
+                    changed = replaceTextNode(tn, "每周" + cDay) || changed;
+                } else if (/^(?:Weekly(?:\\s+on)?|每周)$/i.test(val)) {
                     changed = replaceTextNode(tn, "每周") || changed;
+                } else if (/^on$/i.test(val)) {
+                    changed = replaceTextNode(tn, "") || changed;
+                    clearNextWhitespace = true;
                 } else if (new RegExp('^' + dayMatch[1] + '$', 'i').test(val)) {
                     changed = replaceTextNode(tn, chineseDay) || changed;
-                } else if (/^around$/i.test(val)) {
+                } else if (/^(?:around|at)$/i.test(val)) {
                     changed = replaceTextNode(tn, "在 ") || changed;
+                    clearNextWhitespace = true;
                 }
             }
             return changed;
@@ -3448,12 +3501,26 @@ function getDynamicProductUiTranslation(value) {
                 "每月": "每月"
             };
             const freq = freqMap[match[1].toLowerCase()] || match[1];
+            let clearNextWhitespace = false;
             for (const tn of textNodes) {
+                if (clearNextWhitespace && tn.nodeValue && tn.nodeValue.trim() === '') {
+                    changed = replaceTextNode(tn, '') || changed;
+                    clearNextWhitespace = false;
+                    continue;
+                }
+                clearNextWhitespace = false;
                 const val = norm(tn.nodeValue);
+                if (!val) continue;
+                const fullTrans = getAutomationScheduleTranslation(val);
+                if (fullTrans) {
+                    changed = replaceTextNode(tn, fullTrans) || changed;
+                    continue;
+                }
                 if (/^(?:Daily|Weekly|Monthly)$/i.test(val)) {
                     changed = replaceTextNode(tn, freq) || changed;
-                } else if (/^around$/i.test(val)) {
+                } else if (/^(?:around|at)$/i.test(val)) {
                     changed = replaceTextNode(tn, "在 ") || changed;
+                    clearNextWhitespace = true;
                 }
             }
             return changed;
@@ -3605,7 +3672,7 @@ function getDynamicProductUiTranslation(value) {
         if (isSpan && textLength <= 320 && /(?:is managed by the|can only be deleted by deleting that automation|自动化管理，只能通过删除该自动化来将其删除)/i.test(rawText)) {
             translated = translateManagedByAutomationNotice(element) || translated;
         }
-        if (textLength <= 120 && /(?:Daily|Weekly|Monthly|每[天周月])\\s+(?:around|在)/i.test(rawText)) {
+        if (textLength <= 120 && /(?:Daily|Weekly|Monthly|每[天周月])(?:\\s+on)?(?:\\s+(?:[A-Za-z]+|星期[一二三四五六日]))?\\s*(?:around|at|在)/i.test(rawText)) {
             translated = translateAutomationScheduleContainer(element) || translated;
         }
         if (textLength <= 260 && /(?:Search conversations with|View archived in the sidebar|使用左上角的|中查看已归档会话)/i.test(rawText)) {
@@ -4141,8 +4208,9 @@ function getDynamicProductUiTranslation(value) {
 
         if (/^(?:Daily|Weekly|Monthly)$/i.test(currentText)) {
             const parent = node.parentElement;
-            const containerText = parent ? (getBoundedTextContent(parent, 16, 120) || '') : '';
-            if (/(?:around|在)/i.test(containerText)) {
+            const outer = (parent && parent.parentElement) || parent;
+            const containerText = outer ? (getBoundedTextContent(outer, 16, 120) || '') : '';
+            if (/(?:around|at|在)/i.test(containerText)) {
                 const freqMap = {
                     daily: "每天",
                     weekly: "每周",
@@ -4152,11 +4220,33 @@ function getDynamicProductUiTranslation(value) {
             }
         }
 
-        if (/^around$/i.test(currentText) && getPrev()) {
+        if (/^on$/i.test(currentText) && getPrev()) {
             const prevText = getPrevText();
-            if (/^(?:每天|每周|每月|Daily|Weekly|Monthly|星期[一二三四五六日]|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)$/i.test(prevText)) {
+            const parent = node.parentElement;
+            const containerText = parent ? (getBoundedTextContent(parent, 16, 120) || '') : '';
+            if (/^(?:每周|Weekly)$/i.test(prevText) && /(?:around|at|在)/i.test(containerText)) {
+                const nextSibling = node.nextSibling;
+                if (nextSibling && nextSibling.nodeType === Node.TEXT_NODE && nextSibling.nodeValue && nextSibling.nodeValue.trim() === '') {
+                    replaceTextNode(nextSibling, '');
+                }
+                return "";
+            }
+        }
+
+        if (/^(?:around|at)$/i.test(currentText) && getPrev()) {
+            const prevText = getPrevText();
+            if (/^(?:每天|每周|每月|Daily|Weekly|Monthly|星期[一二三四五六日]|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|每周星期[一二三四五六日]|Weekly\\s+on\\s+(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday))$/i.test(prevText)) {
                 return "在 ";
             }
+        }
+
+        const weeklyOnDayMatch = currentText.match(/^Weekly\\s+on\\s+(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)$/i);
+        if (weeklyOnDayMatch) {
+            const dayMap = {
+                monday: "星期一", tuesday: "星期二", wednesday: "星期三",
+                thursday: "星期四", friday: "星期五", saturday: "星期六", sunday: "星期日"
+            };
+            return "每周" + (dayMap[weeklyOnDayMatch[1].toLowerCase()] || weeklyOnDayMatch[1]);
         }
 
         if (/^Weekly\\s+on$/i.test(currentText)) {
@@ -4165,7 +4255,10 @@ function getDynamicProductUiTranslation(value) {
 
         if (/^(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)$/i.test(currentText) && getPrev()) {
             const prevText = getPrevText();
-            if (/^(?:每周|Weekly\\s+on)$/i.test(prevText)) {
+            const parent = node.parentElement;
+            const outer = (parent && parent.parentElement) || parent;
+            const containerText = outer ? (getBoundedTextContent(outer, 16, 120) || '') : '';
+            if ((/^(?:每周|Weekly(?:\\s+on)?|on)$/i.test(prevText)) && /(?:around|at|在)/i.test(containerText)) {
                 const dayMap = {
                     monday: "星期一", tuesday: "星期二", wednesday: "星期三",
                     thursday: "星期四", friday: "星期五", saturday: "星期六", sunday: "星期日"
@@ -5002,7 +5095,24 @@ function getDynamicProductUiTranslation(value) {
         "Copy Image": "复制图片",
         "Save Image": "保存图片",
         "Copy Video": "复制视频",
-        "Save Video": "保存视频"
+        "Save Video": "保存视频",
+        "Cut": "剪切",
+        "Paste": "粘贴",
+        "Select All": "全选",
+        "Close Tab": "关闭标签页",
+        "Close Other Tabs": "关闭其他标签页",
+        "Close Tabs to the Right": "关闭右侧标签页",
+        "Back": "后退",
+        "Forward": "前进",
+        "Reload": "重新加载",
+        "Open in External Browser": "在外部浏览器中打开",
+        "Open in Built-in Browser": "在内置浏览器中打开",
+        "Open in Browser": "在浏览器中打开",
+        "Copy Link": "复制链接",
+        "Reopen Closed Tab": "重新打开关闭的标签页",
+        "Move Conversation Up": "向上移动会话",
+        "Move Conversation Down": "向下移动会话",
+        "Background Commands": "后台命令"
     };
 
     function translateContextMenuLabel(label, id) {
@@ -5857,6 +5967,7 @@ function installLocalization(resourcesDir) {
     const translations = {
         'File': '文件',
         'Edit': '编辑',
+        'Workspace': '工作区',
         'View': '视图',
         'Window': '窗口',
         'Help': '帮助',
@@ -6084,7 +6195,21 @@ function installLocalization(resourcesDir) {
         "Copy Image": "复制图片",
         "Save Image": "保存图片",
         "Copy Video": "复制视频",
-        "Save Video": "保存视频"
+        "Save Video": "保存视频",
+        "Close Tab": "关闭标签页",
+        "Close Other Tabs": "关闭其他标签页",
+        "Close Tabs to the Right": "关闭右侧标签页",
+        "Back": "后退",
+        "Forward": "前进",
+        "Reload": "重新加载",
+        "Open in External Browser": "在外部浏览器中打开",
+        "Open in Built-in Browser": "在内置浏览器中打开",
+        "Open in Browser": "在浏览器中打开",
+        "Copy Link": "复制链接",
+        "Reopen Closed Tab": "重新打开关闭的标签页",
+        "Move Conversation Up": "向上移动会话",
+        "Move Conversation Down": "向下移动会话",
+        "Background Commands": "后台命令"
     };
     if (Array.isArray(items)) {
         items = items.map((item) => {
