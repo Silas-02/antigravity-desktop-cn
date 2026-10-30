@@ -424,6 +424,9 @@ function generateJs() {
         match = normalized.match(/^(?:See all|显示全部|查看全部)\\s*[（(]\\s*(\\d+)\\s*[)）]$/i);
         if (match) return "显示全部 (" + match[1] + ")";
 
+        match = normalized.match(/^(?:Send all|全部发送|发送全部)\\s*[（(]\\s*(\\d+)\\s*[)）]$/i);
+        if (match) return "全部发送 (" + match[1] + ")";
+
         match = normalized.match(/^See\\s+(\\d+)\\s+more\\s+plugins$/i);
         if (match) return "查看另外 " + match[1] + " 个插件";
 
@@ -3982,6 +3985,21 @@ function getDynamicProductUiTranslation(value) {
                 return "若出于法律原因需要申请更改内容，请访问 ";
             }
         }
+        if (/^(?:,?\\s*found here:?|found here:?)$/i.test(currentText)) {
+            const parentText = node && node.parentElement ? (getBoundedTextContent(node.parentElement, 16, 500) || '') : '';
+            if (/(?:Privacy Policy|隐私政策)/i.test(getPrevText()) || /(?:third party developer tools|第三方开发者工具|policies\\.google\\.com)/i.test(parentText)) {
+                return " 保护任何此类数据，具体请参见此处:";
+            }
+        }
+        if (/^Google does not control the availability or functionality of third party developer tools\\.\\s*Your data from third party developer tools connected to your Antigravity instance may be shared with Google\\.\\s*Google will protect any such data in accordance with the$/i.test(currentText)) {
+            return "Google 无法控制第三方开发者工具的可用性或功能. 从连接到您 Antigravity 实例的第三方开发者工具中获取的数据可能会与 Google 共享. Google 将根据 ";
+        }
+        if (/^Google will protect any such data in accordance with the$/i.test(currentText)) {
+            const parentText = node && node.parentElement ? (getBoundedTextContent(node.parentElement, 16, 500) || '') : '';
+            if (/(?:third party developer tools|第三方开发者工具)/i.test(parentText)) {
+                return "Google 将根据 ";
+            }
+        }
         const toBeInstalledMatch = currentText.match(/^to be installed\\.\\s*(.+)$/i);
         if (toBeInstalledMatch) {
             const parentText = node && node.parentElement ? (getBoundedTextContent(node.parentElement, 16, 500) || '') : '';
@@ -4815,13 +4833,15 @@ function getDynamicProductUiTranslation(value) {
                     } else if (/^(\\d+)\\s+questions?$/i.test(valNorm)) {
                         newVal = valNorm.replace(/^(\\d+)\\s+questions?$/i, (match, num) => num + " 个问题");
                     }
-                } else if (/^(?:Show (?:\\d+)|See all \\(\\d+\\)|Available AI Credits:|Send feedback as\\s+|Media\\s*\\(|Updated\\s+|All (?:scheduled tasks|automations) run |Individual quota reached\\.|Mark\\s+|Version\\s+|Asking\\s+\\d+|View\\s+\\d+\\s+side|Asked\\s+\\d+)/i.test(valNorm)) {
+                } else if (/^(?:Show (?:\\d+)|See all \\(\\d+\\)|Send all \\(\\d+\\)|Available AI Credits:|Send feedback as\\s+|Media\\s*\\(|Updated\\s+|All (?:scheduled tasks|automations) run |Individual quota reached\\.|Mark\\s+|Version\\s+|Asking\\s+\\d+|View\\s+\\d+\\s+side|Asked\\s+\\d+)/i.test(valNorm)) {
                     if (/^Show (\\d+) more(\\.\\.\\.|…)?$/i.test(valNorm)) {
                         newVal = valNorm.replace(/^Show (\\d+) more(\\.\\.\\.|…)?$/i, (match, num) => "显示另外 " + num + " 个...");
                     } else if (/^Show (\\d+) breakdowns?$/i.test(valNorm)) {
                         newVal = valNorm.replace(/^Show (\\d+) breakdowns?$/i, (match, num) => "显示 " + num + " 项明细");
                     } else if (/^See all \\((\\d+)\\)$/i.test(valNorm)) {
                         newVal = valNorm.replace(/^See all \\((\\d+)\\)$/i, (match, num) => "显示全部 (" + num + ")");
+                    } else if (/^Send all \\((\\d+)\\)$/i.test(valNorm)) {
+                        newVal = valNorm.replace(/^Send all \\((\\d+)\\)$/i, (match, num) => "全部发送 (" + num + ")");
                     } else if (/^Available AI Credits: (\\d+)$/i.test(valNorm)) {
                         newVal = valNorm.replace(/^Available AI Credits: (\\d+)$/i, (match, num) => "可用 AI 额度: " + num);
                     } else if (/^Send feedback as\\s+(.+)$/i.test(valNorm)) {
@@ -5076,6 +5096,7 @@ function getDynamicProductUiTranslation(value) {
         "Split": "拆分",
         "Archive": "归档",
         "Delete": "删除",
+        "Stop": "停止",
         "Pin": "置顶",
         "Unpin": "取消置顶",
         "Conversation Name": "会话名称",
@@ -6168,6 +6189,7 @@ function installLocalization(resourcesDir) {
         "Split": "拆分",
         "Archive": "归档",
         "Delete": "删除",
+        "Stop": "停止",
         "Pin": "置顶",
         "Unpin": "取消置顶",
         "Conversation Name": "会话名称",

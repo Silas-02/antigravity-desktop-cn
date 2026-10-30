@@ -4,15 +4,15 @@
 >
 > **语言支持**：简体中文
 >
-> **汉化版本**：v2.28.0
+> **汉化版本**：v2.28.2
 >
-> **匹配版本**：Antigravity v2.28.0
+> **匹配版本**：Antigravity v2.28.2
 >
-> **最近更新**：2026-10-28
+> **最近更新**：2026-10-30
 >
 > **核心运行环境**： Node.js
 >
-> **汉化范围**：当前 v2.28.0 词典面向 Antigravity v2.28.0，覆盖主界面、顶部系统菜单与任务栏菜单、加载页、设置面板、新手引导与登录流程、对话及自动化/计划任务管理、个性化定制与插件市场、MCP 服务器列表，以及各类动态状态、提示和操作反馈。少量内容可能因客户端异步渲染、第三方嵌入或官方后续新增界面而暂未覆盖。
+> **汉化范围**：当前 v2.28.2 词典面向 Antigravity v2.28.2，覆盖主界面、顶部系统菜单与任务栏菜单、加载页、设置面板、新手引导与登录流程、对话及自动化/计划任务管理、个性化定制与插件市场、MCP 服务器列表，以及各类动态状态、提示和操作反馈。少量内容可能因客户端异步渲染、第三方嵌入或官方后续新增界面而暂未覆盖。
 >
 > **注入原理**：通过 ASAR 还原与重包，安全注入 `preload.js` 动态翻译机制，macOS 端自动完成隔离属性清除与由内而外应用自签名，绝不修改核心二进制，一键安装与完美还原。
 
@@ -54,8 +54,8 @@
 - **`install.sh`**：macOS / Linux 一键汉化终端执行入口。
 - **`uninstall.sh`**：macOS / Linux 使用备份还原官方英文终端执行入口。
 - **`localization_engine.js`**：核心汉化逻辑，跨平台自动适配，负责 app.asar 的解包、代码注入、macOS 隔离修复与自签名及重新打包。
-- **`dicts/`**：汉化字典文件夹，内含按模块分类的 JSON 对照翻译字典；当前版本的核心词典为 `dicts/v2.28.0.json`。
-- **`.agents/skills/sync-marketplace-plugins/`**：官方插件市场同步与审计技能，内置基于官方权威元数据与内存零落盘技术的比对审计工具。
+- **`dicts/`**：汉化字典文件夹，内含按模块分类的 JSON 对照翻译字典；当前版本的核心词典为 `dicts/v2.28.2.json`。
+- **`.agents/skills/sync-marketplace-plugins/`**：官方插件市场同步与审计技能，内置直连官方云端实时元数据与内存零落盘技术的全自动比对审计工具。
 - **`AGENTS.md`**：项目通用规则。支持 `AGENTS.md` 的 AI 会将其作为项目上下文，按其中的汉化边界与动态文案处理要求工作。
 - **`.gitattributes`**：Git 属性规则。它会保护 Windows `.bat` 文件的 GBK/CRLF 字节内容与 macOS `.command` 文件的 LF 换行符，避免 Git 的自动文本转换破坏安装或卸载脚本。
 
@@ -110,7 +110,7 @@
 
 ## 🛠️ 汉化原理说明
 
-本引擎采用 **原生 ASAR 内存原地注入模式**，深度适配 **Antigravity 2.0+** 的 Electron 架构：
+本引擎采用 **原生 ASAR 内存原生注入模式**，深度适配 **Antigravity 2.0+** 的 Electron 架构：
 
 1. **自动释放锁**：脚本运行前会自动探测并安全关闭 Antigravity 进程，防止文件占用锁定。
 2. **安全备份**：首次运行时，会在软件目录自动创建原始 `app.asar.bak` 文件，确保随时可无损还原。
@@ -164,21 +164,9 @@
 
 > **"请使用 `sync-marketplace-plugins` 技能比对官方插件市场元数据，检查是否有新上架的插件、文案变动或下架插件，并输出比对报告。"**
 
-AI 会自动激活内置技能并调用原生 Node.js 工具，以官方权威清单（`marketplace.json`）为基准比对 `dicts/marketplace_plugins.json`，并采用流式内存零落盘技术精准提取 Google Workspace 技能详情，呈现结构化清单并征求您的确认后再执行汉化或清理。
-
-*(开发者亦可在终端直接执行 `node .agents/skills/sync-marketplace-plugins/scripts/diff_marketplace_plugins.js` 获取实时报告，支持 `--remote` 强制拉取官方云端源。)*
+AI 会自动激活内置技能并调用原生 Node.js 工具，以官方权威云端插件数据为基准比对 `dicts/marketplace_plugins.json`，并采用流式内存零落盘技术精准提取技能详情，呈现结构化清单并征求您的确认后再执行汉化或清理。
 
 </details>
-
----
-
-### 🔄 更新生效流程
-
-1. **命令 AI 更新**：在对话中通过截图或文字说明汉化需求；AI 会按界面来源选择修改 `dicts/` 词典或 `localization_engine.js` 动态规则。
-2. **重新注入**：运行安装脚本（Windows 双击 `双击安装中文汉化.bat`，macOS 双击 `双击安装中文汉化.command` 或运行 `./install.sh`，Linux 运行 `./install.sh`；脚本会自动检测并安全关闭正在运行的客户端并完成重包注入）。
-3. **重启软件**：重新打开 Antigravity，检查目标界面是否已经正确汉化。
-
----
 
 ## 📝 自定义与高级开发指南 (供极客使用)
 
@@ -191,7 +179,7 @@ AI 会自动激活内置技能并调用原生 Node.js 工具，以官方权威�
 
 对于界面上不含变量的固定标签、按钮文字、弹窗标题等，直接维护 `dicts/` 下的 JSON 文件：
 
-- **`v2.28.0.json`**：当前版本 v2.28.0 专用词典，适配官方版本迭代的独有界面。
+- **`v2.28.2.json`**：当前版本 v2.28.2 专用词典，适配官方版本迭代的独有界面。
 - **`common.json`**：通用基础词汇、侧边栏概览、登录与引导流程、通用按钮与权限弹窗。
 - **`menu_nav.json`**：系统菜单、顶部导航与状态栏菜单。
 - **`page_agents.json`**：智能体、任务及会话管理相关页面。
@@ -205,10 +193,6 @@ AI 会自动激活内置技能并调用原生 Node.js 工具，以官方权威�
 ```json
 "Original English Text": "您的中文翻译"
 ```
-
-- **匹配机制**：默认文本节点完全一致且通过独立 UI 控件边界守卫（`isIsolatedUiControlLabel`）时翻译；长度 >20 字符的整句支持单词边界保护的子串替换。
-- **标点 1:1 严格对齐规范**：翻译文案与官方英文原文的标点符号严格保持 1:1 一致。
-
 ---
 
 ### 2. 动态文案与复杂 DOM 规则（修改 `localization_engine.js`）
@@ -229,25 +213,22 @@ AI 会自动激活内置技能并调用原生 Node.js 工具，以官方权威�
 
 ### 3. 插件市场（Marketplace）自动审计与同步
 
-项目内置了基于官方权威元数据与流式内存零落盘技术的全自动比对工具：
+项目内置了直连官方云端权威接口与流式内存零落盘技术的全自动比对审计工具：
 
 ```bash
-# 1. 运行官方插件市场元数据与字典比对（默认自动定位本地缓存，按需流式提取）
+# 1. 运行官方插件市场元数据与字典比对（默认并发直连官方云端双专区权威接口，流式内存零落盘审计）
 node .agents/skills/sync-marketplace-plugins/scripts/diff_marketplace_plugins.js
 
-# 2. 强制拉取官方云端最新权威元数据进行实时比对
-node .agents/skills/sync-marketplace-plugins/scripts/diff_marketplace_plugins.js --remote
+# 2. 离线环境或本地构建测试时，指定读取本地缓存
+node .agents/skills/sync-marketplace-plugins/scripts/diff_marketplace_plugins.js --local
 
 # 3. 以 JSON 格式输出分析结果
 node .agents/skills/sync-marketplace-plugins/scripts/diff_marketplace_plugins.js --json
 ```
 
 - **权威数据源与零落盘设计**：
-  - **唯一权威源**：以官方发布的 `marketplace.json` 全量清单为准，覆盖官方全部插件及 `suggestedPrompts` 官方建议提示词。
-  - **内存流式提取**：针对 Google Workspace 专区插件深层技能定义，自动流式拉取归档至内存 Buffer 并在内存中解压提取 `SKILL.md`，全程零磁盘落盘、零临时文件，保障与官方最新发布版本绝对一致。
-- **翻译边界标准**：
-  - **Google Workspace 官方协同办公专区**（开放集合，如 `gcalendar`、`gdocs`、`gdrive`、`gsheets`、`gslides` 及后续同族套件）：完全汉化，涵盖卡片简介、建议提示词、斜杠技能详情说明及 `SKILL_PICKER_DISPLAY_ENTRIES` 上下文安全绑定。
-  - **其余官方插件专区**（Flutter、Firebase、Data Agent Kit、Modern Web、Android CLI 等）：严格仅翻译市场通用界面控件、卡片基础简介与官方建议提示词三项。
+  - **云端权威源**：以 Google 云端实时动态下发的官方全量专区清单（Google 官方专区 + 官方合作伙伴专区）为唯一权威基准，自动审计卡片简介、建议提示词与专区目录元数据。
+  - **内存流式提取**：针对 Google专区插件深层技能定义，自动流式拉取归档至内存 Buffer 并在内存中解压提取 `SKILL.md` 与 `README.md`，全程零磁盘落盘、零临时文件，保障与官方最新发布版本绝对一致。
 
 </details>
 
@@ -347,19 +328,16 @@ node .agents/skills/sync-marketplace-plugins/scripts/diff_marketplace_plugins.js
    - 完备支持 Windows、macOS 与 Linux（含Ubuntu等主流发行版），提供开箱即用的一键安装（`install.sh` / `.bat` / `.command`）与无损还原（`uninstall.sh` / `.bat` / `.command`）方案。
    - 引入编码保护（GBK/CRLF 隔离）、macOS 隔离属性修复与由内而外应用自签名、以及权限自适应机制，杜绝 Windows 控制台乱码、macOS 签名失效闪退与 Linux 权限异常。
 
-2. **模块化分词典与高效版本迭代架构**：
-   - 将单体庞大词典解耦为模块化分包（`common`、`menu_nav`、`page_settings`、`page_agents` 等），结合版本独立词典机制（如 `dicts/v2.28.0.json`），大幅提升词条维护效率并保持追溯清晰。
-
-3. **严格的内容隔离与高安全渲染保护边界**：
+2. **严格的内容隔离与高安全渲染保护边界**：
    - **用户消息与思考流绝对隔离**：严格适配客户端的 `data-testid="user-input-step"`、`data-ag-localization-skip`、模型思考正文（Thought 流）及会话工具活动折叠区禁区机制，坚决不翻译、不篡改用户提示词正文、模型思考过程、代码块与终端输出，防止误译与数据污染。
    - **分级精准匹配与零阻塞遍历**：结合独立 UI 控件边界守卫（`isIsolatedUiControlLabel`）、带单词边界保护的长句替换规则，以及 `WeakMap` 祖先缓存与 Monaco/代码行整树剪枝，杜绝短词误伤非界面文本并保障大型设置面板与代码预览流畅无卡顿。
 
-4. **原生极速注入架构（零网络依赖与秒级注入）**：
+3. **原生极速注入架构（零网络依赖与秒级注入）**：
    - **摆脱外部包与网络限制**：彻底摒弃传统依赖 `npx -y @electron/asar` 联网下载并全量解包的方式，内置轻量原生 ASAR 读写协议，100% 离线运行，免装 `npm`。
    - **零临时文件与无感部署**：仅对目标脚本进行内存流式修补，无磁盘小碎文件生成，从根源上消除 Windows Defender 等安全软件的拦截与卡顿。
    - **严格体积守恒**：精准继承官方 `--unpack` 机制，防止将外部二进制及 MCP 工具重复打包进 ASAR，避免体积膨胀。
 
-5. **官方插件市场与技能体系自动化同步与审计**：
-   - **专用分包与清晰边界**：独立收录 `dicts/marketplace_plugins.json`，全量覆盖 Google Workspace 官方专区插件。
-   - **权威元数据与内存零落盘比对架构**：以官方发布的 `marketplace.json` 为唯一权威来源，针对 Google Workspace 专区插件采用流式内存零落盘解压技术。
+4. **官方插件市场与技能体系自动化同步与审计**：
+   - **全量多专区专用分包**：独立收录 `dicts/marketplace_plugins.json`，全量覆盖 Google 官方专区与官方合作伙伴专区插件。
+   - **云端直连与内存零落盘比对架构**：默认直连官方云端权威接口实时拉取最新插件清单，针对 Google专区插件采用流式内存零落盘解压技术。
    - **技能选择器安全有界绑定**：在斜杠命令与技能选择器中提供中文友好展示，防止底层路径或技术标识符被意外汉化污染。
