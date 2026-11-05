@@ -352,5 +352,13 @@
   "Run Zoho Books from Antigravity: invoicing, bills, banking, journals, projects, items, taxes, customization and automation.": "从 Antigravity 运行 Zoho Books: 开具发票、账单、银行账户、日记账、项目、项目项、税务、个性化定制及自动化.",
   "List my overdue Zoho Books invoices and summarize what each customer owes": "列出我逾期的 Zoho Books 发票并总结每位客户的欠款金额",
   "Show uncategorized bank transactions and suggest matches": "显示未分类的银行交易并推荐匹配项",
-  "Create an invoice for customer Acme Corp with 10 hours of consulting at 150 per hour": "为客户 Acme Corp 创建一张发票，包含 10 小时咨询服务，费率为每小时 150"
+  "Create an invoice for customer Acme Corp with 10 hours of consulting at 150 per hour": "为客户 Acme Corp 创建一张发票，包含 10 小时咨询服务，费率为每小时 150",
+  "Ask a question of the live web and get a table back. Keenable SELECT runs many searches, reads the pages and extracts the fields you need in one call. Sign in with a Keenable account.": "向实时网络提问并获取表格结果. Keenable SELECT 一次调用即可运行多次搜索、阅读页面并提取您需要的字段. 使用 Keenable 账号登录.",
+  "Which open-source vector databases come up most in 2026 comparisons? Give me a table with license, latest version and a source for each": "在 2026 年的对比中，哪些开源向量数据库出现得最频繁？为我提供一个包含许可证、最新版本和各自来源的表格",
+  "List AI agent startups that announced a seed round in the last 30 days, with amount, lead investor and source": "列出在过去 30 天内宣布种子轮融资的 AI 智能体初创企业，包括金额、领投方和来源",
+  "Compare the pricing of the main LLM observability tools in one table: free tier, paid entry price, what is metered": "在同一张表格中对比主流大语言模型可观测性工具的价格：免费层级、付费入门价格、计费项",
+  "Connect to your managed Looker MCP server to explore data, run saved Looks, build dashboards, and validate LookML.": "连接到托管的 Looker MCP 服务器以探索数据、运行保存的 Looks、构建仪表板并验证 LookML.",
+  "List available Looker models and explores in my instance": "列出我实例中可用的 Looker 模型与 Explore",
+  "Run a query against an explore and summarize the top trends": "针对 Explore 运行查询并总结主要趋势",
+  "Check the health of my Looker instance and dashboards": "检查我的 Looker 实例和仪表板的运行状况"
 }

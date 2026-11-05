@@ -179,7 +179,7 @@ function generateJs() {
                 return transPref + " (" + match[2] + (match[3] ? "+" + match[3] : "") + ")";
             }
         }
-        match = val.match(/^(.+?)\\s+(Ctrl|Cmd|Alt|Shift|⌘|⌥|⇧|⌃)\\+([A-Za-z0-9;,.\\/-]+)$/i);
+        match = val.match(/^(.+?)\\s+((?:(?:Ctrl|Cmd|Alt|Shift|⌘|⌥|⇧|⌃)\\+)+[A-Za-z0-9;,.\\/-]+)$/i);
         if (match) {
             const prefix = match[1].trim();
             const normPref = norm(prefix);
@@ -191,7 +191,7 @@ function generateJs() {
                 transPref = lowerMap.get(lowerPref);
             }
             if (transPref) {
-                return transPref + " " + match[2] + "+" + match[3];
+                return transPref + " " + match[2];
             }
         }
         return null;
@@ -269,7 +269,10 @@ function generateJs() {
 
     function getRelativeTimeTranslation(value, node = null) {
         const normalized = norm(value);
-        if (/^just\\s+now$/i.test(normalized)) return "刚刚";
+        if (/^just\\s+now$/i.test(normalized)) {
+            if (node && isContentBodyContainer(node) && !isMessageActionTimestamp(node)) return null;
+            return "刚刚";
+        }
 
         const triggeredMatch = normalized.match(/^(?:Triggered|已触发)\\s+(.+)$/i);
         if (triggeredMatch) {
@@ -287,7 +290,7 @@ function generateJs() {
 
         let match = normalized.match(/^(\\d+)\\s*(s|m|h|d|w|mo|yr|y)$/);
         if (match) {
-            if (node && isContentBodyContainer(node)) {
+            if (node && isContentBodyContainer(node) && !isMessageActionTimestamp(node)) {
                 return null;
             }
             if (node && isUptimeDurationContext(node)) {
@@ -318,7 +321,9 @@ function generateJs() {
 
         match = normalized.match(/^(\\d+)\\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days|w|wk|wks|week|weeks|mo|mos|month|months|y|yr|yrs|year|years)\\s+ago$/i);
         if (!match) return null;
-        if (node && isContentBodyContainer(node)) return null;
+        if (node && isContentBodyContainer(node) && !isMessageActionTimestamp(node)) {
+            return null;
+        }
 
         const unit = match[2].toLowerCase();
         let translatedUnit = "";
@@ -360,7 +365,45 @@ function generateJs() {
 
     function getAutomationScheduleTranslation(value) {
         const normalized = norm(value);
-        let match = normalized.match(/^(Daily|Weekly|Monthly|每[天周月])\\s+(?:around|at|在)\\s+(.+)$/i);
+        if (/^Next\\s+run$/i.test(normalized)) return "下次运行";
+        if (/^Last\\s+run$/i.test(normalized)) return "上次运行";
+
+        let match = normalized.match(/^(Today|Tomorrow|Yesterday)\\s+(\\d{1,2}:\\d{2}\\s*(?:AM|PM)(?:\\s+(?:GMT|UTC)[+-]?\\d{0,2}(?::\\d{2})?)?)$/i);
+        if (match) {
+            const dayWord = { today: "今天", tomorrow: "明天", yesterday: "昨天" }[match[1].toLowerCase()];
+            return dayWord + " " + match[2];
+        }
+        match = normalized.match(/^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\\s+(\\d{1,2}:\\d{2}\\s*(?:AM|PM)(?:\\s+(?:GMT|UTC)[+-]?\\d{0,2}(?::\\d{2})?)?)$/i);
+        if (match) {
+            const weekdayMap = {
+                monday: "星期一", tuesday: "星期二", wednesday: "星期三",
+                thursday: "星期四", friday: "星期五", saturday: "星期六", sunday: "星期日"
+            };
+            return weekdayMap[match[1].toLowerCase()] + " " + match[2];
+        }
+        match = normalized.match(/^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\\s+(\\d{1,2}),?\\s+(\\d{1,2}:\\d{2}\\s*(?:AM|PM))$/i);
+        if (match) {
+            const monthIndex = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"].indexOf(match[1].toLowerCase()) + 1;
+            return monthIndex + "月" + match[2] + "日 " + match[3];
+        }
+
+        match = normalized.match(/^Next\\s+run\\s+today\\s+(?:around|at|在)\\s+(.+)$/i);
+        if (match) return "下次运行：今天约 " + match[1];
+        match = normalized.match(/^Next\\s+run\\s+tomorrow\\s+(?:around|at|在)\\s+(.+)$/i);
+        if (match) return "下次运行：明天约 " + match[1];
+        match = normalized.match(/^Next\\s+run\\s+(?:around|at|在)\\s+(.+)$/i);
+        if (match) return "下次运行：约 " + match[1];
+        match = normalized.match(/^Next\\s+run\\s+(.+)$/i);
+        if (match) return "下次运行：" + match[1];
+
+        match = normalized.match(/^Last\\s+run\\s+(?:today\\s+around|today\\s+at)\\s+(.+)$/i);
+        if (match) return "上次运行：今天约 " + match[1];
+        match = normalized.match(/^Last\\s+run\\s+(?:around|at|在)\\s+(.+)$/i);
+        if (match) return "上次运行：约 " + match[1];
+        match = normalized.match(/^Last\\s+run\\s+(.+)$/i);
+        if (match) return "上次运行：" + match[1];
+
+        match = normalized.match(/^(Daily|Weekly|Monthly|每[天周月])\\s+(?:around|at|在)\\s+(.+)$/i);
         if (match) {
             const freqMap = {
                 daily: "每天",
@@ -408,6 +451,15 @@ function generateJs() {
 
         match = normalized.match(/^(?:Comments?|评论)\\s*[（(]\\s*(\\d+)\\s*[)）]$/i);
         if (match) return "评论（" + match[1] + "）";
+
+        match = normalized.match(/^(\\d+)\\s*(?:Comments?|条评论)$/i);
+        if (match) return match[1] + " 条评论";
+
+        match = normalized.match(/^(\\d+)\\s*(?:tools?|个工具)$/i);
+        if (match) return match[1] + " 个工具";
+
+        match = normalized.match(/^(\\d+)\\s+on for this conversation$/i);
+        if (match) return match[1] + " 个已为此会话开启";
 
         match = normalized.match(/^(?:Side Questions?|侧边提问)\\s*[（(]\\s*(\\d+)\\s*[)）]$/i);
         if (match) return "侧边提问（" + match[1] + "）";
@@ -745,7 +797,7 @@ function generateJs() {
         for (let depth = 0; curr && depth < 4; depth++) {
             if (curr === document.body || curr === document.documentElement) break;
             const tag = curr.tagName ? curr.tagName.toUpperCase() : '';
-            if (tag === 'P' || tag === 'LI' || tag === 'BLOCKQUOTE' || tag === 'PRE' || tag === 'CODE' || tag === 'ARTICLE') return false;
+            if (tag === 'P' || tag === 'LI' || tag === 'PRE' || tag === 'CODE' || tag === 'BLOCKQUOTE' || tag === 'ARTICLE') return false;
             const cls = curr.className;
             if (typeof cls === 'string' && /(?:prose|markdown)/i.test(cls)) return false;
             if (tag === 'TIME' || curr.hasAttribute?.('datetime')) return true;
@@ -877,9 +929,58 @@ function generateJs() {
     // The product-owned attachment label is rendered inside the protected
     // user-input container. Match its exact source structure so user text,
     // comment bodies, file names, and other descendants remain untouched.
+    // The "3m ago" timestamp beside the copy / undo buttons under a sent
+    // message lives inside the protected user-input container. Only accept a
+    // text node that is exactly a relative time and whose nearby action row
+    // holds buttons but no other text, so the user's own prompt is untouched.
+    const MESSAGE_ACTION_TIMESTAMP_REGEX = /^(?:now|just\\s+now|\\d+\\s*(?:s|m|h|d|w|mo|yr|y)\\s+ago|\\d+\\s*(?:secs?|seconds?|mins?|minutes?|hrs?|hours?|days?|wks?|weeks?|mos?|months?|yrs?|years?)\\s+ago)$/i;
+    function isMessageActionTimestamp(node) {
+        if (!node) return false;
+        const text = norm(node.nodeType === Node.TEXT_NODE ? node.nodeValue : node.textContent);
+        if (!MESSAGE_ACTION_TIMESTAMP_REGEX.test(text)) return false;
+        let curr = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+        for (let depth = 0; curr && depth < 4; depth++) {
+            const tag = curr.tagName ? curr.tagName.toUpperCase() : '';
+            if (tag === 'P' || tag === 'LI' || tag === 'PRE' || tag === 'CODE' || tag === 'BLOCKQUOTE') return false;
+            const cls = typeof curr.className === 'string' ? curr.className : '';
+            if (/(?:prose|markdown)/i.test(cls)) return false;
+            if (curr.getAttribute?.('data-testid') === 'user-input-step') return false;
+            let visited = 0;
+            let rowText = '';
+            let hasButton = false;
+            let overflow = false;
+            const visit = (n) => {
+                if (overflow) return;
+                if (++visited > 60) { overflow = true; return; }
+                if (n.nodeType === Node.TEXT_NODE) {
+                    rowText += n.nodeValue || '';
+                    if (rowText.length > 80) overflow = true;
+                    return;
+                }
+                if (n.nodeType !== Node.ELEMENT_NODE) return;
+                const nTag = n.tagName ? n.tagName.toUpperCase() : '';
+                const nCls = typeof n.className === 'string' ? n.className : '';
+                if (nTag === 'BUTTON' || n.getAttribute?.('role') === 'button') { hasButton = true; return; }
+                if (nTag === 'SVG' || /(?:google-symbols|material-symbols|material-icons|codicon)/i.test(nCls)) return;
+                for (const child of n.childNodes) visit(child);
+            };
+            visit(curr);
+            if (overflow || norm(rowText) !== text) return false;
+            if (hasButton) return true;
+            curr = curr.parentElement;
+        }
+        return false;
+    }
+
     function getProtectedProductUiTranslation(node, value) {
         const normalized = norm(value);
         const lower = normalized.toLowerCase();
+
+        if (isMessageActionTimestamp(node)) {
+            const relativeTime = getRelativeTimeTranslation(normalized, node);
+            if (relativeTime) return relativeTime;
+            if (/^now$/i.test(normalized)) return "刚刚";
+        }
 
         if (lower === 'commented on:') {
             const label = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
@@ -995,8 +1096,10 @@ function generateJs() {
     }
 
     function hasRelativeTimeDescendant(element) {
-        const pending = Array.from(element?.childNodes || []);
-        while (pending.length > 0) {
+        if (!element || element.nodeType !== Node.ELEMENT_NODE) return false;
+        const pending = Array.from(element.childNodes || []);
+        let count = 0;
+        while (pending.length > 0 && ++count < 40) {
             const current = pending.pop();
             if (current.nodeType === Node.TEXT_NODE) {
                 const text = norm(current.nodeValue);
@@ -1005,15 +1108,29 @@ function generateJs() {
                 }
                 continue;
             }
-            if (current.childNodes) pending.push(...current.childNodes);
+            if (current.nodeType === Node.ELEMENT_NODE) {
+                const tag = current.tagName ? current.tagName.toUpperCase() : '';
+                if (tag === 'CODE' || tag === 'PRE' || tag === 'BLOCKQUOTE' || tag === 'P' || tag === 'LI') continue;
+                const cls = typeof current.className === 'string' ? current.className : '';
+                if (/(?:prose|markdown)/i.test(cls)) continue;
+                if (current.childNodes) pending.push(...current.childNodes);
+            }
         }
         return false;
     }
 
     function isInConversationTimestampContext(node) {
+        if (!node) return false;
         let current = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
         for (let depth = 0; current && depth < 10; depth++) {
             if (current === document.body || current === document.documentElement) break;
+
+            const testId = current.getAttribute ? current.getAttribute('data-testid') : null;
+            if (testId === 'user-input-step' || testId === 'agent-message' || testId === 'agent-response' || testId === 'agent-turn') {
+                return false;
+            }
+            const cls = typeof current.className === 'string' ? current.className : '';
+            if (/(?:prose|markdown)/i.test(cls)) return false;
 
             const metadata = [
                 current.className,
@@ -1022,7 +1139,7 @@ function generateJs() {
                 current.getAttribute?.('aria-label'),
                 current.getAttribute?.('title')
             ].filter(valuePart => typeof valuePart === 'string').join(' ');
-            if (/(?:^|[-_\\s])(?:conversation|cascade)(?:[-_\\s]|$)/i.test(metadata)) return true;
+            if (/(?:^|[-_\\s])(?:conversation-list|conversations-list|conversation-history|history-list)(?:[-_\\s]|$)/i.test(metadata)) return true;
 
             const text = norm(current.textContent);
             if (text.length <= 20000) {
@@ -1030,8 +1147,6 @@ function generateJs() {
                     /(?:Other Conversations|其他会话)/i.test(text) &&
                     /(?:Current|当前|Search all conversations|搜索所有会话)/i.test(text);
                 if (hasConversationSections) return true;
-
-                if (hasRelativeTimeDescendant(current)) return true;
             }
             current = current.parentElement || (current.getRootNode?.().host ?? null);
         }
@@ -1041,6 +1156,10 @@ function generateJs() {
     function getTimestampNowTranslation(node, value) {
         const normalized = norm(value);
         if (!/^now$/i.test(normalized)) return null;
+        if (!node) return null;
+
+        if (isContentBodyContainer(node) && !isMessageActionTimestamp(node)) return null;
+        if (isMessageActionTimestamp(node)) return "刚刚";
 
         let current = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
         let timestampLike = false;
@@ -1051,6 +1170,7 @@ function generateJs() {
             const tag = current.tagName?.toUpperCase();
             const metadata = [
                 current.className,
+                current.getAttribute?.('id'),
                 current.getAttribute?.('data-testid'),
                 current.getAttribute?.('aria-label'),
                 current.getAttribute?.('title')
@@ -1079,8 +1199,8 @@ function generateJs() {
         // siblings or nested cells. Require both that compact row and a nearby
         // conversation-list signal so ordinary standalone "now" stays intact.
         if (!compactRow || !isInConversationTimestampContext(node)) return null;
-        if (timestampLike && timestampElement?.parentElement === compactRow) return "刚刚";
-        return norm(compactRow.textContent) !== normalized ? "刚刚" : null;
+        if (timestampLike && (explicitTimestamp || timestampElement?.parentElement === compactRow)) return "刚刚";
+        return null;
     }
 
     function getRecentProjectSectionTranslation(node, value) {
@@ -2299,7 +2419,42 @@ function generateJs() {
 
 function getDynamicProductUiTranslation(value) {
         const normalized = norm(value);
-        let match = normalized.match(/^When toggled on,\\s+(.+?)\\s+collects usage data to help Google enhance performance and features\\.$/i);
+        let match = normalized.match(/^Hi\\s+(.+?),\\s+what can we get done today\\?$/i);
+        if (match) return "嗨 " + match[1] + "，今天我们可以完成些什么？";
+
+        match = normalized.match(/^(\\d+)\\s+on for this conversation$/i);
+        if (match) return match[1] + " 个已为此会话开启";
+
+        match = normalized.match(/^(\\d+)\\s+tools?$/i);
+        if (match) return match[1] + " 个工具";
+
+        match = normalized.match(/^(\\d+)\\s+Comments?$/i);
+        if (match) return match[1] + " 条评论";
+
+        if (/^No automations yet$/i.test(normalized)) return "暂无自动化任务";
+        if (/^No runs yet$/i.test(normalized)) return "暂无运行记录";
+        if (/^Runs$/i.test(normalized)) return "运行记录";
+        if (/^Next\\s+run$/i.test(normalized)) return "下次运行";
+        if (/^Last\\s+run$/i.test(normalized)) return "上次运行";
+        if (/^Stop Editing$/i.test(normalized)) return "停止编辑";
+        if (/^Reset\\s+to\\s+Defaults?$/i.test(normalized)) return "重置为默认值";
+        if (/^Reset\\s+All\\s+to\\s+Defaults?$/i.test(normalized)) return "全部重置为默认值";
+        if (/^Open\\s+In$/i.test(normalized)) return "打开方式";
+        if (/^Open\\s+in$/i.test(normalized)) return "打开方式";
+        if (/^Change(?:\.\.\.|…)$/i.test(normalized)) return "更改...";
+        if (/^Press keys(?:\.\.\.|…)$/i.test(normalized)) return "按下按键...";
+        if (/^Search Projects(?:\.\.\.|…)$/i.test(normalized)) return "搜索项目...";
+        if (/^Search or enter a URL(?:\.\.\.|…)?$/i.test(normalized)) {
+            return (normalized.includes("...") || normalized.includes("…")) ? "搜索或输入网址..." : "搜索或输入网址";
+        }
+
+        match = normalized.match(/^Manage\\s+(project|workspace)\\s+folders and settings\\.$/i);
+        if (match) {
+            const scope = match[1].toLowerCase() === "project" ? "项目" : "工作区";
+            return "管理" + scope + "文件夹和设置.";
+        }
+
+        match = normalized.match(/^When toggled on,\\s+(.+?)\\s+collects usage data to help Google enhance performance and features\\.$/i);
         if (match) return "启用后，" + match[1] + " 会收集使用数据，以帮助 Google 改进性能和功能";
 
         match = normalized.match(/^Receive product updates, tips, and promotions from Google\\s+(.+?)\\s+via email\\.$/i);
@@ -3531,6 +3686,138 @@ function getDynamicProductUiTranslation(value) {
         return false;
     }
 
+    function translateAutomationCustomScheduleUnit(node, valNorm) {
+        if (!node) return null;
+        let isOption = false;
+        let curr = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+        for (let depth = 0; curr && depth < 4; depth++) {
+            const role = curr.getAttribute ? curr.getAttribute('role') : null;
+            const tag = curr.tagName ? curr.tagName.toUpperCase() : '';
+            if (role === 'option' || role === 'combobox' || role === 'button' || tag === 'OPTION' || tag === 'BUTTON' || /(?:menuitem|dropdown|select)/i.test(curr.className || '')) {
+                isOption = true;
+                break;
+            }
+            curr = curr.parentElement;
+        }
+        if (!isOption) return null;
+
+        if (/^(?:hour|hours|day|days|week|weeks|month|months)$/i.test(valNorm)) {
+            const lower = valNorm.toLowerCase();
+            if (lower.startsWith('hour')) return '小时';
+            if (lower.startsWith('day')) return '天';
+            if (lower.startsWith('week')) return '周';
+            if (lower.startsWith('month')) return '月';
+        }
+
+        const ordinalMatch = valNorm.match(/^([1-9]|[12]\\d|3[01])(?:st|nd|rd|th)$/i);
+        if (ordinalMatch) {
+            return ordinalMatch[1] + "日";
+        }
+        if (/^last(?:\\s+day)?$/i.test(valNorm)) {
+            return "最后一天";
+        }
+        return null;
+    }
+
+    // Automation custom-schedule rows ("On [M T W T F S S] at [9:00 AM] GMT+9",
+    // "Repeat every [month] on the [1st] at [9:00 AM]"). Prepositions are only
+    // translated inside a bounded row that also contains a clock time and a
+    // timezone / repeat label, never via the global dictionary.
+    function isAutomationScheduleRow(node) {
+        if (!node || isContentBodyContainer(node)) return false;
+        let curr = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+        for (let depth = 0; curr && depth < 5; depth++) {
+            if (curr === document.body || curr === document.documentElement) break;
+            const text = getBoundedTextContent(curr, 160, 400);
+            if (text === null) break;
+            if (/\\d{1,2}:\\d{2}\\s*(?:AM|PM)/i.test(text) && /(?:GMT|UTC|Repeat every|每隔)/i.test(text)) return true;
+            curr = curr.parentElement;
+        }
+        return false;
+    }
+
+    function getAutomationScheduleRowWordTranslation(node, valNorm) {
+        if (!/^(?:On|on\\s+the|at)$/i.test(valNorm)) return null;
+        if (!isAutomationScheduleRow(node)) return null;
+        if (/^on\\s+the$/i.test(valNorm)) return "在";
+        if (/^at$/i.test(valNorm)) return "的";
+        return "星期";
+    }
+
+    function getWeekdayLetterTranslation(node, valNorm) {
+        if (!node || !/^[MTWFS]$/.test(valNorm)) return null;
+        let child = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+        for (let depth = 0; child && depth < 3; depth++) {
+            const group = child.parentElement;
+            if (!group) break;
+            const kids = group.children ? Array.from(group.children) : [];
+            if (kids.length === 7) {
+                const letters = kids.map(k => norm(getBoundedTextContent(k, 6, 4) || ''));
+                const index = kids.indexOf(child);
+                // Sibling buttons may already be translated, so accept either
+                // the English initial or its Chinese weekday at each position.
+                const matchesLayout = (en, zh) => letters.every((t, i) => t === en[i] || t === zh[i]);
+                const mondayFirst = ["一", "二", "三", "四", "五", "六", "日"];
+                const sundayFirst = ["日", "一", "二", "三", "四", "五", "六"];
+                if (matchesLayout("MTWTFSS", mondayFirst)) return mondayFirst[index] || null;
+                if (matchesLayout("SMTWTFS", sundayFirst)) return sundayFirst[index] || null;
+            }
+            child = group;
+        }
+        return null;
+    }
+
+    function translateAutomationScheduleBuilderContainer(element) {
+        if (!element || element.nodeType !== Node.ELEMENT_NODE || isInBlockedZone(element)) return false;
+        const rawText = getBoundedTextContent(element, 16, 200);
+        if (!rawText || !/(?:Repeat every|每隔)/i.test(rawText)) return false;
+        if (!/(?:hour|day|week|month|小时|天|周|月)/i.test(rawText)) return false;
+
+        const textNodes = collectTextNodes(element);
+        if (textNodes.length === 0) return false;
+        let changed = false;
+        for (const tn of textNodes) {
+            const val = norm(tn.nodeValue);
+            if (!val) continue;
+            if (/^on\\s+the$/i.test(val)) {
+                changed = replaceTextNode(tn, "在") || changed;
+            } else if (/^at$/i.test(val)) {
+                changed = replaceTextNode(tn, "的") || changed;
+            } else if (/^on$/i.test(val)) {
+                changed = replaceTextNode(tn, "星期") || changed;
+            } else if (/^([1-9]|[12]\\d|3[01])(?:st|nd|rd|th)$/i.test(val)) {
+                changed = replaceTextNode(tn, RegExp.$1 + "日") || changed;
+            }
+        }
+        return changed;
+    }
+
+    function translateEmptyStateStatus(element) {
+        if (!element || element.nodeType !== Node.ELEMENT_NODE || isInBlockedZone(element)) return false;
+        const text = norm(element.textContent);
+        if (/^No\\s+automations\\s+yet$/i.test(text)) {
+            const textNodes = collectTextNodes(element);
+            if (textNodes.length > 0) {
+                replaceTextNode(textNodes[0], "暂无自动化任务");
+                for (let i = 1; i < textNodes.length; i++) {
+                    replaceTextNode(textNodes[i], '');
+                }
+                return true;
+            }
+        }
+        if (/^No\\s+runs\\s+yet$/i.test(text)) {
+            const textNodes = collectTextNodes(element);
+            if (textNodes.length > 0) {
+                replaceTextNode(textNodes[0], "暂无运行记录");
+                for (let i = 1; i < textNodes.length; i++) {
+                    replaceTextNode(textNodes[i], '');
+                }
+                return true;
+            }
+        }
+        return false;
+    }
+
     function translateSearchAndArchivedGuideNotice(element) {
         if (!element || element.nodeType !== Node.ELEMENT_NODE || isInBlockedZone(element)) return false;
         const rawText = element.textContent || '';
@@ -3720,7 +4007,13 @@ function getDynamicProductUiTranslation(value) {
             translated = translateAgentLoadingStatus(element) || translated;
             translated = translateWorkingStatusContainer(element) || translated;
         }
-        if (textLength <= 120 && (/\\d/.test(rawText) || /(?:See all|显示全部|Show\\s+(?:submitted|more)|显示(?:已提交|更多))/i.test(rawText)) && /(?:\\bresults?\\b|个结果|(?:Comments?|评论)\\s*[（(]\\s*\\d+|(?:\\d+\\s+)?(?:Side Questions?|侧边提问)(?:\\s*[（(]\\s*\\d+|\\b)|Listed|列出了|[（(]\\s*\\d+\\s*(?:subagents?|个?\\s*子智能体)|\\baccounts\\b|个账号|See all|显示全部|See\\s+\\d+\\s+more|查看另外|Show\\s+(?:submitted|more)|显示(?:已提交|更多)|\\bmore\\s+lines?\\b|行代码)/i.test(rawText)) {
+        if (textLength <= 60 && /^(?:No\\s+automations\\s+yet|No\\s+runs\\s+yet)$/i.test(rawText.trim())) {
+            translated = translateEmptyStateStatus(element) || translated;
+        }
+        if (textLength <= 140 && /(?:Repeat every|每隔)/i.test(rawText) && /(?:hour|day|week|month|小时|天|周|月)/i.test(rawText) && /(?:on the|at|\\b(?:1st|2nd|3rd|[4-9]th|[12]\\dth|3[01]st)\\b)/i.test(rawText)) {
+            translated = translateAutomationScheduleBuilderContainer(element) || translated;
+        }
+        if (textLength <= 120 && (/\\d/.test(rawText) || /(?:See all|显示全部|Show\\s+(?:submitted|more)|显示(?:已提交|更多))/i.test(rawText)) && /(?:\\bresults?\\b|个结果|(?:Comments?|评论)\\s*[（(]\\s*\\d+|\\btools?\\b|\\bComments?\\b|on for this conversation|(?:\\d+\\s+)?(?:Side Questions?|侧边提问)(?:\\s*[（(]\\s*\\d+|\\b)|Listed|列出了|[（(]\\s*\\d+\\s*(?:subagents?|个?\\s*子智能体)|\\baccounts\\b|个账号|See all|显示全部|See\\s+\\d+\\s+more|查看另外|Show\\s+(?:submitted|more)|显示(?:已提交|更多)|\\bmore\\s+lines?\\b|行代码)/i.test(rawText)) {
             translated = translateCompactCountLabelContainer(element) || translated;
         }
         if (textLength <= 240 &&
@@ -4014,6 +4307,38 @@ function getDynamicProductUiTranslation(value) {
         if (commentCountMatch && /^(?:Comments?|评论)$/i.test(getPrevText())) {
             replaceTextNode(getPrev(), "评论");
             return "(" + commentCountMatch[1] + ")";
+        }
+
+        if (/^yet$/i.test(currentText)) {
+            const prevText = getPrevText();
+            const prevNode = getPrev();
+            if (/^No\\s+automations?$/i.test(prevText) && prevNode) {
+                replaceTextNode(prevNode, "暂无自动化任务");
+                return '';
+            }
+            if (/^No\\s+runs?$/i.test(prevText) && prevNode) {
+                replaceTextNode(prevNode, "暂无运行记录");
+                return '';
+            }
+            if (/^(?:automations?|runs?)$/i.test(prevText) && prevNode) {
+                const noNode = findPreviousTextNode(prevNode);
+                if (noNode && /^No$/i.test(norm(noNode.nodeValue))) {
+                    replaceTextNode(noNode, '');
+                    if (/^automations?$/i.test(prevText)) {
+                        replaceTextNode(prevNode, "暂无自动化任务");
+                    } else if (/^runs?$/i.test(prevText)) {
+                        replaceTextNode(prevNode, "暂无运行记录");
+                    }
+                    return '';
+                }
+            }
+        }
+
+        if (/^Comments?$/i.test(currentText)) {
+            const prevText = getPrevText();
+            if (/^\\d+$/.test(prevText)) {
+                return "条评论";
+            }
         }
 
         const statusItemMatch = currentText.match(STATUS_ITEM_REGEX);
@@ -4327,7 +4652,7 @@ function getDynamicProductUiTranslation(value) {
                         const searchingTrans = getSearchingStatusTranslation(v);
                         if (searchingTrans && searchingTrans !== v) {
                             node.setAttribute(attr, searchingTrans);
-                        } else if (parentState === 0) {
+                        } else if (tag === 'INPUT' || tag === 'TEXTAREA' || parentState === 0) {
                             const t = norm(v);
                             const target = getVersionControlUiTranslation(t)
                                 || getDynamicSubagentStatusTranslation(t)
@@ -4356,7 +4681,7 @@ function getDynamicProductUiTranslation(value) {
             }
             return;
         }
-        if (blockedState === 0 || node.tagName === 'BUTTON' || node.getAttribute?.('role') === 'button') {
+        if (blockedState === 0 || node.tagName === 'BUTTON' || node.getAttribute?.('role') === 'button' || node.tagName === 'INPUT' || node.tagName === 'TEXTAREA') {
             for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label']) {
                 const v = node.getAttribute(attr);
                 if (v) {
@@ -4383,6 +4708,12 @@ function getDynamicProductUiTranslation(value) {
                     const searchingTrans = getSearchingStatusTranslation(v);
                     if (searchingTrans && searchingTrans !== v) {
                         node.setAttribute(attr, searchingTrans);
+                    } else if (attr === 'placeholder' || attr === 'aria-placeholder') {
+                        const t = norm(v);
+                        const target = getDynamicProductUiTranslation(t)
+                            || map.get(t)
+                            || lowerMap.get(t.toLowerCase());
+                        if (target && target !== v) node.setAttribute(attr, target);
                     }
                 }
             }
@@ -4616,7 +4947,9 @@ function getDynamicProductUiTranslation(value) {
                 const valLower = valNorm.toLowerCase();
 
                 let dynRes;
-                if (map.has(valNorm) && !/^(?:Build With\\b|All (?:automations|scheduled tasks)\\b|Allow reading\\b|No suggestions|Previous match|0 results|Visit$|Browsers?$|enabled$)/i.test(valNorm) && isIsolatedUiControlLabel(node, valNorm, originalVal)) {
+                if ((dynRes = getAutomationScheduleRowWordTranslation(node, valNorm)) || (dynRes = getWeekdayLetterTranslation(node, valNorm))) {
+                    newVal = dynRes;
+                } else if (map.has(valNorm) && !/^(?:Build With\\b|All (?:automations|scheduled tasks)\\b|Allow reading\\b|No suggestions|Previous match|0 results|Visit$|Browsers?$|enabled$)/i.test(valNorm) && isIsolatedUiControlLabel(node, valNorm, originalVal)) {
                     newVal = map.get(valNorm);
                     if ((valNorm === 'Modified in' || valNorm === 'Also modified in') && /\\s$/.test(originalVal)) {
                         newVal += ' ';
@@ -4672,6 +5005,8 @@ function getDynamicProductUiTranslation(value) {
                 } else if ((dynRes = getArchivedConversationNoticeTranslation(valNorm))) {
                     newVal = dynRes;
                 } else if ((dynRes = getAutomationScheduleTranslation(valNorm))) {
+                    newVal = dynRes;
+                } else if ((dynRes = translateAutomationCustomScheduleUnit(node, valNorm))) {
                     newVal = dynRes;
                 } else if (map.has(valNorm) && isIsolatedUiControlLabel(node, valNorm, originalVal)) {
                     newVal = map.get(valNorm);
@@ -5129,11 +5464,19 @@ function getDynamicProductUiTranslation(value) {
         "Open in External Browser": "在外部浏览器中打开",
         "Open in Built-in Browser": "在内置浏览器中打开",
         "Open in Browser": "在浏览器中打开",
+        "Open in": "打开方式",
+        "Open In": "打开方式",
+        "Built-in Browser (Default)": "内置浏览器 (默认)",
+        "External Browser": "外部浏览器",
+        "Settings": "设置",
+        "Copy Message": "复制消息",
+        "Undo to Here": "撤销至此处",
         "Copy Link": "复制链接",
         "Reopen Closed Tab": "重新打开关闭的标签页",
         "Move Conversation Up": "向上移动会话",
         "Move Conversation Down": "向下移动会话",
-        "Background Commands": "后台命令"
+        "Background Commands": "后台命令",
+        "Background Tasks": "后台任务"
     };
 
     function translateContextMenuLabel(label, id) {
@@ -6227,21 +6570,40 @@ function installLocalization(resourcesDir) {
         "Open in External Browser": "在外部浏览器中打开",
         "Open in Built-in Browser": "在内置浏览器中打开",
         "Open in Browser": "在浏览器中打开",
+        "Open in": "打开方式",
+        "Open In": "打开方式",
+        "Built-in Browser (Default)": "内置浏览器 (默认)",
+        "External Browser": "外部浏览器",
+        "Settings": "设置",
+        "Copy Message": "复制消息",
+        "Undo to Here": "撤销至此处",
         "Copy Link": "复制链接",
         "Reopen Closed Tab": "重新打开关闭的标签页",
         "Move Conversation Up": "向上移动会话",
         "Move Conversation Down": "向下移动会话",
-        "Background Commands": "后台命令"
+        "Background Commands": "后台命令",
+        "Background Tasks": "后台任务"
     };
-    if (Array.isArray(items)) {
-        items = items.map((item) => {
+    function translateIpcContextMenuItems(menuItems) {
+        if (!Array.isArray(menuItems)) return menuItems;
+        return menuItems.map((item) => {
             if (!item || typeof item !== 'object') return item;
             const itemId = String(item.id || '');
             if (/^group-(?!new$|remove$)/i.test(itemId)) return item;
             const rawLabel = typeof item.label === 'string' ? item.label.trim() : '';
             const translatedLabel = rawLabel && contextMenuTranslations[rawLabel] ? contextMenuTranslations[rawLabel] : item.label;
-            return translatedLabel !== item.label ? Object.assign({}, item, { label: translatedLabel }) : item;
+            let next = translatedLabel !== item.label ? Object.assign({}, item, { label: translatedLabel }) : item;
+            if (Array.isArray(next.submenu)) {
+                next = Object.assign({}, next, { submenu: translateIpcContextMenuItems(next.submenu) });
+            }
+            if (Array.isArray(next.items)) {
+                next = Object.assign({}, next, { items: translateIpcContextMenuItems(next.items) });
+            }
+            return next;
         });
+    }
+    if (Array.isArray(items)) {
+        items = translateIpcContextMenuItems(items);
     }
     ${IPC_CONTEXT_MENU_SIGNATURE_END}`;
             filePatches["dist/ipcHandlers.js"] = ipcCleaned.replace(matchedHeader, replacementHeader);

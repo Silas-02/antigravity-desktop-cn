@@ -41,6 +41,8 @@
   "Open Launchpad": "打开启动台",
   "Open Keyboard Shortcuts": "打开键盘快捷键",
   "Copy Conversation Markdown": "复制会话 Markdown",
+  "Copy Message": "复制消息",
+  "Undo to Here": "撤销至此处",
   "Move Conversation Up": "向上移动会话",
   "Move Conversation Down": "向下移动会话",
   "Open Command Palette": "打开命令面板",
@@ -59,6 +61,8 @@
   "Open Diff": "打开差异",
   "Open Conversation": "打开会话",
   "Open allowlist": "打开允许列表",
+  "Open in": "打开方式",
+  "Built-in Browser (Default)": "内置浏览器 (默认)",
   "Open in Browser": "在浏览器中打开",
   "Open in Built-in Browser": "在内置浏览器中打开",
   "Open in External Browser": "在外部浏览器中打开",
@@ -68,5 +72,12 @@
   "Auto Pin": "自动置顶",
   "Customize Sections": "自定义分区",
   "Links": "相关链接",
-  "New Tab": "新建标签页"
+  "New Tab": "新建标签页",
+  "Background Tasks": "后台任务",
+  "Toggle Side Panel": "切换侧边面板",
+  "Next Side Panel Tab": "下一个侧边栏标签页",
+  "Previous Side Panel Tab": "上一个侧边栏标签页",
+  "Toggle Maximize Side Panel": "切换最大化侧边栏",
+  "Open In": "打开方式",
+  "Search Projects…": "搜索项目..."
 }
