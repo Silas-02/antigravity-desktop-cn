@@ -11,6 +11,7 @@
   "Local Checkout": "本地",
   "Work in a New Worktree": "在新的工作树中工作",
   "Keeps your checkout untouched": "保持本地内容不受影响",
-  "Search Projects...": "搜索项目...",
-  "Search Projects…": "搜索项目..."
+  "Search Projects": "搜索项目",
+  "Search Projects…": "搜索项目...",
+  "A project with this name already exists.": "已存在同名项目."
 }

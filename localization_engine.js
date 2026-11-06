@@ -113,7 +113,7 @@ function generateJs() {
     const translatedValues = new WeakMap();
     const longScannedValues = new WeakMap();
     const unmatchedLongStrings = new Set();
-    let blockedCacheVersion = 1;
+    let blockedCacheVersion = 2;
     const blockedZoneCache = new WeakMap();
     const skillContextCache = new WeakMap();
 
@@ -716,6 +716,19 @@ function generateJs() {
         if (typeof originalVal === 'string' && originalVal.trim() !== word) return false;
 
         let curr = node.parentElement;
+        if (word === 'Previous' || word === 'Next') {
+            for (let depth = 0; curr && depth < 4; depth++) {
+                const testId = curr.getAttribute ? curr.getAttribute('data-testid') : null;
+                if (testId === 'user-input-step' || testId === 'agent-message' || testId === 'agent-response') return false;
+                const cls = curr.className;
+                if (typeof cls === 'string' && /(?:prose|markdown)/i.test(cls)) return false;
+                const tag = curr.tagName ? curr.tagName.toUpperCase() : '';
+                if (tag === 'P' || tag === 'LI' || tag === 'BLOCKQUOTE' || tag === 'PRE' || tag === 'CODE' || tag === 'ARTICLE') return false;
+                curr = curr.parentElement;
+            }
+            return true;
+        }
+
         for (let depth = 0; curr && depth < 4; depth++) {
             const testId = curr.getAttribute ? curr.getAttribute('data-testid') : null;
             if (testId === 'user-input-step' || testId === 'agent-message' || testId === 'agent-response') {
@@ -726,7 +739,7 @@ function generateJs() {
                 if (/(?:prose|markdown)/i.test(cls)) {
                     return false;
                 }
-                if (/(?:badge|pill|tag|chip|status|rounded|border)/i.test(cls)) {
+                if (/(?:badge|pill|tag|chip|status|rounded|border|cursor-pointer)/i.test(cls)) {
                     return true;
                 }
             }
@@ -1026,6 +1039,84 @@ function generateJs() {
             }
         }
 
+        if (/^Ask\\s+anything(?:,\\s*|\\s+)@\\s*to\\s+mention(?:,\\s*|\\s+)[\\\\/]\\s*for\\s+actions$/i.test(normalized)) {
+            return "提问任何问题，使用 @ 提及，/ 执行操作";
+        }
+        if (/^Ask\\s+anything$/i.test(normalized)) {
+            return "提问任何问题";
+        }
+
+        match = normalized.match(/^Voice\\s+speed,\\s*([0-9.]+x)$/i);
+        if (match) return "语速，" + match[1];
+
+        match = normalized.match(/^Started\\s+voice\\s+chat\\s*[·•]\\s*(.+)$/i);
+        if (match) return "已开始语音会话 · " + match[1];
+
+        match = normalized.match(/^Stopped\\s+voice\\s+chat\\s*[·•]\\s*(.+)$/i);
+        if (match) {
+            let dur = match[1]
+                .replace(/(\\d+)\\s*h(?:ours?)?/gi, (m, n) => n + " 小时 ")
+                .replace(/(\\d+)\\s*m(?:in(?:ute)?s?)?(?![a-z])/gi, (m, n) => n + " 分钟 ")
+                .replace(/([\\d\\.]+)\\s*s(?:ec(?:ond)?s?)?/gi, (m, n) => n + " 秒")
+                .replace(/\\s+/g, " ")
+                .trim();
+            return "已结束语音会话 · " + dur;
+        }
+
+        match = normalized.match(/^Voice\\s+chat\\s*[·•]\\s*(.+?)(?:\\s*[·•]\\s*(.+))?$/i);
+        if (match) {
+            const formatDur = (s) => s
+                .replace(/(\\d+)\\s*h(?:ours?)?/gi, (m, n) => n + " 小时 ")
+                .replace(/(\\d+)\\s*m(?:in(?:ute)?s?)?(?![a-z])/gi, (m, n) => n + " 分钟 ")
+                .replace(/([\\d\\.]+)\\s*s(?:ec(?:ond)?s?)?/gi, (m, n) => n + " 秒")
+                .replace(/\\s+/g, " ")
+                .trim();
+            if (match[2]) {
+                return "语音会话 · " + match[1] + " · " + formatDur(match[2]);
+            }
+            if (/\\d+\\s*[hms]/i.test(match[1])) {
+                return "语音会话 · " + formatDur(match[1]);
+            }
+            return "语音会话 · " + match[1];
+        }
+
+        match = normalized.match(/^[·•]\\s*(\\d{1,2}:\\d{2})\\s*[·•]\\s*(.+)$/);
+        if (match) {
+            const dur = match[2]
+                .replace(/(\\d+)\\s*h(?:ours?)?/gi, (m, n) => n + " 小时 ")
+                .replace(/(\\d+)\\s*m(?:in(?:ute)?s?)?(?![a-z])/gi, (m, n) => n + " 分钟 ")
+                .replace(/([\\d\\.]+)\\s*s(?:ec(?:ond)?s?)?/gi, (m, n) => n + " 秒")
+                .replace(/\\s+/g, " ")
+                .trim();
+            return " · " + match[1] + " · " + dur;
+        }
+
+        match = normalized.match(/^[·•]\\s*(.+)$/);
+        if (match && /\\d+\\s*[hms]/i.test(match[1])) {
+            const dur = match[1]
+                .replace(/(\\d+)\\s*h(?:ours?)?/gi, (m, n) => n + " 小时 ")
+                .replace(/(\\d+)\\s*m(?:in(?:ute)?s?)?(?![a-z])/gi, (m, n) => n + " 分钟 ")
+                .replace(/([\\d\\.]+)\\s*s(?:ec(?:ond)?s?)?/gi, (m, n) => n + " 秒")
+                .replace(/\\s+/g, " ")
+                .trim();
+            return " · " + dur;
+        }
+
+        if (/^Voice\\s+chat$/i.test(normalized)) return "语音会话";
+        if (/^Voice\\s+transcript$/i.test(normalized)) return "语音逐字稿";
+        if (/^Voice\\s+speed$/i.test(normalized)) return "语速";
+        if (/^Listening\\.\\s*Ask\\s+anything\\.$/i.test(normalized)) return "正在聆听. 请随时提问.";
+
+        if (/^Ask\\s+anything(?:,\\s*|\\s+)@\\s*to\\s+mention(?:,\\s*|\\s+)[\\\\/]\\s*for\\s+actions$/i.test(normalized)) {
+            return "提问任何问题，使用 @ 提及，/ 执行操作";
+        }
+        if (/^Ask\\s+anything$/i.test(normalized)) {
+            return "提问任何问题";
+        }
+
+        match = normalized.match(/^E\\.g\\.\\s*(locations[\\\\/]global[\\\\/]workforcePools(?:\\.\\.\\.|…)?)$/i);
+        if (match) return "例如 " + match[1];
+
         if (!/^(?:Searching|No\\b|\\.|…|正在搜索)/i.test(normalized)) return null;
 
         let searchingContainer = null;
@@ -1267,6 +1358,39 @@ function generateJs() {
                     if (found) return found;
                 }
                 sibling = sibling.previousSibling;
+            }
+            const parent = current.parentNode || current.host || null;
+            if (parent && parent.children && parent.children.length > 10) break;
+            current = parent;
+        }
+        return null;
+    }
+
+    function findFirstTextNode(node) {
+        if (!node) return null;
+        if (node.nodeType === Node.TEXT_NODE) {
+            return node.nodeValue && node.nodeValue.trim() ? node : null;
+        }
+        if (!node.childNodes) return null;
+        for (let i = 0; i < node.childNodes.length; i++) {
+            const found = findFirstTextNode(node.childNodes[i]);
+            if (found) return found;
+        }
+        return null;
+    }
+
+    function findNextTextNode(node) {
+        let current = node;
+        for (let depth = 0; current && depth < 4; depth++) {
+            if (current === document.body || current === document.documentElement) break;
+            let sibling = current.nextSibling;
+            let steps = 0;
+            while (sibling && ++steps <= 8) {
+                if (sibling.nodeType !== Node.ELEMENT_NODE || !sibling.children || sibling.children.length <= 6) {
+                    const found = findFirstTextNode(sibling);
+                    if (found) return found;
+                }
+                sibling = sibling.nextSibling;
             }
             const parent = current.parentNode || current.host || null;
             if (parent && parent.children && parent.children.length > 10) break;
@@ -2446,6 +2570,112 @@ function getDynamicProductUiTranslation(value) {
         if (/^Search Projects(?:\.\.\.|…)$/i.test(normalized)) return "搜索项目...";
         if (/^Search or enter a URL(?:\.\.\.|…)?$/i.test(normalized)) {
             return (normalized.includes("...") || normalized.includes("…")) ? "搜索或输入网址..." : "搜索或输入网址";
+        }
+
+        match = normalized.match(/^Use\\s+([A-Z][a-z]+)$/i);
+        if (match) return "使用 " + match[1];
+
+        match = normalized.match(/^Voice\\s+speed,\\s*([0-9.]+x)$/i);
+        if (match) return "语速，" + match[1];
+
+        match = normalized.match(/^Started\\s+voice\\s+chat\\s*[·•]\\s*(.+)$/i);
+        if (match) return "已开始语音会话 · " + match[1];
+
+        match = normalized.match(/^Stopped\\s+voice\\s+chat\\s*[·•]\\s*(.+)$/i);
+        if (match) {
+            let dur = match[1]
+                .replace(/(\\d+)\\s*h(?:ours?)?/gi, (m, n) => n + " 小时 ")
+                .replace(/(\\d+)\\s*m(?:in(?:ute)?s?)?(?![a-z])/gi, (m, n) => n + " 分钟 ")
+                .replace(/([\\d\\.]+)\\s*s(?:ec(?:ond)?s?)?/gi, (m, n) => n + " 秒")
+                .replace(/\\s+/g, " ")
+                .trim();
+            return "已结束语音会话 · " + dur;
+        }
+
+        match = normalized.match(/^Voice\\s+chat\\s*[·•]\\s*(.+?)(?:\\s*[·•]\\s*(.+))?$/i);
+        if (match) {
+            const formatDur = (s) => s
+                .replace(/(\\d+)\\s*h(?:ours?)?/gi, (m, n) => n + " 小时 ")
+                .replace(/(\\d+)\\s*m(?:in(?:ute)?s?)?(?![a-z])/gi, (m, n) => n + " 分钟 ")
+                .replace(/([\\d\\.]+)\\s*s(?:ec(?:ond)?s?)?/gi, (m, n) => n + " 秒")
+                .replace(/\\s+/g, " ")
+                .trim();
+            if (match[2]) {
+                return "语音会话 · " + match[1] + " · " + formatDur(match[2]);
+            }
+            if (/\\d+\\s*[hms]/i.test(match[1])) {
+                return "语音会话 · " + formatDur(match[1]);
+            }
+            return "语音会话 · " + match[1];
+        }
+
+        match = normalized.match(/^[·•]\\s*(\\d{1,2}:\\d{2})\\s*[·•]\\s*(.+)$/);
+        if (match) {
+            const dur = match[2]
+                .replace(/(\\d+)\\s*h(?:ours?)?/gi, (m, n) => n + " 小时 ")
+                .replace(/(\\d+)\\s*m(?:in(?:ute)?s?)?(?![a-z])/gi, (m, n) => n + " 分钟 ")
+                .replace(/([\\d\\.]+)\\s*s(?:ec(?:ond)?s?)?/gi, (m, n) => n + " 秒")
+                .replace(/\\s+/g, " ")
+                .trim();
+            return " · " + match[1] + " · " + dur;
+        }
+
+        match = normalized.match(/^[·•]\\s*(.+)$/);
+        if (match && /\\d+\\s*[hms]/i.test(match[1])) {
+            const dur = match[1]
+                .replace(/(\\d+)\\s*h(?:ours?)?/gi, (m, n) => n + " 小时 ")
+                .replace(/(\\d+)\\s*m(?:in(?:ute)?s?)?(?![a-z])/gi, (m, n) => n + " 分钟 ")
+                .replace(/([\\d\\.]+)\\s*s(?:ec(?:ond)?s?)?/gi, (m, n) => n + " 秒")
+                .replace(/\\s+/g, " ")
+                .trim();
+            return " · " + dur;
+        }
+
+        if (/^Voice\\s+chat$/i.test(normalized)) return "语音会话";
+        if (/^Voice\\s+transcript$/i.test(normalized)) return "语音逐字稿";
+        if (/^Voice\\s+speed$/i.test(normalized)) return "语速";
+        if (/^Listening\\.\\s*Ask\\s+anything\\.$/i.test(normalized)) return "正在聆听. 请随时提问.";
+
+        if (/^Ask\\s+anything(?:,\\s*|\\s+)@\\s*to\\s+mention(?:,\\s*|\\s+)[\\\\/]\\s*for\\s+actions$/i.test(normalized)) {
+            return "提问任何问题，使用 @ 提及，/ 执行操作";
+        }
+        if (/^Ask\\s+anything$/i.test(normalized)) {
+            return "提问任何问题";
+        }
+
+        match = normalized.match(/^E\\.g\\.\\s*(locations[\\\\/]global[\\\\/]workforcePools(?:\\.\\.\\.|…)?)$/i);
+        if (match) return "例如 " + match[1];
+
+        match = normalized.match(/^Uses\\s+your\\s+local\\s+clone,\\s*(.+)$/i);
+        if (match) return "使用您的本地克隆，" + match[1];
+        if (/^Uses\\s+your\\s+local\\s+clone,?$/i.test(normalized)) return "使用您的本地克隆，";
+
+        if (/^Your\\s+Antigravity\\s+use\\s+will\\s+be\\s+associated\\s+with\\s+provided\\s+project\\.?\\s*Make\\s+sure\\s+you\\s+trust\\s+the\\s+project\\s+ID\\s+before\\s+proceeding\\.?\\s*Account\\s+activity\\s+and\\s+data\\s+may\\s+be\\s+logged\\s+by\\s+your\\s+organization\\.?$/i.test(normalized)) {
+            return "您对 Antigravity 的使用将与所提供的项目相关联. 在继续之前，请确保您信任该项目 ID. 您的组织可能会记录账号活动和数据.";
+        }
+        if (/^Make\\s+sure\\s+you\\s+trust\\s+the\\s+project\\s+ID\\s+before\\s+proceeding\\.?\\s*Account\\s+activity\\s+and\\s+data\\s+may\\s+be\\s+logged\\s+by\\s+your\\s+organization\\.?$/i.test(normalized)) {
+            return "在继续之前，请确保您信任该项目 ID. 您的组织可能会记录账号活动和数据.";
+        }
+
+        if (/^Clones\\s+this\\s+repo\\s+in\\s+a\\s+cloud\\s+environment\\.?$/i.test(normalized)) {
+            return "在云环境中克隆此仓库";
+        }
+        if (/^Loading\\s+branches(?:\\.\\.\\.|…)?$/i.test(normalized)) {
+            return "正在加载分支...";
+        }
+        match = normalized.match(/^Repo\\s+default(?:\\s*[（(](.+?)[)）])?$/i);
+        if (match) {
+            return match[1] ? "仓库默认 (" + match[1] + ")" : "仓库默认";
+        }
+
+        if (/^Avoid\\s+uploading\\s+highly\\s+sensitive\\s+data/i.test(normalized)) {
+            return "请避免上传高度敏感的数据，并核实智能体采取的操作. 请确保您拥有上传的任何内容或文件（包括未成年人内容）的";
+        }
+        if (/^to\\s+any\\s+content\\s+or\\s+files\\s+that\\s+you\\s+upload/i.test(normalized)) {
+            return ". 请勿生成侵犯他人权利的内容，包括具有欺骗性、骚扰性或有害的内容. 使用 Antigravity 时，您必须遵守 Google 的 ";
+        }
+        if (/^[.。]?\\s*Your\\s+use\\s+is\\s+subject\\s+to\\s+the$/i.test(normalized)) {
+            return ". 您对本服务的使用受 ";
         }
 
         match = normalized.match(/^Manage\\s+(project|workspace)\\s+folders and settings\\.$/i);
@@ -4636,6 +4866,41 @@ function getDynamicProductUiTranslation(value) {
             }
         }
 
+        if (/^Powered by Gemini Live\\s*[·•]\\s*You can change this in$/i.test(currentText)) {
+            return "由 Gemini Live 提供支持 · 稍后可在 ";
+        }
+
+        if (/^later\\.$/i.test(currentText) && getPrev()) {
+            const prevText = getPrevText();
+            if (/^(?:设置|Settings)$/i.test(prevText)) {
+                return " 中进行更改.";
+            }
+        }
+
+        const termsSubjectMatch = currentText.match(/^([.。]?)\s*Your\s+use\s+is\s+subject\s+to\s+the$/i);
+        if (termsSubjectMatch) {
+            return (termsSubjectMatch[1] ? ". " : "") + "您对本服务的使用受 ";
+        }
+
+        if (/^and$/i.test(currentText)) {
+            let prevNode = findPreviousTextNode(node);
+            let prevText = prevNode ? norm(prevNode.nodeValue) : '';
+            if (!prevText && node && node.previousSibling) {
+                prevText = norm(node.previousSibling.textContent || '');
+            }
+            let nextNode = findNextTextNode(node);
+            let nextText = nextNode ? norm(nextNode.nodeValue) : '';
+            if (!nextText && node && node.nextSibling) {
+                nextText = norm(node.nextSibling.textContent || '');
+            }
+            const parentEl = node && node.parentElement;
+            const parentText = parentEl ? (getBoundedTextContent(parentEl, 64, 2000) || norm(parentEl.textContent || '')) : '';
+            if ((/(?:Terms of Service|服务条款)/i.test(prevText) || /(?:Terms of Service|服务条款)/i.test(parentText)) &&
+                (/(?:Privacy Policy|隐私政策)/i.test(nextText) || /(?:Privacy Policy|隐私政策)/i.test(parentText))) {
+                return "及";
+            }
+        }
+
         return null;
     }
 
@@ -4674,6 +4939,7 @@ function getDynamicProductUiTranslation(value) {
                 if (!value) continue;
                 const normalizedValue = norm(value);
                 const target = getVersionControlUiTranslation(normalizedValue)
+                    || getDynamicProductUiTranslation(normalizedValue)
                     || translateWithShortcut(normalizedValue)
                     || map.get(normalizedValue)
                     || lowerMap.get(normalizedValue.toLowerCase());
@@ -4702,13 +4968,13 @@ function getDynamicProductUiTranslation(value) {
                 }
             }
         } else {
-            for (const attr of ['aria-label', 'title', 'placeholder']) {
+            for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label']) {
                 const v = node.getAttribute(attr);
                 if (v) {
                     const searchingTrans = getSearchingStatusTranslation(v);
                     if (searchingTrans && searchingTrans !== v) {
                         node.setAttribute(attr, searchingTrans);
-                    } else if (attr === 'placeholder' || attr === 'aria-placeholder') {
+                    } else if (attr === 'placeholder' || attr === 'aria-placeholder' || attr === 'data-placeholder') {
                         const t = norm(v);
                         const target = getDynamicProductUiTranslation(t)
                             || map.get(t)
@@ -4771,6 +5037,7 @@ function getDynamicProductUiTranslation(value) {
                         if (!value) continue;
                         const normalizedValue = norm(value);
                         const target = getVersionControlUiTranslation(normalizedValue)
+                            || getDynamicProductUiTranslation(normalizedValue)
                             || translateWithShortcut(normalizedValue)
                             || map.get(normalizedValue)
                             || lowerMap.get(normalizedValue.toLowerCase());
@@ -4801,7 +5068,7 @@ function getDynamicProductUiTranslation(value) {
                                 const searchingTrans = getSearchingStatusTranslation(v);
                                 if (searchingTrans && searchingTrans !== v) {
                                     node.setAttribute(attr, searchingTrans);
-                                } else if (!parentBlocked) {
+                                } else if (!parentBlocked || tag === 'INPUT' || tag === 'TEXTAREA' || attr === 'placeholder' || attr === 'data-placeholder' || attr === 'aria-placeholder') {
                                     const t = norm(v);
                                     const target = getVersionControlUiTranslation(t)
                                         || getDynamicSubagentStatusTranslation(t)
@@ -4845,12 +5112,18 @@ function getDynamicProductUiTranslation(value) {
                         }
                     }
                 } else {
-                    for (const attr of ['aria-label', 'title', 'placeholder']) {
+                    for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label']) {
                         const v = node.getAttribute(attr);
                         if (v) {
                             const searchingTrans = getSearchingStatusTranslation(v);
                             if (searchingTrans && searchingTrans !== v) {
                                 node.setAttribute(attr, searchingTrans);
+                            } else if (attr === 'placeholder' || attr === 'aria-placeholder' || attr === 'data-placeholder') {
+                                const t = norm(v);
+                                const target = getDynamicProductUiTranslation(t)
+                                    || map.get(t)
+                                    || lowerMap.get(t.toLowerCase());
+                                if (target && target !== v) node.setAttribute(attr, target);
                             }
                         }
                     }

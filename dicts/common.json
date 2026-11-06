@@ -10,6 +10,7 @@
   "Cancel Sending Message": "取消发送消息",
   "Confirm": "确认",
   "Edit": "编辑",
+  "Change": "更改",
   "Close": "关闭",
   "Back": "返回",
   "Delete": "删除",
@@ -219,6 +220,7 @@
   "Goal": "目标",
   "Select Environment": "选择环境",
   "Local": "本地",
+  "Remote": "远程",
   "Download": "下载",
   "Downloading": "正在下载",
   "Downloading...": "正在下载...",
@@ -281,5 +283,9 @@
   "Videos must be at least 1 second long": "视频时长必须至少为 1 秒",
   "Before": "修改前",
   "After": "修改后",
-  "Not available": "不可用"
+  "Not available": "不可用",
+  "Not set": "未设置",
+  "Browse": "浏览",
+  "Creating…": "正在创建...",
+  "Connecting…": "正在连接..."
 }
