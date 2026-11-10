@@ -34,6 +34,21 @@ function normalizeText(text) {
   return text.trim().replace(/\r\n/g, '\n').replace(/\n+/g, ' ').replace(/\s+/g, ' ');
 }
 
+function extractSkillDescription(content) {
+  if (!content) return null;
+  const normalizedContent = content.replace(/\r\n/g, '\n');
+  const frontmatterMatch = normalizedContent.match(/^---\n([\s\S]*?)\n---/);
+  const source = frontmatterMatch ? frontmatterMatch[1] : normalizedContent;
+  const match = source.match(/(?:^|\n)description:\s*([\s\S]+?)(?=\n[A-Za-z0-9_-]+:|\n*$)/i);
+  if (!match) return null;
+  let desc = match[1].trim();
+  desc = desc.replace(/^(?:[>|][+-]?)\s*(?:\n|$)/, '');
+  if ((desc.startsWith('"') && desc.endsWith('"')) || (desc.startsWith("'") && desc.endsWith("'"))) {
+    desc = desc.slice(1, -1);
+  }
+  return normalizeText(desc);
+}
+
 // 解析 ZIP Buffer 提取 Workspace 插件的 README.md 概览与 SKILL.md 技能说明（纯内存流零落盘）
 function extractWorkspaceAssetsFromZipBuffer(buf) {
   const result = {
@@ -68,9 +83,9 @@ function extractWorkspaceAssetsFromZipBuffer(buf) {
               result.overviewDescription = normalized;
             }
           } else if (fileName.endsWith('SKILL.md')) {
-            const match = content.match(/description:\s*([\s\S]+?)(?=\n---|\n[a-z]+:)/i);
-            if (match) {
-              result.skills.push(match[1].trim());
+            const desc = extractSkillDescription(content);
+            if (desc) {
+              result.skills.push(desc);
             }
           }
         }
@@ -307,9 +322,9 @@ async function parseMarketplace(catalog, localBaseDir) {
               const skillFile = path.join(skillsDir, sub, 'SKILL.md');
               if (fs.existsSync(skillFile)) {
                 const content = fs.readFileSync(skillFile, 'utf-8');
-                const match = content.match(/description:\s*([\s\S]+?)(?=\n---|\n[a-z]+:)/i);
-                if (match) {
-                  info.workspace_skills.push(match[1].trim());
+                const desc = extractSkillDescription(content);
+                if (desc) {
+                  info.workspace_skills.push(desc);
                 }
               }
             }

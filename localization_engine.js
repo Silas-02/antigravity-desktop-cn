@@ -363,34 +363,66 @@ function generateJs() {
         return prefix ? prefix + " " + timestamp : timestamp;
     }
 
-    function getAutomationScheduleTranslation(value) {
+    function getAutomationScheduleTranslation(value, node = null) {
         const normalized = norm(value);
         if (/^Next\\s+run$/i.test(normalized)) return "下次运行";
         if (/^Last\\s+run$/i.test(normalized)) return "上次运行";
+
+        const weekdayMap = {
+            monday: "星期一", mon: "星期一", mondays: "星期一",
+            tuesday: "星期二", tue: "星期二", tues: "星期二", tuesdays: "星期二",
+            wednesday: "星期三", wed: "星期三", wednesdays: "星期三",
+            thursday: "星期四", thu: "星期四", thur: "星期四", thurs: "星期四", thursdays: "星期四",
+            friday: "星期五", fri: "星期五", fridays: "星期五",
+            saturday: "星期六", sat: "星期六", saturdays: "星期六",
+            sunday: "星期日", sun: "星期日", sundays: "星期日"
+        };
+        const monthMap = {
+            january: 1, jan: 1,
+            february: 2, feb: 2,
+            march: 3, mar: 3,
+            april: 4, apr: 4,
+            may: 5,
+            june: 6, jun: 6,
+            july: 7, jul: 7,
+            august: 8, aug: 8,
+            september: 9, sep: 9, sept: 9,
+            october: 10, oct: 10,
+            november: 11, nov: 11,
+            december: 12, dec: 12
+        };
+        const monthNamePattern = "January|Jan|February|Feb|March|Mar|April|Apr|May|June|Jun|July|Jul|August|Aug|September|Sep|Sept|October|Oct|November|Nov|December|Dec";
 
         let match = normalized.match(/^(Today|Tomorrow|Yesterday)\\s+(\\d{1,2}:\\d{2}\\s*(?:AM|PM)(?:\\s+(?:GMT|UTC)[+-]?\\d{0,2}(?::\\d{2})?)?)$/i);
         if (match) {
             const dayWord = { today: "今天", tomorrow: "明天", yesterday: "昨天" }[match[1].toLowerCase()];
             return dayWord + " " + match[2];
         }
-        match = normalized.match(/^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\\s+(\\d{1,2}:\\d{2}\\s*(?:AM|PM)(?:\\s+(?:GMT|UTC)[+-]?\\d{0,2}(?::\\d{2})?)?)$/i);
+        match = normalized.match(/^(Monday|Mon|Tuesday|Tue|Tues|Wednesday|Wed|Thursday|Thu|Thur|Thurs|Friday|Fri|Saturday|Sat|Sunday|Sun)\\.?,?\\s+(\\d{1,2}:\\d{2}\\s*(?:AM|PM)(?:\\s+(?:GMT|UTC)[+-]?\\d{0,2}(?::\\d{2})?)?)$/i);
         if (match) {
-            const weekdayMap = {
-                monday: "星期一", tuesday: "星期二", wednesday: "星期三",
-                thursday: "星期四", friday: "星期五", saturday: "星期六", sunday: "星期日"
-            };
             return weekdayMap[match[1].toLowerCase()] + " " + match[2];
         }
-        match = normalized.match(/^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\\s+(\\d{1,2}),?\\s+(\\d{1,2}:\\d{2}\\s*(?:AM|PM))$/i);
+        match = normalized.match(new RegExp("^(" + monthNamePattern + ")\\\\.?\\\\s+(\\\\d{1,2})(?:st|nd|rd|th)?,?\\\\s+(\\\\d{1,2}:\\\\d{2}\\\\s*(?:AM|PM))$", "i"));
         if (match) {
-            const monthIndex = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"].indexOf(match[1].toLowerCase()) + 1;
-            return monthIndex + "月" + match[2] + "日 " + match[3];
+            return monthMap[match[1].toLowerCase()] + "月" + match[2] + "日 " + match[3];
+        }
+        if (!node || !isContentBodyContainer(node)) {
+            match = normalized.match(new RegExp("^(" + monthNamePattern + ")\\\\.?\\\\s+(\\\\d{1,2})(?:st|nd|rd|th)?$", "i"));
+            if (match) {
+                return monthMap[match[1].toLowerCase()] + "月" + match[2] + "日";
+            }
         }
 
         match = normalized.match(/^Next\\s+run\\s+today\\s+(?:around|at|在)\\s+(.+)$/i);
         if (match) return "下次运行：今天约 " + match[1];
         match = normalized.match(/^Next\\s+run\\s+tomorrow\\s+(?:around|at|在)\\s+(.+)$/i);
         if (match) return "下次运行：明天约 " + match[1];
+        match = normalized.match(/^(?:Next\\s+run|下次运行[：:])\\s*(?:on\\s+)?(Monday|Mon|Tuesday|Tue|Tues|Wednesday|Wed|Thursday|Thu|Thur|Thurs|Friday|Fri|Saturday|Sat|Sunday|Sun)\\.?\\s+(?:around|at|在)\\s+(.+)$/i);
+        if (match) return "下次运行：" + weekdayMap[match[1].toLowerCase()] + "约 " + match[2];
+        match = normalized.match(new RegExp("^(?:Next\\\\s+run|下次运行[：:])\\\\s*(?:on\\\\s+)?(" + monthNamePattern + ")\\\\.?\\\\s+(\\\\d{1,2})(?:st|nd|rd|th)?(?:,\\\\s*\\\\d{4})?\\\\s+(?:around|at|在)\\\\s+(.+)$", "i"));
+        if (match) {
+            return "下次运行：" + monthMap[match[1].toLowerCase()] + "月" + match[2] + "日约 " + match[3];
+        }
         match = normalized.match(/^Next\\s+run\\s+(?:around|at|在)\\s+(.+)$/i);
         if (match) return "下次运行：约 " + match[1];
         match = normalized.match(/^Next\\s+run\\s+(.+)$/i);
@@ -398,10 +430,70 @@ function generateJs() {
 
         match = normalized.match(/^Last\\s+run\\s+(?:today\\s+around|today\\s+at)\\s+(.+)$/i);
         if (match) return "上次运行：今天约 " + match[1];
+        match = normalized.match(/^(?:Last\\s+run|上次运行[：:])\\s*(?:on\\s+)?(Monday|Mon|Tuesday|Tue|Tues|Wednesday|Wed|Thursday|Thu|Thur|Thurs|Friday|Fri|Saturday|Sat|Sunday|Sun)\\.?\\s+(?:around|at|在)\\s+(.+)$/i);
+        if (match) return "上次运行：" + weekdayMap[match[1].toLowerCase()] + "约 " + match[2];
+        match = normalized.match(new RegExp("^(?:Last\\\\s+run|上次运行[：:])\\\\s*(?:on\\\\s+)?(" + monthNamePattern + ")\\\\.?\\\\s+(\\\\d{1,2})(?:st|nd|rd|th)?(?:,\\\\s*\\\\d{4})?\\\\s+(?:around|at|在)\\\\s+(.+)$", "i"));
+        if (match) {
+            return "上次运行：" + monthMap[match[1].toLowerCase()] + "月" + match[2] + "日约 " + match[3];
+        }
         match = normalized.match(/^Last\\s+run\\s+(?:around|at|在)\\s+(.+)$/i);
         if (match) return "上次运行：约 " + match[1];
         match = normalized.match(/^Last\\s+run\\s+(.+)$/i);
         if (match) return "上次运行：" + match[1];
+
+        match = normalized.match(/^Every\\s+(\\d+)\\s+(minutes?|mins?|hours?|hrs?|days?|weeks?|months?)(?:\\s+(?:around|at|在)\\s+(.+))?$/i);
+        if (match) {
+            const unitLower = match[2].toLowerCase();
+            let unitZh = "";
+            if (unitLower.startsWith("min")) unitZh = "分钟";
+            else if (unitLower.startsWith("hour") || unitLower.startsWith("hr")) unitZh = "小时";
+            else if (unitLower.startsWith("day")) unitZh = "天";
+            else if (unitLower.startsWith("week")) unitZh = "周";
+            else if (unitLower.startsWith("month")) unitZh = "个月";
+            return "每 " + match[1] + " " + unitZh + (match[3] ? "在 " + match[3] : "");
+        }
+        match = normalized.match(/^Every\\s+(minute|hour|day|week|month)$/i);
+        if (match) {
+            const singleUnitMap = { minute: "每分钟", hour: "每小时", day: "每天", week: "每周", month: "每月" };
+            return singleUnitMap[match[1].toLowerCase()];
+        }
+
+        match = normalized.match(/^(?:Monthly|每月)\\s+on\\s+the\\s+([1-9]|[12]\\d|3[01])(?:st|nd|rd|th)\\s+(?:around|at|在)\\s+(.+)$/i);
+        if (match) {
+            return "每月 " + match[1] + " 日在 " + match[2];
+        }
+        match = normalized.match(/^(?:Monthly|每月)\\s+on\\s+the\\s+last\\s+day\\s+(?:around|at|在)\\s+(.+)$/i);
+        if (match) {
+            return "每月最后一天在 " + match[1];
+        }
+        match = normalized.match(/^(?:Monthly|每月)\\s+on\\s+the\\s+([1-9]|[12]\\d|3[01])(?:st|nd|rd|th)$/i);
+        if (match) {
+            return "每月 " + match[1] + " 日";
+        }
+        match = normalized.match(/^(?:Monthly|每月)\\s+on\\s+the\\s+last\\s+day$/i);
+        if (match) {
+            return "每月最后一天";
+        }
+
+        match = normalized.match(/^((?:(?:Mondays?|Mon|Tuesdays?|Tue|Tues|Wednesdays?|Wed|Thursdays?|Thu|Thur|Thurs|Fridays?|Fri|Saturdays?|Sat|Sundays?|Sun)\\.?(?:\\s*,\\s*|\\s+and\\s+|\\s*&\\s*))+(?:Mondays?|Mon|Tuesdays?|Tue|Tues|Wednesdays?|Wed|Thursdays?|Thu|Thur|Thurs|Fridays?|Fri|Saturdays?|Sat|Sundays?|Sun)\\.?)\\s+(?:around|at|在)\\s+(.+)$/i);
+        if (match) {
+            const days = match[1].split(/\\s*(?:,|\\band\\b|&)\\s*/i).map(d => weekdayMap[d.replace(/\\.$/, '').toLowerCase()] || d).join("、");
+            return "每周" + days + "在 " + match[2];
+        }
+        match = normalized.match(/^(Mondays|Tuesdays|Wednesdays|Thursdays|Fridays|Saturdays|Sundays)\\s+(?:around|at|在)\\s+(.+)$/i);
+        if (match) {
+            return "每周" + weekdayMap[match[1].toLowerCase()] + "在 " + match[2];
+        }
+        match = normalized.match(/^Every\\s+(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\\s+(?:around|at|在)\\s+(.+)$/i);
+        if (match) {
+            return "每周" + weekdayMap[match[1].toLowerCase()] + "在 " + match[2];
+        }
+        match = normalized.match(/^(?:Every\\s+day|Everyday)\\s+(?:around|at|在)\\s+(.+)$/i);
+        if (match) return "每天在 " + match[1];
+        match = normalized.match(/^Weekdays\\s+(?:around|at|在)\\s+(.+)$/i);
+        if (match) return "每个工作日在 " + match[1];
+        match = normalized.match(/^Weekends\\s+(?:around|at|在)\\s+(.+)$/i);
+        if (match) return "每周末在 " + match[1];
 
         match = normalized.match(/^(Daily|Weekly|Monthly|每[天周月])\\s+(?:around|at|在)\\s+(.+)$/i);
         if (match) {
@@ -751,7 +843,7 @@ function generateJs() {
                 return true;
             }
             const role = curr.getAttribute ? curr.getAttribute('role') : null;
-            if (role === 'button' || role === 'tab' || role === 'menuitem' || role === 'switch' || role === 'option') {
+            if (role === 'button' || role === 'tab' || role === 'menuitem' || role === 'switch' || role === 'option' || (role === 'menu' && (word === 'Comment' || word === 'Quote'))) {
                 return true;
             }
             if (depth === 0 && curr.childNodes && curr.childNodes.length > 3) {
@@ -1021,6 +1113,38 @@ function generateJs() {
             return lowerMap.get(lower) ?? null;
         }
 
+        if (normalized === 'Comment' || normalized === 'Quote') {
+            let current = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+            let interactiveControl = null;
+            let inMenu = false;
+            let inUnsafeContent = false;
+            for (let depth = 0; current && depth < 5; depth++) {
+                if (current === document.body || current === document.documentElement) break;
+                if (current.nodeType === Node.ELEMENT_NODE) {
+                    const tag = current.tagName ? current.tagName.toUpperCase() : '';
+                    const cls = typeof current.className === 'string' ? current.className : '';
+                    if (tag === 'P' || tag === 'LI' || tag === 'BLOCKQUOTE' || tag === 'PRE' || tag === 'CODE' || tag === 'ARTICLE' || /^H[1-6]$/.test(tag) || current.getAttribute?.('contenteditable') === 'true' || /(?:prose|markdown|view-line|view-lines|xterm)/i.test(cls)) {
+                        inUnsafeContent = true;
+                        break;
+                    }
+                    const role = current.getAttribute ? current.getAttribute('role') : null;
+                    if (role === 'menu') {
+                        inMenu = true;
+                    }
+                    if (!interactiveControl && (tag === 'BUTTON' || role === 'menuitem' || role === 'button' || /(?:cursor-pointer)/i.test(cls))) {
+                        const ctrlText = getBoundedTextContent(current, 8, 40);
+                        if (ctrlText !== null && norm(ctrlText) === normalized) {
+                            interactiveControl = current;
+                        }
+                    }
+                }
+                current = current.parentElement || (current.getRootNode?.().host ?? null);
+            }
+            if (!inUnsafeContent && (interactiveControl || inMenu)) {
+                return normalized === 'Comment' ? "评论" : "引用";
+            }
+        }
+
         const linesMatch = normalized.match(/^(\\+)?\\s*(\\d+)\\s+more\\s+lines?$/i);
         if (linesMatch) {
             let current = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
@@ -1046,7 +1170,7 @@ function generateJs() {
             return "提问任何问题";
         }
 
-        match = normalized.match(/^Voice\\s+speed,\\s*([0-9.]+x)$/i);
+        let match = normalized.match(/^Voice\\s+speed,\\s*([0-9.]+x)$/i);
         if (match) return "语速，" + match[1];
 
         match = normalized.match(/^Started\\s+voice\\s+chat\\s*[·•]\\s*(.+)$/i);
@@ -1684,6 +1808,18 @@ function generateJs() {
             ]
         },
         {
+            source: 'migrate-agent-settings',
+            display: "迁移智能体设置",
+            descriptions: [
+                "Migrates the user's MCP servers, skills, slash commands, subagents, and instruction files from other coding agents (Claude Code, Codex, Cursor, Gemini CLI) into one new Antigravity plugin. Use when the user wants to bring over, import, or migrate their setup or config from another agent or tool. Don't use for installing Marketplace plugins or authoring a new plugin from scratch (use the plugin skill).",
+                "Migrates the user's MCP servers, skills, slash commands, subagents, and instruction files from other coding agents (Claude Code, Codex, Cursor, Gemini CLI) into one new Antigravity plugin.",
+                "Migrates the user's MCP servers, skills, slash commands, subagents, and instruction files from other coding agents (Claude Code, Codex, Cursor, Gemini CLI) into one new Antigravity plugin",
+                "将用户的 MCP 服务器、技能、斜杠命令、子智能体及指令文件从其他编程智能体(Claude Code、Codex、Cursor、Gemini CLI)迁移到一个新的 Antigravity 插件中. 当用户希望从其他智能体或工具迁入、导入或迁移其设置或配置时使用. 请勿用于安装插件市场插件或从头编写新插件(请使用 plugin 技能).",
+                "将用户的 MCP 服务器、技能、斜杠命令、子智能体及指令文件从其他编程智能体(Claude Code、Codex、Cursor、Gemini CLI)迁移到一个新的 Antigravity 插件中.",
+                "将用户的 MCP 服务器、技能、斜杠命令、子智能体及指令文件从其他编程智能体(Claude Code、Codex、Cursor、Gemini CLI)迁移到一个新的 Antigravity 插件中"
+            ]
+        },
+        {
             source: 'run-workflow',
             display: "运行工作流",
             descriptions: [
@@ -1810,6 +1946,21 @@ function generateJs() {
                 "搜索、上传、下载和共享文件.",
                 "查找并整理您的 Google Drive。跨文件进行搜索、整理文件夹、与合适的人共享，并将其下载或导出为 PDF、CSV 或 Markdown",
                 "查找并整理您的 Google Drive。跨文件搜索、整理文件夹、与合适的人员共享，以及将文件下载或导出为 PDF、CSV 或 Markdown"
+            ]
+        },
+        {
+            source: 'gmail',
+            display: "Gmail",
+            descriptions: [
+                "Read, search, send, and manage Gmail messages, drafts, labels, and emoji reactions using a Go CLI. Use when reading emails, searching inbox, sending messages, reacting to messages with emoji, managing drafts, forwarding, checking vacation responder, managing labels, downloading attachments, or decoding \`mail.google.com\` Web UI URLs. Don't use for Google Chat messages or Calendar invites.",
+                "Read, search, send, and manage Gmail messages, drafts, labels, and emoji reactions using a Go CLI. Use when reading emails, searching inbox, sending messages, reacting to messages with emoji, managing drafts, forwarding, checking vacation responder, managing labels, downloading attachments, or decoding mail.google.com Web UI URLs. Don't use for Google Chat messages or Calendar invites.",
+                "Search, read, draft, and send emails in Gmail.",
+                "Run your Gmail inbox. Search and summarize threads, draft replies, organize labels, and send messages with your approval.",
+                "使用 Go CLI 读取、搜索、发送和管理 Gmail 邮件、草稿、标签及表情符号回应. 在阅读邮件、搜索收件箱、发送邮件、使用表情符号回应邮件、管理草稿、转发、检查自动休假回复、管理标签、下载附件或解码 \`mail.google.com\` Web 界面 URL 时使用. 请勿用于 Google Chat 消息或日历邀请.",
+                "使用 Go CLI 读取、搜索、发送和管理 Gmail 邮件、草稿、标签及表情符号回应. 在阅读邮件、搜索收件箱、发送邮件、使用表情符号回应邮件、管理草稿、转发、检查自动休假回复、管理标签、下载附件或解码 mail.google.com Web 界面 URL 时使用. 请勿用于 Google Chat 消息或日历邀请.",
+                "使用 Go CLI 读取、搜索、发送和管理 Gmail 邮件、草稿、标签及表情符号回应。",
+                "在 Gmail 中搜索、阅读、起草并发送电子邮件.",
+                "管理您的 Gmail 收件箱. 搜索并总结邮件会话、起草回复、整理标签，并在您批准后发送邮件."
             ]
         },
         {
@@ -2541,10 +2692,60 @@ function generateJs() {
         return match[1] + " " + translatedStatus;
     }
 
-function getDynamicProductUiTranslation(value) {
+function getDynamicProductUiTranslation(value, node = null) {
         const normalized = norm(value);
         let match = normalized.match(/^Hi\\s+(.+?),\\s+what can we get done today\\?$/i);
         if (match) return "嗨 " + match[1] + "，今天我们可以完成些什么？";
+
+        match = normalized.match(/^Your\\s+Plan:\\s*(.+)$/i);
+        if (match && match[1].length <= 80) return "您的计划: " + match[1];
+
+        match = normalized.match(/^Your\\s+(.+?)\\s+setting$/i);
+        if (match && match[1].length <= 60 && !/[.,?!]/.test(match[1]) && (!node || !isContentBodyContainer(node))) {
+            const rawScope = norm(match[1]);
+            const dictScope = map.get(rawScope) || lowerMap.get(rawScope.toLowerCase());
+            if (dictScope || /^[A-Z0-9]/.test(rawScope)) {
+                const scopeTrans = dictScope || rawScope;
+                if (/^[\\u4e00-\\u9fff]/.test(scopeTrans) && /[\\u4e00-\\u9fff]$/.test(scopeTrans)) {
+                    return "您的" + scopeTrans + "设置";
+                }
+                return "您的 " + scopeTrans + " 设置";
+            }
+        }
+
+        match = normalized.match(/^(Weekly|5-hour|Five Hour|5h)\\s+limit,\\s*(resets|refreshes)\\s+in\\s+(.+?)(?:(\\.))?$/i);
+        if (match) {
+            const isWeekly = /^weekly$/i.test(match[1]);
+            const limitLabel = isWeekly ? "每周配额限制" : "5 小时配额限制";
+            const actionLabel = /^refreshes$/i.test(match[2]) ? "刷新" : "重置";
+            const rest = norm(match[3]);
+            const suffixDot = match[4] ? "." : "";
+            if (/^<\\s*1\\s*m(?:in(?:ute)?)?$/i.test(rest) || /^less\\s+than\\s+(?:a|1)\\s+minute$/i.test(rest)) {
+                return limitLabel + "，不足 1 分钟后" + actionLabel + suffixDot;
+            }
+            const durMatch = rest.match(/^(?:(\\d+)\\s*(?:d|days?))?\\s*,?\\s*(?:(\\d+)\\s*(?:h|hours?))?\\s*,?\\s*(?:(\\d+)\\s*(?:m|mins?|minutes?))?\\s*,?\\s*(?:(\\d+)\\s*(?:s|secs?|seconds?))?$/i);
+            if (durMatch && (durMatch[1] || durMatch[2] || durMatch[3] || durMatch[4])) {
+                const parts = [];
+                if (durMatch[1]) parts.push(durMatch[1] + " 天");
+                if (durMatch[2]) parts.push(durMatch[2] + " 小时");
+                if (durMatch[3]) parts.push(durMatch[3] + " 分钟");
+                if (durMatch[4]) parts.push(durMatch[4] + " 秒");
+                return limitLabel + "，" + parts.join(" ") + "后" + actionLabel + suffixDot;
+            }
+            return limitLabel + "，" + rest + " 后" + actionLabel + suffixDot;
+        }
+
+        match = normalized.match(/^Back\\s+to\\s+(.+)$/i);
+        if (match && (!node || !isContentBodyContainer(node))) {
+            const rawTarget = norm(match[1]);
+            if (rawTarget && rawTarget.length <= 120) {
+                const targetTrans = map.get(rawTarget) || lowerMap.get(rawTarget.toLowerCase()) || rawTarget;
+                if (/^(?:Automations|History|Chat|Settings|Home)$/i.test(rawTarget) && /^[\\u4e00-\\u9fff]+$/.test(targetTrans)) {
+                    return "返回" + targetTrans;
+                }
+                return "返回 " + targetTrans;
+            }
+        }
 
         match = normalized.match(/^(\\d+)\\s+on for this conversation$/i);
         if (match) return match[1] + " 个已为此会话开启";
@@ -3279,7 +3480,7 @@ function getDynamicProductUiTranslation(value) {
                 const cText = getBoundedTextContent(current, 24, 500);
                 if (cText === null) break;
                 if (cText.length <= 500 &&
-                    /(?:Configure the browser subagent|配置浏览器子智能体)/i.test(cText) &&
+                    /(?:Configure the browser subagent|Configure allowed and denied URLs for the browser subagent|配置浏览器子智能体|配置允许和禁止浏览器子智能体)/i.test(cText) &&
                     /(?:Google Chrome|to be installed)/i.test(cText)) {
                     const textNodes = collectTextNodes(current).filter(tn => !isInBlockedZone(tn));
                     if (textNodes.length === 0) return false;
@@ -3292,6 +3493,12 @@ function getDynamicProductUiTranslation(value) {
 
                         if (/^Configure the browser subagent\\.\\s*It requires$/i.test(valN)) {
                             changed = replaceTextNode(tn, "配置浏览器子智能体. 它需要安装 ") || changed;
+                        } else if (/^Configure allowed and denied URLs for the browser subagent\\s*\\(invoked with \\/browser\\)\\.\\s*Requires$/i.test(valN)) {
+                            changed = replaceTextNode(tn, "配置允许和禁止浏览器子智能体(通过 /browser 调用)访问的 URL. 需要 ") || changed;
+                        } else if (/^Configure allowed and denied URLs for the browser subagent\\s*\\(invoked with$/i.test(valN)) {
+                            changed = replaceTextNode(tn, "配置允许和禁止浏览器子智能体(通过 ") || changed;
+                        } else if (/^\\)\\.\\s*Requires$/i.test(valN)) {
+                            changed = replaceTextNode(tn, ") 调用)访问的 URL. 需要 ") || changed;
                         } else if (/^to be installed\\.?$/i.test(valN)) {
                             changed = replaceTextNode(tn, ". ") || changed;
                         } else if (/^to be installed\\.\\s*(.+)$/i.test(valN)) {
@@ -3831,14 +4038,45 @@ function getDynamicProductUiTranslation(value) {
         if (!rawText) return false;
         const normText = norm(rawText);
 
+        const pluralDayMatch = normText.match(/^(Mondays|Tuesdays|Wednesdays|Thursdays|Fridays|Saturdays|Sundays)\\s*(?:around|at|在)\\s+(.+)$/i);
         const dayMatch = normText.match(/^(?:Weekly|每周)(?:\\s+on)?\\s+(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|星期[一二三四五六日])\\s*(?:around|at|在)\\s+(.+)$/i);
         const match = normText.match(/^(Daily|Weekly|Monthly|每[天周月])\\s+(?:around|at|在)\\s+(.+)$/i);
-        if (!match && !dayMatch) return false;
+        if (!match && !dayMatch && !pluralDayMatch) return false;
 
         const textNodes = collectTextNodes(element);
         if (textNodes.length === 0) return false;
 
         let changed = false;
+        if (pluralDayMatch) {
+            const pluralDayMap = {
+                mondays: "星期一", tuesdays: "星期二", wednesdays: "星期三",
+                thursdays: "星期四", fridays: "星期五", saturdays: "星期六", sundays: "星期日"
+            };
+            const chineseDay = pluralDayMap[pluralDayMatch[1].toLowerCase()] || pluralDayMatch[1];
+            let clearNextWhitespace = false;
+            for (const tn of textNodes) {
+                if (clearNextWhitespace && tn.nodeValue && tn.nodeValue.trim() === '') {
+                    changed = replaceTextNode(tn, '') || changed;
+                    clearNextWhitespace = false;
+                    continue;
+                }
+                clearNextWhitespace = false;
+                const val = norm(tn.nodeValue);
+                if (!val) continue;
+                const fullTrans = getAutomationScheduleTranslation(val);
+                if (fullTrans) {
+                    changed = replaceTextNode(tn, fullTrans) || changed;
+                    continue;
+                }
+                if (new RegExp('^' + pluralDayMatch[1] + '$', 'i').test(val)) {
+                    changed = replaceTextNode(tn, "每周" + chineseDay) || changed;
+                } else if (/^(?:around|at)$/i.test(val)) {
+                    changed = replaceTextNode(tn, "在 ") || changed;
+                    clearNextWhitespace = true;
+                }
+            }
+            return changed;
+        }
         if (dayMatch) {
             const dayMap = {
                 monday: "星期一", tuesday: "星期二", wednesday: "星期三",
@@ -4015,8 +4253,11 @@ function getDynamicProductUiTranslation(value) {
                 changed = replaceTextNode(tn, "的") || changed;
             } else if (/^on$/i.test(val)) {
                 changed = replaceTextNode(tn, "星期") || changed;
-            } else if (/^([1-9]|[12]\\d|3[01])(?:st|nd|rd|th)$/i.test(val)) {
-                changed = replaceTextNode(tn, RegExp.$1 + "日") || changed;
+            } else {
+                const ordinalMatch = val.match(/^([1-9]|[12]\\d|3[01])(?:st|nd|rd|th)$/i);
+                if (ordinalMatch) {
+                    changed = replaceTextNode(tn, ordinalMatch[1] + "日") || changed;
+                }
             }
         }
         return changed;
@@ -4136,7 +4377,7 @@ function getDynamicProductUiTranslation(value) {
         return false;
     }
 
-    const SKILL_PICKER_CONTAINER_REGEX = /(?:quick question without interrupting|align on a plan|team of agents to autonomously|recent successes or corrections|Boost multi-agent orchestrator|Antigravity Customization System|comprehensive guide, quick reference, and sitemap|render rich interactive HTML widgets|scheduled background automation|manage and create plugins|namespaced bundles of skills|manage Google Docs|draft, and edit docs|and write your Google Docs|schedule events, and RSVP|format spreadsheets|edit, and export presentations|upload, download, and share files|不中断主会话|通过访谈与我对齐|智能体团队自主应对|反思最近的成功或改进|Boost 多智能体编排器|个性化定制系统的综合指南|全面指南、快速参考和网站地图|交互式 HTML 小组件|定时后台自动化|计划后台自动化|管理和创建插件|管理 Google 文档|起草和编辑文档|安排活动并回复邀请|编写和格式化电子表格|导出演示文稿|上传、下载和共享文件)/i;
+    const SKILL_PICKER_CONTAINER_REGEX = /(?:quick question without interrupting|align on a plan|team of agents to autonomously|recent successes or corrections|Boost multi-agent orchestrator|Antigravity Customization System|comprehensive guide, quick reference, and sitemap|render rich interactive HTML widgets|scheduled background automation|manage and create plugins|namespaced bundles of skills|MCP servers, skills, slash commands|other coding agents|manage Google Docs|draft, and edit docs|and write your Google Docs|schedule events, and RSVP|draft, and send emails in Gmail|Run your Gmail inbox|manage Gmail messages, drafts, labels|format spreadsheets|edit, and export presentations|upload, download, and share files|不中断主会话|通过访谈与我对齐|智能体团队自主应对|反思最近的成功或改进|Boost 多智能体编排器|个性化定制系统的综合指南|全面指南、快速参考和网站地图|交互式 HTML 小组件|定时后台自动化|计划后台自动化|管理和创建插件|迁移到一个新的 Antigravity 插件中|管理 Google 文档|起草和编辑文档|安排活动并回复邀请|在 Gmail 中搜索、阅读、起草并发送电子邮件|管理您的 Gmail 收件箱|管理 Gmail 邮件、草稿、标签|编写和格式化电子表格|导出演示文稿|上传、下载和共享文件)/i;
 
     function translateSpecialContainers(element) {
         if (!element || element.nodeType !== Node.ELEMENT_NODE) return false;
@@ -4192,7 +4433,7 @@ function getDynamicProductUiTranslation(value) {
         if (isSpan && textLength <= 320 && /(?:is managed by the|can only be deleted by deleting that automation|自动化管理，只能通过删除该自动化来将其删除)/i.test(rawText)) {
             translated = translateManagedByAutomationNotice(element) || translated;
         }
-        if (textLength <= 120 && /(?:Daily|Weekly|Monthly|每[天周月])(?:\\s+on)?(?:\\s+(?:[A-Za-z]+|星期[一二三四五六日]))?\\s*(?:around|at|在)/i.test(rawText)) {
+        if (textLength <= 120 && /(?:Daily|Weekly|Monthly|每[天周月]|Mondays?|Tuesdays?|Wednesdays?|Thursdays?|Fridays?|Saturdays?|Sundays?|Weekdays|Weekends)(?:\\s+on)?(?:\\s+(?:[A-Za-z]+|星期[一二三四五六日]))?\\s*(?:around|at|在)/i.test(rawText)) {
             translated = translateAutomationScheduleContainer(element) || translated;
         }
         if (textLength <= 260 && /(?:Search conversations with|View archived in the sidebar|使用左上角的|中查看已归档会话)/i.test(rawText)) {
@@ -4265,7 +4506,7 @@ function getDynamicProductUiTranslation(value) {
             translated = translateArchiveNotice(element) || translated;
         }
         if (textLength <= 500 &&
-            /(?:Configure the browser subagent|配置浏览器子智能体)/i.test(rawText) &&
+            /(?:Configure the browser subagent|Configure allowed and denied URLs for the browser subagent|配置浏览器子智能体|配置允许和禁止浏览器子智能体)/i.test(rawText) &&
             /(?:Google Chrome|to be installed)/i.test(rawText)) {
             translated = translateBrowserSubagentNotice(element) || translated;
         }
@@ -4284,7 +4525,7 @@ function getDynamicProductUiTranslation(value) {
         return translated;
     }
 
-    function getCombinedStatusTranslation(value) {
+    function getCombinedStatusTranslation(value, element = null) {
         const normalized = norm(value);
         if (!normalized) return null;
         if (!/^[a-zA-Z]+$/.test(normalized)) {
@@ -4328,7 +4569,7 @@ function getDynamicProductUiTranslation(value) {
         const bracketedTaskStatusTranslation = getBracketedTaskStatusTranslation(normalized);
         if (bracketedTaskStatusTranslation) return bracketedTaskStatusTranslation;
 
-        const productUiTranslation = getDynamicProductUiTranslation(normalized);
+        const productUiTranslation = getDynamicProductUiTranslation(normalized, element);
         if (productUiTranslation) return productUiTranslation;
 
         const projectDeleteSummaryTranslation = getProjectDeleteSummaryTranslation(normalized);
@@ -4403,7 +4644,7 @@ function getDynamicProductUiTranslation(value) {
         const translateRun = () => {
             if (textRun.length < 2) return false;
             const original = textRun.map(textNode => textNode.nodeValue || '').join('');
-            const translated = getCombinedStatusTranslation(original);
+            const translated = getCombinedStatusTranslation(original, element);
             if (!translated || translated === original) return false;
             replaceTextNode(textRun[0], translated);
             for (let i = 1; i < textRun.length; i++) replaceTextNode(textRun[i], '');
@@ -4490,6 +4731,12 @@ function getDynamicProductUiTranslation(value) {
             }
         }
 
+        if (/^Configure allowed and denied URLs for the browser subagent\\s*\\(invoked with \\/browser\\)\\.\\s*Requires$/i.test(currentText)) {
+            const parentText = node && node.parentElement ? (getBoundedTextContent(node.parentElement, 16, 500) || '') : '';
+            if (/Google Chrome/i.test(parentText)) {
+                return "配置允许和禁止浏览器子智能体(通过 /browser 调用)访问的 URL. 需要 ";
+            }
+        }
         if (/^to be installed\\.?$/i.test(currentText)) {
             const parentText = node && node.parentElement ? (getBoundedTextContent(node.parentElement, 16, 500) || '') : '';
             if (/^Google Chrome$/i.test(getPrevText()) || /(?:browser subagent|浏览器子智能体|Google Chrome)/i.test(parentText)) {
@@ -4901,27 +5148,81 @@ function getDynamicProductUiTranslation(value) {
             }
         }
 
+        if (/^Back\\s+to$/i.test(currentText) && !isContentBodyContainer(node)) {
+            const next = findNextTextNode(node);
+            const nextText = next ? norm(next.nodeValue) : '';
+            if (nextText) {
+                let container = node.parentElement;
+                for (let depth = 0; container && depth < 2; depth++) {
+                    if (container === document.body || container === document.documentElement) break;
+                    const cText = getBoundedTextContent(container, 12, 160);
+                    if (cText !== null && (!container.children || container.children.length <= 6) && /^Back\\s+to\\s+\\S/i.test(norm(cText))) {
+                        return "返回";
+                    }
+                    container = container.parentElement || (container.getRootNode?.().host ?? null);
+                }
+            }
+        }
+
         return null;
     }
 
     function translateElementAttributes(node) {
-        if (!node || node.nodeType !== Node.ELEMENT_NODE) return;
-        const blockedState = getElementBlockedState(node);
-        if (blockedState === 2) {
-            const tag = node.tagName ? node.tagName.toUpperCase() : '';
-            if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SVG') {
-                const parentState = getElementBlockedState(node.parentElement);
+        try {
+            if (!node || node.nodeType !== Node.ELEMENT_NODE) return;
+            const blockedState = getElementBlockedState(node);
+            if (blockedState === 2) {
+                const tag = node.tagName ? node.tagName.toUpperCase() : '';
+                if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SVG') {
+                    const parentState = getElementBlockedState(node.parentElement);
+                    for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label']) {
+                        const v = node.getAttribute(attr);
+                        if (v) {
+                            const searchingTrans = getSearchingStatusTranslation(v);
+                            if (searchingTrans && searchingTrans !== v) {
+                                node.setAttribute(attr, searchingTrans);
+                            } else if (tag === 'INPUT' || tag === 'TEXTAREA' || parentState === 0) {
+                                const t = norm(v);
+                                const target = getVersionControlUiTranslation(t)
+                                    || getDynamicSubagentStatusTranslation(t)
+                                    || getDynamicProductUiTranslation(t, node)
+                                    || getCompactCountLabelTranslation(t)
+                                    || translateWithShortcut(t)
+                                    || map.get(t)
+                                    || lowerMap.get(t.toLowerCase());
+                                if (target && target !== v) node.setAttribute(attr, target);
+                            }
+                        }
+                    }
+                }
+                return;
+            }
+            if (node.getAttribute('contenteditable') === 'true') {
+                for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'aria-label', 'title']) {
+                    const value = node.getAttribute(attr);
+                    if (!value) continue;
+                    const normalizedValue = norm(value);
+                    const target = getVersionControlUiTranslation(normalizedValue)
+                        || getDynamicProductUiTranslation(normalizedValue, node)
+                        || translateWithShortcut(normalizedValue)
+                        || map.get(normalizedValue)
+                        || lowerMap.get(normalizedValue.toLowerCase());
+                    if (target && target !== value) node.setAttribute(attr, target);
+                }
+                return;
+            }
+            if (blockedState === 0 || node.tagName === 'BUTTON' || node.getAttribute?.('role') === 'button' || node.tagName === 'INPUT' || node.tagName === 'TEXTAREA') {
                 for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label']) {
                     const v = node.getAttribute(attr);
                     if (v) {
                         const searchingTrans = getSearchingStatusTranslation(v);
                         if (searchingTrans && searchingTrans !== v) {
                             node.setAttribute(attr, searchingTrans);
-                        } else if (tag === 'INPUT' || tag === 'TEXTAREA' || parentState === 0) {
+                        } else {
                             const t = norm(v);
                             const target = getVersionControlUiTranslation(t)
                                 || getDynamicSubagentStatusTranslation(t)
-                                || getDynamicProductUiTranslation(t)
+                                || getDynamicProductUiTranslation(t, node)
                                 || getCompactCountLabelTranslation(t)
                                 || translateWithShortcut(t)
                                 || map.get(t)
@@ -4930,60 +5231,24 @@ function getDynamicProductUiTranslation(value) {
                         }
                     }
                 }
-            }
-            return;
-        }
-        if (node.getAttribute('contenteditable') === 'true') {
-            for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'aria-label', 'title']) {
-                const value = node.getAttribute(attr);
-                if (!value) continue;
-                const normalizedValue = norm(value);
-                const target = getVersionControlUiTranslation(normalizedValue)
-                    || getDynamicProductUiTranslation(normalizedValue)
-                    || translateWithShortcut(normalizedValue)
-                    || map.get(normalizedValue)
-                    || lowerMap.get(normalizedValue.toLowerCase());
-                if (target && target !== value) node.setAttribute(attr, target);
-            }
-            return;
-        }
-        if (blockedState === 0 || node.tagName === 'BUTTON' || node.getAttribute?.('role') === 'button' || node.tagName === 'INPUT' || node.tagName === 'TEXTAREA') {
-            for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label']) {
-                const v = node.getAttribute(attr);
-                if (v) {
-                    const searchingTrans = getSearchingStatusTranslation(v);
-                    if (searchingTrans && searchingTrans !== v) {
-                        node.setAttribute(attr, searchingTrans);
-                    } else {
-                        const t = norm(v);
-                        const target = getVersionControlUiTranslation(t)
-                            || getDynamicSubagentStatusTranslation(t)
-                            || getDynamicProductUiTranslation(t)
-                            || getCompactCountLabelTranslation(t)
-                            || translateWithShortcut(t)
-                            || map.get(t)
-                            || lowerMap.get(t.toLowerCase());
-                        if (target && target !== v) node.setAttribute(attr, target);
+            } else {
+                for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label']) {
+                    const v = node.getAttribute(attr);
+                    if (v) {
+                        const searchingTrans = getSearchingStatusTranslation(v);
+                        if (searchingTrans && searchingTrans !== v) {
+                            node.setAttribute(attr, searchingTrans);
+                        } else if (attr === 'placeholder' || attr === 'aria-placeholder' || attr === 'data-placeholder') {
+                            const t = norm(v);
+                            const target = getDynamicProductUiTranslation(t, node)
+                                || map.get(t)
+                                || lowerMap.get(t.toLowerCase());
+                            if (target && target !== v) node.setAttribute(attr, target);
+                        }
                     }
                 }
             }
-        } else {
-            for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label']) {
-                const v = node.getAttribute(attr);
-                if (v) {
-                    const searchingTrans = getSearchingStatusTranslation(v);
-                    if (searchingTrans && searchingTrans !== v) {
-                        node.setAttribute(attr, searchingTrans);
-                    } else if (attr === 'placeholder' || attr === 'aria-placeholder' || attr === 'data-placeholder') {
-                        const t = norm(v);
-                        const target = getDynamicProductUiTranslation(t)
-                            || map.get(t)
-                            || lowerMap.get(t.toLowerCase());
-                        if (target && target !== v) node.setAttribute(attr, target);
-                    }
-                }
-            }
-        }
+        } catch (e) {}
     }
 
     function translateNode(node, parentContainersScanned = false, visitedElements = null) {
@@ -5037,7 +5302,7 @@ function getDynamicProductUiTranslation(value) {
                         if (!value) continue;
                         const normalizedValue = norm(value);
                         const target = getVersionControlUiTranslation(normalizedValue)
-                            || getDynamicProductUiTranslation(normalizedValue)
+                            || getDynamicProductUiTranslation(normalizedValue, node)
                             || translateWithShortcut(normalizedValue)
                             || map.get(normalizedValue)
                             || lowerMap.get(normalizedValue.toLowerCase());
@@ -5072,7 +5337,7 @@ function getDynamicProductUiTranslation(value) {
                                     const t = norm(v);
                                     const target = getVersionControlUiTranslation(t)
                                         || getDynamicSubagentStatusTranslation(t)
-                                        || getDynamicProductUiTranslation(t)
+                                        || getDynamicProductUiTranslation(t, node)
                                         || getCompactCountLabelTranslation(t)
                                         || translateWithShortcut(t)
                                         || map.get(t)
@@ -5102,7 +5367,7 @@ function getDynamicProductUiTranslation(value) {
                                 const t = norm(v);
                                 const target = getVersionControlUiTranslation(t)
                                     || getDynamicSubagentStatusTranslation(t)
-                                    || getDynamicProductUiTranslation(t)
+                                    || getDynamicProductUiTranslation(t, node)
                                     || getCompactCountLabelTranslation(t)
                                     || translateWithShortcut(t)
                                     || map.get(t)
@@ -5120,7 +5385,7 @@ function getDynamicProductUiTranslation(value) {
                                 node.setAttribute(attr, searchingTrans);
                             } else if (attr === 'placeholder' || attr === 'aria-placeholder' || attr === 'data-placeholder') {
                                 const t = norm(v);
-                                const target = getDynamicProductUiTranslation(t)
+                                const target = getDynamicProductUiTranslation(t, node)
                                     || map.get(t)
                                     || lowerMap.get(t.toLowerCase());
                                 if (target && target !== v) node.setAttribute(attr, target);
@@ -5249,7 +5514,7 @@ function getDynamicProductUiTranslation(value) {
                     newVal = dynRes;
                 } else if ((dynRes = getBulletedStatusTranslation(valNorm))) {
                     newVal = dynRes;
-                } else if ((dynRes = getDynamicProductUiTranslation(valNorm))) {
+                } else if ((dynRes = getDynamicProductUiTranslation(valNorm, node))) {
                     newVal = dynRes;
                 } else if ((dynRes = getProjectDeleteSummaryTranslation(valNorm))) {
                     newVal = dynRes;
@@ -5277,7 +5542,7 @@ function getDynamicProductUiTranslation(value) {
                     newVal = dynRes;
                 } else if ((dynRes = getArchivedConversationNoticeTranslation(valNorm))) {
                     newVal = dynRes;
-                } else if ((dynRes = getAutomationScheduleTranslation(valNorm))) {
+                } else if ((dynRes = getAutomationScheduleTranslation(valNorm, node))) {
                     newVal = dynRes;
                 } else if ((dynRes = translateAutomationCustomScheduleUnit(node, valNorm))) {
                     newVal = dynRes;
@@ -5664,16 +5929,18 @@ function getDynamicProductUiTranslation(value) {
     }
 
     const observer = new MutationObserver(mutations => {
-        const visitedElements = new WeakSet();
-        for (const m of mutations) {
-            if (m.type === 'childList') {
-                for (const n of m.addedNodes) translateNode(n, false, visitedElements);
-            } else if (m.type === 'characterData') {
-                translateNode(m.target, false, visitedElements);
-            } else if (m.type === 'attributes') {
-                translateElementAttributes(m.target);
+        try {
+            const visitedElements = new WeakSet();
+            for (const m of mutations) {
+                if (m.type === 'childList') {
+                    for (const n of m.addedNodes) translateNode(n, false, visitedElements);
+                } else if (m.type === 'characterData') {
+                    translateNode(m.target, false, visitedElements);
+                } else if (m.type === 'attributes') {
+                    translateElementAttributes(m.target);
+                }
             }
-        }
+        } catch (e) {}
     });
 
     const obsOpts = {
@@ -5720,7 +5987,10 @@ function getDynamicProductUiTranslation(value) {
         "Remove From Split": "从拆分中移除",
         "Copy File Path": "复制文件路径",
         "Copy File Name": "复制文件名称",
+        "Comment": "评论",
+        "Quote": "引用",
         "Add to Chat": "添加到聊天",
+        "Add to Chat/Quote": "添加到聊天/引用",
         "Copy Image": "复制图片",
         "Save Image": "保存图片",
         "Copy Video": "复制视频",
@@ -6829,7 +7099,10 @@ function installLocalization(resourcesDir) {
         "Remove From Split": "从拆分中移除",
         "Copy File Path": "复制文件路径",
         "Copy File Name": "复制文件名称",
+        "Comment": "评论",
+        "Quote": "引用",
         "Add to Chat": "添加到聊天",
+        "Add to Chat/Quote": "添加到聊天/引用",
         "Copy Image": "复制图片",
         "Save Image": "保存图片",
         "Copy Video": "复制视频",
