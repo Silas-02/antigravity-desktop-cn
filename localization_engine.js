@@ -52,6 +52,10 @@ const TRAY_SIGNATURE_START = "'__ANTIGRAVITY_TRAY_TRANSLATION_START__';";
 const TRAY_SIGNATURE_END = "'__ANTIGRAVITY_TRAY_TRANSLATION_END__';";
 const IPC_CONTEXT_MENU_SIGNATURE_START = "'__ANTIGRAVITY_IPC_CONTEXT_MENU_TRANSLATION_START__';";
 const IPC_CONTEXT_MENU_SIGNATURE_END = "'__ANTIGRAVITY_IPC_CONTEXT_MENU_TRANSLATION_END__';";
+const MAIN_SUBFRAME_SIGNATURE_START = "'__ANTIGRAVITY_MAIN_SUBFRAME_LOCALIZATION_START__';";
+const MAIN_SUBFRAME_SIGNATURE_END = "'__ANTIGRAVITY_MAIN_SUBFRAME_LOCALIZATION_END__';";
+const UTILS_SUBFRAME_SIGNATURE_START = "'__ANTIGRAVITY_UTILS_SUBFRAME_LOCALIZATION_START__';";
+const UTILS_SUBFRAME_SIGNATURE_END = "'__ANTIGRAVITY_UTILS_SUBFRAME_LOCALIZATION_END__';";
 const LEGACY_SIGNATURE_START = ['/', '* --- ANTIGRAVITY CHINESE LOCALIZATION START --- *', '/'].join('');
 const LEGACY_SIGNATURE_END = ['/', '* --- ANTIGRAVITY CHINESE LOCALIZATION END --- *', '/'].join('');
 const LEGACY_MENU_SIGNATURE_START = ['/', '/ =========================================='].join('');
@@ -876,6 +880,28 @@ function generateJs() {
         return false;
     }
 
+    function isProseOrAgentMessage(node) {
+        if (!node) return false;
+        let curr = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+        for (let depth = 0; curr && depth < 6; depth++) {
+            if (curr === document.body || curr === document.documentElement) break;
+            const cls = curr.className;
+            if (typeof cls === 'string' && /(?:prose|markdown)/i.test(cls)) {
+                return true;
+            }
+            const testId = curr.getAttribute ? curr.getAttribute('data-testid') : null;
+            if (testId === 'user-input-step' || testId === 'agent-message' || testId === 'agent-response') {
+                return true;
+            }
+            const tag = curr.tagName ? curr.tagName.toUpperCase() : '';
+            if (tag === 'LI' || tag === 'BLOCKQUOTE' || tag === 'PRE' || tag === 'CODE' || tag === 'ARTICLE') {
+                return true;
+            }
+            curr = curr.parentElement;
+        }
+        return false;
+    }
+
     function isUptimeDurationContext(node) {
         if (!node) return false;
         let curr = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
@@ -975,6 +1001,59 @@ function generateJs() {
             }
         }
 
+        if (isSwarmBoardDocument()) {
+            const elId = el.id || '';
+            if (elId === 'swarm-title' || testId === 'swarm-title') {
+                const stText = norm(getBoundedTextContent(el, 4, 40) || '');
+                return (stText === 'Untitled swarm' || stText === '未命名蜂群') ? 0 : 2;
+            }
+            if (elId === 'raw' || elId === 'ov-frame') {
+                blockedZoneCache.set(el, -1);
+                return 2;
+            }
+            if (el.classList) {
+                const cl = el.classList;
+                if (cl.contains('msg-body') || cl.contains('msg-author') || cl.contains('msg-to') ||
+                    cl.contains('ov-who') || cl.contains('ov-iframe') ||
+                    cl.contains('o2-runsum') || cl.contains('o2-runt') || cl.contains('o2-runnote') ||
+                    cl.contains('o2-tt') || cl.contains('o2-donem') || cl.contains('o2-thg') ||
+                    cl.contains('o2-mauth') || cl.contains('o2-mrole') || cl.contains('o2-wchip') ||
+                    cl.contains('o2-rcap') || cl.contains('o2-tvcap') || cl.contains('o2-rwhen') ||
+                    cl.contains('o2-tvwhen')) {
+                    blockedZoneCache.set(el, -1);
+                    return 2;
+                }
+                if (cl.contains('path') && el.parentElement && el.parentElement.id === 'raw-meta') {
+                    blockedZoneCache.set(el, -1);
+                    return 2;
+                }
+            }
+            const directParent = el.parentElement;
+            if (directParent && directParent.classList) {
+                const pcl = directParent.classList;
+                if ((tag === 'B' || tag === 'P') && (pcl.contains('o2-goal') || pcl.contains('o2-cb'))) {
+                    blockedZoneCache.set(el, -1);
+                    return 2;
+                }
+                if (tag === 'P' && pcl.contains('o2-lb')) {
+                    blockedZoneCache.set(el, -1);
+                    return 2;
+                }
+                if (tag === 'B' && pcl.contains('o2-tht')) {
+                    const o2tHost = directParent.closest ? directParent.closest('[data-o2t]') : null;
+                    const o2tId = o2tHost ? (o2tHost.getAttribute('data-o2t') || '') : '';
+                    if (o2tId !== 't-asks' && o2tId !== 't-other') {
+                        blockedZoneCache.set(el, -1);
+                        return 2;
+                    }
+                }
+            }
+            if ((tag === 'B' || tag === 'P') && el.closest && el.closest('.o2-ask')) {
+                blockedZoneCache.set(el, -1);
+                return 2;
+            }
+        }
+
         let ownSoftBlocked = false;
         if (BLOCKED_TEST_IDS.has(testId) || el.getAttribute('contenteditable') === 'true') {
             ownSoftBlocked = true;
@@ -1029,6 +1108,47 @@ function generateJs() {
             .every(variants => variants.some(text => labels.includes(text)))) return false;
         replaceTextNode(node, '文件夹');
         return true;
+    }
+
+    // "New" is a generic word (the model picker shows a "New" badge), so it is
+    // never added to the dictionary. Translate it only when it is the sole
+    // label of a button and a bounded ancestor is the Automations page.
+    const AUTOMATION_PAGE_TITLE_REGEX = /(?:Automations|自动化)/;
+    const AUTOMATION_PAGE_SIGNAL_REGEX = /(?:No automations yet|暂无自动化任务|Run a prompt on a schedule|按计划运行提示词|Next run|下次运行|Last run|上次运行|Paused\\. Resume it|已暂停\\. 请恢复)/i;
+    function translateAutomationNewButton(node, value) {
+        if (norm(value) !== 'New') return false;
+        const label = node.parentElement;
+        if (!label || isInBlockedZone(label) || isContentBodyContainer(label)) return false;
+
+        let button = null;
+        let curr = label;
+        for (let depth = 0; curr && depth < 3; depth++) {
+            const tag = curr.tagName ? curr.tagName.toUpperCase() : '';
+            const role = curr.getAttribute ? curr.getAttribute('role') : null;
+            if (role === 'option' || role === 'menuitem' || role === 'listbox' || role === 'menu') return false;
+            if (tag === 'BUTTON' || role === 'button' || tag === 'A') {
+                button = curr;
+                break;
+            }
+            curr = curr.parentElement;
+        }
+        if (!button || norm(getBoundedTextContent(button, 8, 40) || '') !== 'New') return false;
+
+        curr = button.parentElement;
+        for (let depth = 0; curr && depth < 8; depth++) {
+            if (curr === document.body || curr === document.documentElement) break;
+            const role = curr.getAttribute ? curr.getAttribute('role') : null;
+            if (role === 'dialog' || role === 'listbox' || role === 'menu') return false;
+            const text = getBoundedTextContent(curr, 400, 4000);
+            if (text === null) return false;
+            const t = norm(text);
+            if (AUTOMATION_PAGE_TITLE_REGEX.test(t) && AUTOMATION_PAGE_SIGNAL_REGEX.test(t)) {
+                replaceTextNode(node, '新建');
+                return true;
+            }
+            curr = curr.parentElement;
+        }
+        return false;
     }
 
     // The product-owned attachment label is rendered inside the protected
@@ -1992,6 +2112,26 @@ function generateJs() {
                 "构建并润色您的 Google Slides。将笔记转化为演示文稿，添加幻灯片、图片和演讲者备注，并将结果导出为 PDF 或 PowerPoint",
                 "构建并润色您的 Google Slides。将笔记整理成演示文稿、添加幻灯片、图片和演讲者备注，并将结果导出为 PDF 或 PowerPoint"
             ]
+        },
+        {
+            source: 'swarm',
+            display: "蜂群协作",
+            descriptions: [
+                "(Preview & Quota Heavy) Run a swarm: several agents working in parallel on one task, each in its own conversation, collaborating through a shared message board. Use when the work splits into pieces that can be done at the same time, or when a second pair of eyes should check the first pair's work.",
+                "(Preview & Quota Heavy) Run a swarm: several agents working in parallel on one task",
+                "(预览且配额消耗较高) 运行蜂群协作: 多个智能体各自在独立会话中并行处理同一任务，并通过共享消息板协同配合. 当工作可拆分为可同时推进的多个部分，或需要引入独立第二视角复核把关先前工作成果时使用.",
+                "(预览且配额消耗较高) 运行蜂群协作: 多个智能体各自在独立会话中并行处理同一任务"
+            ]
+        },
+        {
+            source: 'swarm_monitor',
+            display: "蜂群监控",
+            descriptions: [
+                "ONLY for the native-swarm worker whose brief says it is the monitor. On a timer, it checks whether the whole swarm has stalled and calls on the one member who can unstick it. Coordinators and other workers: do not load this.",
+                "ONLY for the native-swarm worker whose brief says it is the monitor.",
+                "仅限任务简报中指定为监控员的原生蜂群工作节点使用. 它会按定时器检查整个蜂群是否处于停滞状态，并唤醒唯一能推动进展的成员打破僵局. 协调者及其他工作节点: 请勿加载此技能.",
+                "仅限任务简报中指定为监控员的原生蜂群工作节点使用."
+            ]
         }
     ];
 
@@ -2879,10 +3019,11 @@ function getDynamicProductUiTranslation(value, node = null) {
             return ". 您对本服务的使用受 ";
         }
 
-        match = normalized.match(/^Manage\\s+(project|workspace)\\s+folders and settings\\.$/i);
+        match = normalized.match(/^Manage\\s+(project|workspace)\\s+(folders|resources) and settings\\.$/i);
         if (match) {
             const scope = match[1].toLowerCase() === "project" ? "项目" : "工作区";
-            return "管理" + scope + "文件夹和设置.";
+            const target = match[2].toLowerCase() === "resources" ? "资源" : "文件夹";
+            return "管理" + scope + target + "和设置.";
         }
 
         match = normalized.match(/^When toggled on,\\s+(.+?)\\s+collects usage data to help Google enhance performance and features\\.$/i);
@@ -2931,6 +3072,11 @@ function getDynamicProductUiTranslation(value, node = null) {
 
         match = normalized.match(/^Build with\\s+(.+?)\\s+Plugins$/i);
         if (match) return "使用 " + match[1] + " 插件构建";
+
+        match = normalized.match(/^Stream\\s+and\\s+control\\s+(.+?)\\s+directly\\s+in\\s+the\\s+side\\s+pane(\\.?)$/i);
+        if (match && match[1].length <= 80 && !/[。，？！?!]|\\.\\s/.test(match[1]) && (!node || !isProseOrAgentMessage(node))) {
+            return "直接在侧边面板中实时查看并控制 " + match[1] + (match[2] ? "." : "");
+        }
 
         match = normalized.match(/^Plugins are packaged collections of skills and MCPs to help the Agent in\\s+(.+?)\\s+work with Google developer products\\. You can always change your choices in Settings\\.$/i);
         if (match) return "插件是打包的技能与 MCP 集合，用于帮助 " + match[1] + " 中的智能体使用 Google 开发者产品. 您随时可以在设置中更改选择.";
@@ -4377,7 +4523,705 @@ function getDynamicProductUiTranslation(value, node = null) {
         return false;
     }
 
-    const SKILL_PICKER_CONTAINER_REGEX = /(?:quick question without interrupting|align on a plan|team of agents to autonomously|recent successes or corrections|Boost multi-agent orchestrator|Antigravity Customization System|comprehensive guide, quick reference, and sitemap|render rich interactive HTML widgets|scheduled background automation|manage and create plugins|namespaced bundles of skills|MCP servers, skills, slash commands|other coding agents|manage Google Docs|draft, and edit docs|and write your Google Docs|schedule events, and RSVP|draft, and send emails in Gmail|Run your Gmail inbox|manage Gmail messages, drafts, labels|format spreadsheets|edit, and export presentations|upload, download, and share files|不中断主会话|通过访谈与我对齐|智能体团队自主应对|反思最近的成功或改进|Boost 多智能体编排器|个性化定制系统的综合指南|全面指南、快速参考和网站地图|交互式 HTML 小组件|定时后台自动化|计划后台自动化|管理和创建插件|迁移到一个新的 Antigravity 插件中|管理 Google 文档|起草和编辑文档|安排活动并回复邀请|在 Gmail 中搜索、阅读、起草并发送电子邮件|管理您的 Gmail 收件箱|管理 Gmail 邮件、草稿、标签|编写和格式化电子表格|导出演示文稿|上传、下载和共享文件)/i;
+    const SKILL_PICKER_CONTAINER_REGEX = /(?:quick question without interrupting|align on a plan|team of agents to autonomously|recent successes or corrections|Boost multi-agent orchestrator|Antigravity Customization System|comprehensive guide, quick reference, and sitemap|render rich interactive HTML widgets|scheduled background automation|manage and create plugins|namespaced bundles of skills|MCP servers, skills, slash commands|other coding agents|manage Google Docs|draft, and edit docs|and write your Google Docs|schedule events, and RSVP|draft, and send emails in Gmail|Run your Gmail inbox|manage Gmail messages, drafts, labels|format spreadsheets|edit, and export presentations|upload, download, and share files|Preview & Quota Heavy\\) Run a swarm|several agents working in parallel|native-swarm worker whose brief says it is the monitor|不中断主会话|通过访谈与我对齐|智能体团队自主应对|反思最近的成功或改进|Boost 多智能体编排器|个性化定制系统的综合指南|全面指南、快速参考和网站地图|交互式 HTML 小组件|定时后台自动化|计划后台自动化|管理和创建插件|迁移到一个新的 Antigravity 插件中|管理 Google 文档|起草和编辑文档|安排活动并回复邀请|在 Gmail 中搜索、阅读、起草并发送电子邮件|管理您的 Gmail 收件箱|管理 Gmail 邮件、草稿、标签|编写和格式化电子表格|导出演示文稿|上传、下载和共享文件|运行蜂群协作|指定为监控员的原生蜂群)/i;
+
+    function translateSwarmBoardEmptyBody(element) {
+        if (!element || element.nodeType !== Node.ELEMENT_NODE) return false;
+        const tag = element.tagName?.toUpperCase();
+        const isEmptyBody = element.getAttribute?.('data-testid') === 'swarm-empty-body' || element.id === 'empty-body';
+        if (tag !== 'P' && !isEmptyBody) return false;
+        const rawText = getBoundedTextContent(element, 12, 320);
+        if (!rawText) return false;
+        const normalized = norm(rawText);
+        let prefixTarget = null;
+        if (/^Swarms\\s+started\\s+in\\s+this\\s+conversation\\s+appear\\s+here\\s+automatically,\\s+with\\s+their\\s+board,\\s+members\\s+and\\s+@mention\\s+graph\\.\\s+Start\\s+one\\s+with\\s+\\/swarm[.。]?$/i.test(normalized) ||
+            /^在此会话中启动的蜂群协作会自动显示在这里/.test(normalized)) {
+            prefixTarget = "在此会话中启动的蜂群协作会自动显示在这里，并展示其消息板、成员和 @提及 图谱. 请使用 ";
+        } else if (/^Open\\s+this\\s+pane\\s+from\\s+a\\s+conversation\\s+to\\s+see\\s+its\\s+swarm\\.\\s+Swarms\\s+started\\s+there\\s+appear\\s+here\\s+automatically;\\s+start\\s+one\\s+with\\s+\\/swarm[.。]?$/i.test(normalized) ||
+            /^请从会话中打开此窗格以查看其蜂群协作/.test(normalized)) {
+            prefixTarget = "请从会话中打开此窗格以查看其蜂群协作. 在该会话中启动的蜂群会自动显示在这里; 请使用 ";
+        }
+        if (!prefixTarget) return false;
+
+        const directChildren = Array.from(element.children || []);
+        if (directChildren.length !== 1 || directChildren[0].tagName?.toUpperCase() !== 'CODE') return false;
+        const codeEl = directChildren[0];
+        if (norm(codeEl.textContent) !== '/swarm') return false;
+
+        const childNodes = Array.from(element.childNodes || []);
+        const codeIdx = childNodes.indexOf(codeEl);
+        if (codeIdx < 0) return false;
+
+        const setRangeText = (nodes, startIdx, endIdx, targetText) => {
+            let changed = false;
+            let assigned = false;
+            for (let i = startIdx; i < endIdx; i++) {
+                const n = nodes[i];
+                if (n.nodeType !== Node.TEXT_NODE) continue;
+                const val = assigned ? "" : targetText;
+                assigned = true;
+                changed = replaceTextNode(n, val) || changed;
+            }
+            return changed;
+        };
+
+        setRangeText(childNodes, 0, codeIdx, prefixTarget);
+        setRangeText(childNodes, codeIdx + 1, childNodes.length, " 启动.");
+        return 'skip_children';
+    }
+
+    function isSwarmBoardDocument() {
+        try {
+            if (globalThis.location?.protocol !== 'plugin:') return false;
+            return Boolean(
+                document.getElementById('board')?.getAttribute('data-testid') === 'swarm-board' ||
+                document.getElementById('empty')?.getAttribute('data-testid') === 'swarm-empty-state' ||
+                document.getElementById('loading')?.getAttribute('data-testid') === 'swarm-loading' ||
+                (document.getElementById('tabbtn-feed') && document.getElementById('f-agent'))
+            );
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function formatSwarmDuration(raw) {
+        if (!raw) return raw;
+        return String(raw)
+            .replace(/(\\d+)\\s*d\\b/g, '$1 天')
+            .replace(/(\\d+)\\s*h\\b/g, '$1 小时')
+            .replace(/(\\d+)\\s*m\\b/g, '$1 分钟')
+            .replace(/(\\d+)\\s*s\\b/g, '$1 秒')
+            .replace(/\\s+/g, ' ')
+            .trim();
+    }
+
+    function translateSwarmBoardOverviewNotice(element) {
+        if (!element || element.nodeType !== Node.ELEMENT_NODE) return false;
+        if (element.id !== 'ov-notice' && element.getAttribute?.('data-testid') !== 'swarm-overview-notice') return false;
+        const rawText = getBoundedTextContent(element, 12, 320);
+        if (!rawText) return false;
+        const normalized = norm(rawText);
+        if (!/^The\\s+narrator\\s+\\([^)]+\\)\\s+was\\s+stopped\\.\\s+Ask\\s+the\\s+coordinator\\s+to\\s+add\\s+a\\s+new\\s+one\\s+\\([^)]+\\)\\.?$/i.test(normalized)) {
+            return false;
+        }
+        const directChildren = Array.from(element.children || []);
+        if (directChildren.length !== 2 ||
+            directChildren[0].tagName?.toUpperCase() !== 'B' ||
+            directChildren[1].tagName?.toUpperCase() !== 'CODE') {
+            return false;
+        }
+        const childNodes = Array.from(element.childNodes || []);
+        const bIdx = childNodes.indexOf(directChildren[0]);
+        const codeIdx = childNodes.indexOf(directChildren[1]);
+        if (bIdx < 0 || codeIdx <= bIdx) return false;
+
+        const setRangeText = (nodes, startIdx, endIdx, targetText) => {
+            let changed = false;
+            let assigned = false;
+            for (let i = startIdx; i < endIdx; i++) {
+                const n = nodes[i];
+                if (n.nodeType !== Node.TEXT_NODE) continue;
+                const val = assigned ? "" : targetText;
+                assigned = true;
+                changed = replaceTextNode(n, val) || changed;
+            }
+            return changed;
+        };
+
+        setRangeText(childNodes, 0, bIdx, "叙事者 (");
+        setRangeText(childNodes, bIdx + 1, codeIdx, ") 已停止. 请让协调者添加新叙事者 (");
+        setRangeText(childNodes, codeIdx + 1, childNodes.length, ").");
+        return 'skip_children';
+    }
+
+    function translateSwarmBoardContainers(element) {
+        if (!element || element.nodeType !== Node.ELEMENT_NODE) return false;
+        const emptyRes = translateSwarmBoardEmptyBody(element);
+        if (emptyRes) return emptyRes;
+        const noticeRes = translateSwarmBoardOverviewNotice(element);
+        if (noticeRes) return noticeRes;
+        return false;
+    }
+
+    function translateSwarmOverviewReason(reason) {
+        if (!reason) return reason;
+        const r = norm(reason);
+        if (/^view\\.html\\s+is\\s+over\\s+64\\s+KB$/i.test(r)) return "view.html 超过 64 KB";
+        if (/^no\\s+view\\.html\\s+yet$/i.test(r)) return "尚无 view.html";
+        if (/^loading\\s+the\\s+narrator\\s+view$/i.test(r)) return "正在加载叙事者视图";
+        const failMatch = r.match(/^the\\s+narrator['’]s\\s+view\\s+failed\\s+\\((.+)\\)$/i);
+        if (failMatch) return "叙事者视图加载失败 (" + failMatch[1] + ")";
+        return reason;
+    }
+
+    function getSwarmBoardUiTranslation(nodeOrEl, valNorm, originalVal, isAttr, attrName = '') {
+        if (!valNorm) return null;
+        if (isAttr) {
+            const el = nodeOrEl;
+            if (!el || el.nodeType !== Node.ELEMENT_NODE) return null;
+            const elId = el.id || '';
+            if (elId === 'swarm-title') return null;
+
+            if (attrName === 'placeholder' || attrName === 'aria-placeholder' || attrName === 'data-placeholder') {
+                if (elId === 'f-search' && valNorm === 'Search') return "搜索";
+                if (el.classList?.contains('o2-msin') && valNorm === 'Search members') return "搜索成员";
+                return null;
+            }
+
+            if (elId === 'f-search' && valNorm === 'Search posts') return "搜索消息";
+            if (el.classList?.contains('o2-msin') && valNorm === 'Search members') return "搜索成员";
+            if (elId === 'live') {
+                if (valNorm === 'Updates automatically') return "自动更新";
+                if (valNorm === 'Lost contact with the swarm sidecar; retrying') return "与蜂群 Sidecar 失去连接; 正在重试";
+                return null;
+            }
+            if (el.classList?.contains('tabs') && attrName === 'aria-label' && valNorm === 'Swarm views') return "蜂群视图";
+            if (elId === 'f-toggle') {
+                if (valNorm === 'Filters') return "筛选";
+                if (valNorm === 'Filters (active)') return "筛选 (已启用)";
+                return null;
+            }
+            if (elId === 'channel-tabs' && attrName === 'aria-label' && valNorm === 'Channels') return "频道";
+            if (el.classList?.contains('channel-tab') && attrName === 'title') {
+                if (valNorm === 'Posts in every channel') return "所有频道中的消息";
+                if (valNorm === 'main: the whole swarm reads it') return "main: 整个蜂群都会读取的频道";
+                if (/\\n(?:created by |archived$)/i.test(originalVal)) {
+                    const nextTip = originalVal
+                        .replace(/\\ncreated by ([^\\n]+)/i, "\\n创建者: $1")
+                        .replace(/\\narchived$/i, "\\n已归档");
+                    return nextTip !== originalVal ? nextTip : null;
+                }
+                return null;
+            }
+            if (elId === 'f-agent') {
+                if (valNorm === 'Filter by poster') return "按发送者筛选";
+                if (valNorm === 'Show posts by one member') return "仅显示某位成员发送的消息";
+                return null;
+            }
+            if (elId === 'f-mention') {
+                if (valNorm === 'Filter by recipient') return "按提及对象筛选";
+                if (valNorm === 'Show posts that call on one member') return "仅显示提及某位成员的消息";
+                return null;
+            }
+            if (elId === 'f-channel') {
+                if (valNorm === 'Filter by channel') return "按频道筛选";
+                if (valNorm === 'Show posts in one channel') return "仅显示某个频道中的消息";
+                return null;
+            }
+            if (el.classList?.contains('switch') && attrName === 'title') {
+                if (valNorm === 'Keep the newest post in view') return "保持最新消息在视图中";
+                if (valNorm === 'Hide killed and inactive members from the graph') return "在关系图中隐藏已终止和非活跃成员";
+                if (valNorm === 'Draw @all as an edge to every member') return "将 @all 绘制为指向每位成员的连线";
+                return null;
+            }
+            if (elId === 'agents' && attrName === 'aria-label' && valNorm === "Show or hide each member's posts") {
+                return "显示或隐藏每位成员的消息";
+            }
+            if (el.classList?.contains('chip') && attrName === 'title') {
+                const lines = String(originalVal || '').split('\\n');
+                if (lines.length === 2 && /^(?:Hidden from the board; click to show|Click to hide from the board)$/i.test(lines[1].trim())) {
+                    const m1 = lines[0].match(/^(.+?)(\\s+\\(you\\))?\\s+·\\s+([^·]+?)(?:\\s+·\\s+([^·]+?))?\\s+·\\s+(Active|Waiting|Killed)\\s+·\\s+(\\d+)\\s+posts?$/i);
+                    if (m1) {
+                        const roleMap = { coordinator: "协调者", worker: "工作节点", narrator: "叙事者", monitor: "监控员" };
+                        const statusMap = { active: "活跃", waiting: "等待中", killed: "已终止" };
+                        const roleVal = roleMap[m1[3].trim().toLowerCase()] || m1[3].trim();
+                        const statusVal = statusMap[m1[5].toLowerCase()] || m1[5];
+                        const line2 = /^Hidden/i.test(lines[1].trim()) ? "已从消息板隐藏; 点击显示" : "点击从消息板隐藏";
+                        return m1[1] + (m1[2] ? " (你)" : "") + " · " + roleVal + (m1[4] ? " · " + m1[4] : "") + " · " + statusVal + " · " + m1[6] + " 条消息\\n" + line2;
+                    }
+                }
+                return null;
+            }
+            if (el.classList?.contains('msg-channel') && attrName === 'title') {
+                const chMatch = valNorm.match(/^Posted\\s+in\\s+(#\\S+);\\s+click\\s+to\\s+show\\s+only\\s+(#\\S+)$/i);
+                if (chMatch) return "发布于 " + chMatch[1] + "; 点击仅显示 " + chMatch[2];
+                return null;
+            }
+            if (el.classList?.contains('msg-author') && attrName === 'title' && valNorm === 'Not on the roster') {
+                return "不在成员名单中";
+            }
+            if (el.classList?.contains('btn-group') && attrName === 'aria-label' && valNorm === 'Replay') return "回放";
+            if (el.classList?.contains('segmented') && attrName === 'aria-label' && valNorm === 'File') return "文件";
+            if (elId === 'replay-start' && valNorm === 'Jump to start') return "跳至开头";
+            if (elId === 'replay-back') {
+                if (valNorm === 'Previous post (←)') return "上一条消息 (←)";
+                if (valNorm === 'Previous post') return "上一条消息";
+                return null;
+            }
+            if (elId === 'replay-play') {
+                if (valNorm === 'Play / pause replay (space)') return "播放 / 暂停回放 (空格)";
+                if (valNorm === 'Play replay') return "播放回放";
+                if (valNorm === 'Pause replay') return "暂停回放";
+                return null;
+            }
+            if (elId === 'replay-fwd') {
+                if (valNorm === 'Next post (→)') return "下一条消息 (→)";
+                if (valNorm === 'Next post') return "下一条消息";
+                return null;
+            }
+            if (elId === 'replay-slider') {
+                if (valNorm === 'Replay position') return "回放进度";
+                if (valNorm === 'Scrub through board posts') return "拖动查看消息板历史";
+                return null;
+            }
+            if (elId === 'replay-live' && valNorm === 'Show everything and follow live') return "显示全部并实时跟随";
+            if (elId === 'replay-timing' && valNorm === 'Replay pacing') return "回放节奏";
+            if (elId === 'replay-speed' && valNorm === 'Replay speed') return "回放速度";
+            if (elId === 'graph' && attrName === 'aria-label' && valNorm === 'Who @mentions whom') return "成员 @提及 关系图";
+            if (elId === 'raw-copy' && valNorm === 'Copy to clipboard') return "复制到剪贴板";
+            if (elId === 'ov-system' && attrName === 'aria-label' && valNorm === 'System alerts') return "系统提醒";
+            if (el.getAttribute?.('data-testid') === 'swarm-overview-badge' && attrName === 'title') {
+                if (valNorm === 'The narrator is updating the overview') return "叙事者正在更新概览";
+                if (valNorm === 'The narrator is waiting for new board posts') return "叙事者正在等待消息板的新消息";
+                if (valNorm === 'The narrator was killed; the overview no longer updates') return "叙事者已停止; 概览将不再更新";
+                const failTip = valNorm.match(/^The\\s+narrator['’]s\\s+last\\s+step\\s+failed:\\s*(.+)$/i);
+                if (failTip) return "叙事者上一步失败: " + failTip[1];
+                return null;
+            }
+            if (el.getAttribute?.('data-testid') === 'swarm-overview-stale' && attrName === 'title') {
+                const staleMatch = valNorm.match(/^(\\d+)\\s+posts?\\s+since\\s+the\\s+view\\s+was\\s+updated$/i);
+                if (staleMatch) return "自上次视图更新以来已有 " + staleMatch[1] + " 条新消息";
+                return null;
+            }
+            if (el.getAttribute?.('data-testid') === 'swarm-overview-freshness' && attrName === 'title') {
+                const freshTip = valNorm.match(/^Narrator\\s+read\\s+up\\s+to\\s+(#\\d+)\\s+of\\s+(\\d+)$/i);
+                if (freshTip) return "叙事者已读至 " + freshTip[1] + " / " + freshTip[2];
+                return null;
+            }
+            if (el.classList?.contains('ov-iframe') && attrName === 'title' && valNorm === 'Narrator view (AI-generated)') {
+                return "叙事者视图 (AI 生成)";
+            }
+            if (el.classList?.contains('o2-rexp') && valNorm === 'Open full timeline') return "打开完整时间线";
+            if (el.classList?.contains('o2-rswipe') && valNorm === 'Compare then and now') return "对比当时与当前";
+            if (el.classList?.contains('o2-rscrub') && valNorm === 'Scrub through progress') return "拖动查看进度";
+            if (el.classList?.contains('o2-tprog') && attrName === 'title') {
+                const pTip = valNorm.match(/^(.+?)\\s+done$/i);
+                if (pTip) return pTip[1] + " 已完成";
+                return null;
+            }
+            if (el.classList?.contains('o2-crew') && attrName === 'aria-label' && valNorm === 'Filter by worker') return "按成员筛选";
+            if (el.classList?.contains('o2-m') && el.classList?.contains('all') && attrName === 'title' && valNorm === 'All workers') return "全部成员";
+            if (el.getAttribute?.('data-testid') === 'swarm-member-owner' && attrName === 'title') {
+                const runMatch = valNorm.match(/^Runs\\s+on\\s+(.+)$/i);
+                if (runMatch) return "运行于 " + runMatch[1];
+                return null;
+            }
+            if (el.classList?.contains('o2-tv') && attrName === 'aria-label' && valNorm === 'Progress') return "进度";
+            if (el.classList?.contains('o2-tvx') && attrName === 'aria-label' && valNorm === 'Close') return "关闭";
+            if (el.classList?.contains('o2-tvnav') && attrName === 'aria-label') {
+                if (valNorm === 'Previous') return "上一帧";
+                if (valNorm === 'Next') return "下一帧";
+                return null;
+            }
+            if (el.classList?.contains('o2-tvstrip') && attrName === 'aria-label' && valNorm === 'Frames') return "帧列表";
+            return null;
+        }
+
+        const textNode = nodeOrEl;
+        const parent = textNode ? textNode.parentElement : null;
+        if (!parent) return null;
+        const pTag = parent.tagName ? parent.tagName.toUpperCase() : '';
+        const pcl = parent.classList;
+        const pid = parent.id || '';
+        const pRole = parent.getAttribute?.('role') || '';
+        const pTestId = parent.getAttribute?.('data-testid') || '';
+
+        if (pcl?.contains('o2-thn') || pcl?.contains('o2-who')) return null;
+
+        if (pid === 'swarm-title') {
+            return valNorm === 'Untitled swarm' ? "未命名蜂群" : null;
+        }
+        if (pcl?.contains('loading-caption') || pid === 'empty-title' || pcl?.contains('empty-hint')) {
+            if (/^Looking\\s+for\\s+this\\s+conversation['’]s\\s+swarm(?:…|\\.\\.\\.)$/i.test(valNorm)) return "正在查找当前会话的蜂群协作...";
+            if (valNorm === 'No swarm in this conversation') return "当前会话中暂无蜂群协作";
+            if (valNorm === 'Watching for a swarm') return "正在监听蜂群动态";
+            return null;
+        }
+        if (pid === 'live-label' || pid === 'replay-live') {
+            if (valNorm === 'Live') return "实时";
+            if (valNorm === 'Reconnecting') return "重连中";
+            return null;
+        }
+        if (pRole === 'tab' && pcl?.contains('tab')) {
+            if (valNorm === 'Overview') return "概览";
+            if (valNorm === 'Board') return "消息板";
+            if (valNorm === 'Members') return "成员";
+            if (valNorm === 'Graph') return "关系图";
+            if (valNorm === 'Raw') return "原始数据";
+            return null;
+        }
+        if (pcl?.contains('channel-tab') && valNorm === 'All') {
+            return "全部";
+        }
+        if (pTag === 'OPTION') {
+            const selectId = parent.parentElement?.id || '';
+            if (selectId === 'f-agent') {
+                if (valNorm === 'From anyone') return "来自任何人";
+                const fromMatch = valNorm.match(/^From\\s+(.+)$/i);
+                if (fromMatch) return "来自 " + fromMatch[1];
+                return null;
+            }
+            if (selectId === 'f-mention') {
+                if (valNorm === 'To anyone') return "提及任何人";
+                if (valNorm === 'To no one') return "未提及任何人";
+                if (valNorm === 'To @all') return "提及 @all";
+                const toMatch = valNorm.match(/^To\\s+(.+)$/i);
+                if (toMatch) return "提及 " + toMatch[1];
+                return null;
+            }
+            if (selectId === 'f-channel') {
+                if (valNorm === 'All channels') return "全部频道";
+                const arcMatch = valNorm.match(/^(#.+?)\\s+\\(archived\\)$/i);
+                if (arcMatch) return arcMatch[1] + " (已归档)";
+                return null;
+            }
+            if (selectId === 'replay-timing') {
+                if (valNorm === 'Even pacing') return "匀速节奏";
+                if (valNorm === 'Real-time gaps') return "真实时间间隔";
+                return null;
+            }
+            return null;
+        }
+        if (parent.closest?.('label.switch')) {
+            if (valNorm === 'Follow') return "跟随";
+            if (valNorm === 'Hide inactive') return "隐藏非活跃";
+            if (valNorm === 'Expand @all') return "展开 @all";
+            return null;
+        }
+        if (pcl?.contains('chip-name') && parent.closest?.('#agents')) {
+            const youMatch = valNorm.match(/^(.+)\\s+\\(you\\)$/i);
+            if (youMatch) return youMatch[1] + " (你)";
+            return null;
+        }
+        if (pid === 'jump-latest' && valNorm === 'Latest') return "最新消息";
+        if (pcl?.contains('divider') && pTestId === 'swarm-unread-divider' && valNorm === 'New') return "新消息";
+        if (pcl?.contains('msg-more')) {
+            if (valNorm === 'Show more') return "显示更多";
+            if (valNorm === 'Show less') return "显示更少";
+            return null;
+        }
+        if (pcl?.contains('msg-note') && valNorm === 'not on roster') return "不在成员名单中";
+        if (parent.closest?.('.feed-empty')) {
+            if (valNorm === 'No posts match') return "没有匹配的消息";
+            if (valNorm === 'Try a different search or member filter.') return "请尝试其他搜索关键词或成员筛选条件.";
+            if (valNorm === 'Clear filters') return "清除筛选";
+            if (valNorm === 'No posts yet') return "暂无消息";
+            if (valNorm === 'Posts to the swarm board will appear here as members talk.') return "成员在蜂群消息板中发言后，消息将显示在这里.";
+            return null;
+        }
+        if (pcl?.contains('legend-item')) {
+            if (valNorm === '@mention, width = count') return "@提及，线宽 = 次数";
+            if (valNorm === 'via @all') return "通过 @all";
+            if (valNorm === 'posted with no mention') return "已发言但未提及他人";
+            if (valNorm === '@all posts, drawn by Expand @all') return "@all 消息，启用“展开 @all”时绘制";
+            return null;
+        }
+        if (pTag === 'B' && parent.parentElement?.id === 'replay-label') {
+            const postCountMatch = valNorm.match(/^(\\d+)\\s+posts?$/i);
+            if (postCountMatch) return postCountMatch[1] + " 条消息";
+            return null;
+        }
+        if (pid === 'replay-label') {
+            const overMatch = valNorm.match(/^over\\s+(.+)$/i);
+            if (overMatch) return "共耗时 " + formatSwarmDuration(overMatch[1]);
+            const ofMatch = valNorm.match(/^of\\s+(\\d+)(?:\\s+·\\s+(#\\d+)\\s+at\\s+(.+?)\\s+\\(\\+([^)]+)\\))?$/i);
+            if (ofMatch) {
+                return "/ " + ofMatch[1] + (ofMatch[2] ? " · " + ofMatch[2] + " 于 " + ofMatch[3] + " (+" + formatSwarmDuration(ofMatch[4]) + ")" : "");
+            }
+            return null;
+        }
+        if (pid === 'raw-copy-label') {
+            if (valNorm === 'Copy') return "复制";
+            if (valNorm === 'Copied') return "已复制";
+            if (valNorm === 'Copy failed') return "复制失败";
+            return null;
+        }
+        if (pcl?.contains('size') && parent.parentElement?.id === 'raw-meta') {
+            const sizeMatch = valNorm.match(/^·\\s*(\\d+(?:\\.\\d+)?\\s*(?:B|KB|MB))(?:\\s*·\\s*(\\d+)\\s+lines?)?$/i);
+            if (sizeMatch) return "· " + sizeMatch[1] + (sizeMatch[2] ? " · " + sizeMatch[2] + " 行" : "");
+            return null;
+        }
+        if (pTestId === 'swarm-overview-badge') {
+            if (valNorm === 'updating') return "更新中";
+            if (valNorm === 'watching') return "监听中";
+            if (valNorm === 'stopped') return "已停止";
+            if (valNorm === 'paused: quota') return "已暂停: 配额不足";
+            if (valNorm === 'paused: error') return "已暂停: 出错";
+            return null;
+        }
+        if (pTestId === 'swarm-overview-stale' && valNorm === 'stale') return "已过期";
+        if (pTestId === 'swarm-overview-freshness') {
+            const fMatch = valNorm.match(/^read\\s+(#\\d+)(?:\\s*·\\s*updated\\s+(.+)\\s+ago)?$/i);
+            if (fMatch) {
+                return "已读至 " + fMatch[1] + (fMatch[2] ? " · " + formatSwarmDuration(fMatch[2]) + "前更新" : "");
+            }
+            return null;
+        }
+        if (pTag === 'B' && parent.parentElement?.classList?.contains('ov-sys-text') && valNorm === 'system:') {
+            return "系统:";
+        }
+        if (parent.closest?.('.ov-sys') && pTag === 'BUTTON' && valNorm === 'Open') {
+            return "打开";
+        }
+        if (pid === 'ov-notice' || pTestId === 'swarm-overview-notice') {
+            if (valNorm === 'No narrator in this swarm. Ask the coordinator to add one.') return "当前蜂群中暂无叙事者. 请让协调者添加一位.";
+            if (/^The\\s+narrator['’]s\\s+view\\.json\\s+is\\s+over\\s+64\\s+KB,\\s+so\\s+it\\s+isn['’]t\\s+shown\\.?$/i.test(valNorm)) {
+                return "叙事者的 view.json 超过 64 KB，因此未予显示.";
+            }
+            if (/^The\\s+narrator['’]s\\s+view\\.json\\s+isn['’]t\\s+valid\\s+JSON\\s+yet\\.?$/i.test(valNorm)) {
+                return "叙事者的 view.json 尚不是有效的 JSON.";
+            }
+            if (/^The\\s+narrator\\s+hasn['’]t\\s+published\\s+an\\s+overview\\s+yet\\.?$/i.test(valNorm)) {
+                return "叙事者尚未发布概览.";
+            }
+            if (valNorm === 'Showing the last good view.json; the current file is over 64 KB.') {
+                return "正在显示上一次有效的 view.json; 当前文件超过 64 KB.";
+            }
+            if (valNorm === 'Showing the last good view.json; the current file is not valid JSON.') {
+                return "正在显示上一次有效的 view.json; 当前文件不是有效的 JSON.";
+            }
+            return null;
+        }
+        if (pcl?.contains('ov-label-text')) {
+            const ovMatch = valNorm.match(/^overview\\s*·\\s*from\\s+the\\s+narrator['’]s\\s+notes(?:\\s*·\\s*(.+))?$/i);
+            if (ovMatch) {
+                return "概览 · 来自叙事者笔记" + (ovMatch[1] ? " · " + translateSwarmOverviewReason(ovMatch[1]) : "");
+            }
+            if (/^narrator['’]s\\s+page\\s*·\\s*AI-generated$/i.test(valNorm)) return "叙事者页面 · AI 生成";
+            return null;
+        }
+        if (pid === 'ov-mode') {
+            if (/^Narrator['’]s\\s+page$/i.test(valNorm)) return "叙事者页面";
+            if (/^Retry\\s+narrator['’]s\\s+page$/i.test(valNorm)) return "重试叙事者页面";
+            if (valNorm === 'Overview') return "概览";
+            return null;
+        }
+        if (pid === 'ov-open-coord' && valNorm === 'Open coordinator chat') return "打开协调者聊天";
+        if (parent.closest?.('.ov-hint') && valNorm === 'Want this view different? Tell the coordinator.') {
+            return "想要调整此视图? 请告知协调者.";
+        }
+        if (pid === 'ov-ack' && /^Last\\s+change:/i.test(valNorm)) {
+            return originalVal.replace(/^(\\s*)Last\\s+change:\\s*/i, '$1上次调整: ');
+        }
+        if (pTestId === 'swarm-source') {
+            const rmMatch = valNorm.match(/^(.+?)\\s*·\\s*(\\d+)\\s+machines?$/i);
+            if (rmMatch) return (rmMatch[1] === 'Remote' ? "远程" : rmMatch[1]) + " · " + rmMatch[2] + " 台设备";
+            const stMatch = valNorm.match(/^(.+?)\\s*·\\s*(reconnecting|connecting|unavailable)$/i);
+            if (stMatch) {
+                const stMap = { reconnecting: "重连中", connecting: "连接中", unavailable: "不可用" };
+                return (stMatch[1] === 'Remote' ? "远程" : stMatch[1]) + " · " + (stMap[stMatch[2].toLowerCase()] || stMatch[2]);
+            }
+            return null;
+        }
+        if (parent.closest?.('.o2-onb')) {
+            if (valNorm === 'Your swarm is starting') return "蜂群正在启动";
+            if (valNorm === 'One goal') return "同一目标";
+            if (valNorm === 'The coordinator splits it into tasks.') return "协调者将其拆分为多个任务.";
+            if (valNorm === 'Many workers') return "多位成员";
+            if (valNorm === 'Each takes a task, and they run in parallel.') return "各自领取任务并并行推进.";
+            if (valNorm === 'One board') return "同一消息板";
+            if (valNorm === 'Updates land here. You step in only when asked.') return "进展统一汇总于此. 仅在需要时由您介入.";
+            if (valNorm === 'Waiting for the first update') return "正在等待首条进展更新";
+            return null;
+        }
+        if (pcl?.contains('o2-glbl') && valNorm === 'Goal') return "目标";
+        if (pTag === 'B' && parent.parentElement?.classList?.contains('o2-runh') && valNorm === 'Running') return "进行中";
+        if (pcl?.contains('o2-h')) {
+            if (valNorm === 'The team') return "团队成员";
+            if (valNorm === 'Threads') return "工作线程";
+            if (valNorm === 'Blocked') return "已阻塞";
+            if (valNorm === 'Running') return "进行中";
+            if (valNorm === 'Planned next') return "后续计划";
+            return null;
+        }
+        if (pcl?.contains('o2-none')) {
+            if (valNorm === 'Nothing blocked') return "暂无阻塞项";
+            if (valNorm === 'Nothing running') return "暂无进行中任务";
+            if (valNorm === 'Nothing planned') return "暂无后续计划";
+            return null;
+        }
+        if (pcl?.contains('o2-more')) {
+            const moreMatch = valNorm.match(/^\\+(\\d+)\\s+more$/i);
+            if (moreMatch) return "另外 " + moreMatch[1] + " 项";
+            return null;
+        }
+        if (pTag === 'B' && parent.parentElement?.classList?.contains('o2-progt')) {
+            const bMatch = valNorm.match(/^(\\d+)\\s+of\\s+(\\d+)$/i);
+            if (bMatch) return bMatch[1] + " / " + bMatch[2];
+            return null;
+        }
+        if (pcl?.contains('o2-progt') && /^tasks\\s+done$/i.test(valNorm)) return "项任务已完成";
+        if (pcl?.contains('o2-pchip')) {
+            let pm = valNorm.match(/^(\\d+)\\s+needs?\\s+you$/i);
+            if (pm) return pm[1] + " 项待您确认";
+            pm = valNorm.match(/^(\\d+)\\s+blocked$/i);
+            if (pm) return pm[1] + " 项阻塞";
+            pm = valNorm.match(/^(\\d+)\\s+threads?\\s+open$/i);
+            if (pm) return pm[1] + " 个线程进行中";
+            pm = valNorm.match(/^(\\d+)\\s+active$/i);
+            if (pm) return pm[1] + " 项活跃";
+            return null;
+        }
+        if (pcl?.contains('o2-doneempty') && valNorm === 'No tasks completed yet.') return "暂未完成任何任务.";
+        if (pcl?.contains('o2-qhdr')) {
+            const qm = valNorm.match(/^Up\\s+next\\s*·\\s*(\\d+)$/i);
+            if (qm) return "接下来 · " + qm[1];
+            return null;
+        }
+        if (pcl?.contains('o2-tprog') && valNorm === 'In review') return "审核中";
+        if (pTag === 'B' && parent.parentElement?.classList?.contains('o2-tht')) {
+            const o2tHost = parent.closest?.('[data-o2t]');
+            const o2tId = o2tHost ? (o2tHost.getAttribute('data-o2t') || '') : '';
+            if (o2tId === 't-asks' || o2tId === 't-other') {
+                if (valNorm === 'Needs you') return "需要您确认";
+                if (valNorm === 'Tasks') return "任务";
+                if (valNorm === 'Other') return "其他";
+            }
+            return null;
+        }
+        if (pTag === 'EM' && parent.parentElement?.classList?.contains('o2-tht')) {
+            if (valNorm === 'Needs you') return "需要您确认";
+            if (valNorm === 'Blocked') return "已阻塞";
+            if (valNorm === 'Moving') return "推进中";
+            if (valNorm === 'Not started') return "未开始";
+            if (valNorm === 'Done') return "已完成";
+            return null;
+        }
+        if (pTag === 'SPAN' && parent.parentElement?.classList?.contains('o2-thn') && valNorm === 'Now') return "当前";
+        if (pcl?.contains('o2-btn')) {
+            if (valNorm === 'Reply') return "回复";
+            if (valNorm === 'Open') return "打开";
+            return null;
+        }
+        if (pcl?.contains('o2-rmeta') || pcl?.contains('o2-tvmeta')) {
+            const rMatch = valNorm.match(/^(\\d+)\\s+of\\s+(\\d+)\\s+tasks?\\s+done$/i);
+            if (rMatch) return rMatch[1] + " / " + rMatch[2] + " 项任务已完成";
+            return null;
+        }
+        if (pcl?.contains('o2-rcmp')) {
+            if (valNorm === 'Compare with now') return "与当前对比";
+            if (valNorm === 'Hide compare') return "隐藏对比";
+            return null;
+        }
+        if (pcl?.contains('o2-rtag') || pcl?.contains('o2-tvpos')) {
+            if (valNorm === 'Now') return "当前";
+            const npMatch = valNorm.match(/^Now\\s*·\\s*(.+)$/i);
+            if (npMatch) return "当前 · " + npMatch[1];
+            return null;
+        }
+        if (pTag === 'B' && parent.parentElement?.classList?.contains('o2-tvh') && valNorm === 'Progress') return "进度";
+        if (parent.closest?.('.o2-m.all') && valNorm === 'All') return "全部";
+        if (pTag === 'B' && parent.parentElement?.classList?.contains('o2-lb') && valNorm === 'Coordinator') return "协调者";
+        if (pcl?.contains('o2-mstat')) {
+            if (valNorm === 'Coordinator · Working') return "协调者 · 工作中";
+            if (valNorm === 'Coordinator') return "协调者";
+            if (valNorm === 'Working') return "工作中";
+            if (valNorm === 'Needs you') return "需要您确认";
+            if (valNorm === 'Retired') return "已退役";
+            return null;
+        }
+        if (pcl?.contains('o2-mts')) {
+            const pMatch = valNorm.match(/^(.+?·\\s*)?(\\d+)\\s+posts?$/i);
+            if (pMatch) return (pMatch[1] || '') + pMatch[2] + " 条消息";
+            return null;
+        }
+        if (pTestId === 'swarm-member-seen') {
+            if (valNorm === 'seen just now') return "刚刚在线";
+            const lsMatch = valNorm.match(/^last\\s+seen\\s+(.+)\\s+ago$/i);
+            if (lsMatch) return "上次在线: " + formatSwarmDuration(lsMatch[1]) + "前";
+            return null;
+        }
+        if (pTestId === 'swarm-member-channels' && valNorm === 'all channels') return "全部频道";
+        if (pcl?.contains('o2-mnow') && valNorm === 'No posts yet') return "暂无消息";
+        if (pTag === 'SPAN' && parent.parentElement?.classList?.contains('o2-msec')) {
+            if (valNorm === 'Active') return "活跃中";
+            if (valNorm === 'Team') return "团队";
+            if (valNorm === 'Standing by') return "待命";
+            return null;
+        }
+        if (pTag === 'SPAN' && parent.parentElement?.classList?.contains('o2-mret') && valNorm === 'Retired') return "已退役";
+        if (pid === 'toast') {
+            if (valNorm === "That link isn't allowed here.") return "此处不允许打开该链接.";
+            if (valNorm === 'Opening files needs the app.') return "需要通过应用打开文件.";
+            if (valNorm === 'Click a link in the view to open it.') return "请点击视图中的链接以打开.";
+            const cpMatch = valNorm.match(/^Copied\\s+"([^"]+)"\\.\\s+Paste\\s+it\\s+in\\s+the\\s+chat\\.$/i);
+            if (cpMatch) return '已复制 "' + cpMatch[1] + '". 请在聊天中粘贴.';
+            const tpMatch = valNorm.match(/^Type\\s+"([^"]+)"\\s+in\\s+the\\s+chat\\.$/i);
+            if (tpMatch) return '请在聊天中输入 "' + tpMatch[1] + '".';
+            const ocMatch = valNorm.match(/^Opening\\s+(.+?)['’]s\\s+conversation\\s+needs\\s+the\\s+app\\.$/i);
+            if (ocMatch) return "需要通过应用打开 " + ocMatch[1] + " 的会话.";
+            const rmRunMatch = valNorm.match(/^(.+?)\\s+runs\\s+on\\s+(.+?);\\s+open\\s+it\\s+there\\.$/i);
+            if (rmRunMatch) return rmRunMatch[1] + " 运行在 " + rmRunMatch[2] + " 上; 请在对应设备上打开.";
+            return null;
+        }
+        return null;
+    }
+
+    function translateSwarmBoardElementAttributes(el) {
+        if (!el || el.nodeType !== Node.ELEMENT_NODE) return;
+        for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label']) {
+            const v = el.getAttribute(attr);
+            if (!v) continue;
+            const target = getSwarmBoardUiTranslation(el, norm(v), v, true, attr);
+            if (target && target !== v) {
+                el.setAttribute(attr, target);
+            }
+        }
+    }
+
+    function translateSidePaneControlBanner(element) {
+        if (!element || element.nodeType !== Node.ELEMENT_NODE) return false;
+        if (isInBlockedZone(element) || isProseOrAgentMessage(element)) return false;
+        const rawText = getBoundedTextContent(element, 12, 180);
+        if (!rawText) return false;
+        const normalized = norm(rawText);
+        const match = normalized.match(/^Stream\\s+and\\s+control\\s+(.+?)\\s+directly\\s+in\\s+the\\s+side\\s+pane(\\.?)$/i);
+        if (!match || match[1].length > 80 || /[。，？！?!]|\\.\\s/.test(match[1])) return false;
+        const suffix = match[2] ? "." : "";
+
+        const directChildren = Array.from(element.children || []);
+        if (directChildren.length === 0) {
+            const textNodes = collectTextNodes(element);
+            if (textNodes.length < 2) return false;
+            let changed = replaceTextNode(textNodes[0], "直接在侧边面板中实时查看并控制 " + match[1] + suffix);
+            for (let i = 1; i < textNodes.length; i++) {
+                changed = replaceTextNode(textNodes[i], '') || changed;
+            }
+            return changed ? 'skip_children' : false;
+        }
+        if (directChildren.length === 1) {
+            const childEl = directChildren[0];
+            const childTag = childEl.tagName?.toUpperCase();
+            if (childTag !== 'SPAN' && childTag !== 'STRONG' && childTag !== 'B' && childTag !== 'CODE') return false;
+            const childText = norm(getBoundedTextContent(childEl, 6, 80) || '');
+            if (!childText || childText.length > 80) return false;
+            const childNodes = Array.from(element.childNodes || []);
+            const elIdx = childNodes.indexOf(childEl);
+            if (elIdx < 0) return false;
+            const beforeText = norm(childNodes.slice(0, elIdx).filter(n => n.nodeType === Node.TEXT_NODE).map(n => n.nodeValue || '').join(''));
+            const afterText = norm(childNodes.slice(elIdx + 1).filter(n => n.nodeType === Node.TEXT_NODE).map(n => n.nodeValue || '').join(''));
+            if (!/^Stream\\s+and\\s+control$/i.test(beforeText)) return false;
+            if (!/^directly\\s+in\\s+the\\s+side\\s+pane\\.?$/i.test(afterText)) return false;
+            const dotSuffix = /\\.$/.test(afterText) ? "." : suffix;
+            const setRangeText = (nodes, startIdx, endIdx, targetText) => {
+                let changed = false;
+                let assigned = false;
+                for (let i = startIdx; i < endIdx; i++) {
+                    const n = nodes[i];
+                    if (n.nodeType !== Node.TEXT_NODE) continue;
+                    const val = assigned ? "" : targetText;
+                    assigned = true;
+                    changed = replaceTextNode(n, val) || changed;
+                }
+                return changed;
+            };
+            let changed = false;
+            changed = setRangeText(childNodes, 0, elIdx, "直接在侧边面板中实时查看并控制 ") || changed;
+            changed = setRangeText(childNodes, elIdx + 1, childNodes.length, dotSuffix) || changed;
+            return changed ? 'skip_children' : false;
+        }
+        return false;
+    }
 
     function translateSpecialContainers(element) {
         if (!element || element.nodeType !== Node.ELEMENT_NODE) return false;
@@ -4420,6 +5264,14 @@ function getDynamicProductUiTranslation(value, node = null) {
         if (textLength <= 160 && isCollapsibleActivityHeader(rawText)) {
             markThoughtContentSibling(element);
             return 'skip_children';
+        }
+        if (textLength <= 320 && (element.getAttribute?.('data-testid') === 'swarm-empty-body' || element.id === 'empty-body' || /(?:Swarms\\s+started\\s+in\\s+this\\s+conversation|Open\\s+this\\s+pane\\s+from\\s+a\\s+conversation)/i.test(rawText))) {
+            const swarmEmptyRes = translateSwarmBoardEmptyBody(element);
+            if (swarmEmptyRes) return swarmEmptyRes;
+        }
+        if (textLength <= 180 && /Stream\\s+and\\s+control\\s+.+?\\s+directly\\s+in\\s+the\\s+side\\s+pane/i.test(rawText)) {
+            const sidePaneRes = translateSidePaneControlBanner(element);
+            if (sidePaneRes) return sidePaneRes;
         }
         let translated = false;
         const isSpan = element.tagName?.toUpperCase() === 'SPAN';
@@ -5170,6 +6022,20 @@ function getDynamicProductUiTranslation(value, node = null) {
     function translateElementAttributes(node) {
         try {
             if (!node || node.nodeType !== Node.ELEMENT_NODE) return;
+            if (isSwarmBoardDocument()) {
+                const swarmBlockedState = getElementBlockedState(node);
+                if (swarmBlockedState === 2) {
+                    const tag = node.tagName ? node.tagName.toUpperCase() : '';
+                    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SVG') {
+                        translateSwarmBoardElementAttributes(node);
+                    }
+                    return;
+                }
+                if (swarmBlockedState === 0) {
+                    translateSwarmBoardElementAttributes(node);
+                }
+                return;
+            }
             const blockedState = getElementBlockedState(node);
             if (blockedState === 2) {
                 const tag = node.tagName ? node.tagName.toUpperCase() : '';
@@ -5325,6 +6191,12 @@ function getDynamicProductUiTranslation(value, node = null) {
 
                 if (BLOCKED_TAGS_SET.has(tag)) {
                     blockedZoneCache.set(node, -1);
+                    if (isSwarmBoardDocument()) {
+                        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SVG') {
+                            translateSwarmBoardElementAttributes(node);
+                        }
+                        return;
+                    }
                     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SVG') {
                         const parentBlocked = getElementBlockedState(node.parentElement) !== 0;
                         for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label']) {
@@ -5352,6 +6224,16 @@ function getDynamicProductUiTranslation(value, node = null) {
 
                 const blockedState = getElementBlockedState(node);
                 if (blockedState === 2) return;
+
+                if (isSwarmBoardDocument()) {
+                    if (translateSwarmBoardContainers(node) === 'skip_children') return;
+                    if (blockedState === 0) {
+                        translateSwarmBoardElementAttributes(node);
+                    }
+                    if (node.shadowRoot) translateNode(node.shadowRoot, false, visitedElements);
+                    for (const child of node.childNodes) translateNode(child, true, visitedElements);
+                    return;
+                }
 
                 const isFoldButtonContainer = tag === 'BUTTON' || node.getAttribute?.('role') === 'button';
                 if (blockedState === 0 || isFoldButtonContainer) {
@@ -5428,7 +6310,32 @@ function getDynamicProductUiTranslation(value, node = null) {
                     return;
                 }
 
+                if (isSwarmBoardDocument()) {
+                    if (!parentContainersScanned && translateSwarmBoardContainers(parentEl)) return;
+                    const swarmTextTrans = getSwarmBoardUiTranslation(node, norm(originalVal), originalVal, false);
+                    if (swarmTextTrans !== null && swarmTextTrans !== undefined && swarmTextTrans !== originalVal) {
+                        let finalSwarmText = swarmTextTrans;
+                        const leadingMatch = originalVal.match(/^\\s+/);
+                        const trailingMatch = originalVal.match(/\\s+$/);
+                        if (leadingMatch && !finalSwarmText.startsWith(leadingMatch[0])) {
+                            finalSwarmText = leadingMatch[0] + finalSwarmText;
+                        }
+                        if (trailingMatch && !finalSwarmText.endsWith(trailingMatch[0])) {
+                            finalSwarmText = finalSwarmText + trailingMatch[0];
+                        }
+                        if (finalSwarmText !== originalVal) {
+                            replaceTextNode(node, finalSwarmText);
+                            return;
+                        }
+                    }
+                    if (parentEl && parentEl.childNodes.length === 1) {
+                        translatedValues.set(node, originalVal);
+                    }
+                    return;
+                }
+
                 if (translateAttachmentMenuFolder(node, originalVal)) return;
+                if (translateAutomationNewButton(node, originalVal)) return;
                 if (translateSkillPickerNameTextNode(node, originalVal)) return;
                 if (translateUsedSkillNameTextNode(node, originalVal)) return;
                 if (translateCommitSummaryTextNode(node, originalVal)) return;
@@ -6106,6 +7013,16 @@ function cleanIpcHandlersJsContent(content) {
     return removeMarkedBlocks(content, IPC_CONTEXT_MENU_SIGNATURE_START, IPC_CONTEXT_MENU_SIGNATURE_END);
 }
 
+function cleanMainJsContent(content) {
+    return removeMarkedBlocks(content, MAIN_SUBFRAME_SIGNATURE_START, MAIN_SUBFRAME_SIGNATURE_END)
+        .replace("await electron_1.dialog.showErrorBox('WSL 设置失败', msg);", "await electron_1.dialog.showErrorBox('WSL setup failed', msg);")
+        .replace("`未能将服务端安装至 WSL 分发版 \"${WSL_DISTRO}\"：\\n${err.message}`", "`Failed to install the server into WSL distro \"${WSL_DISTRO}\":\\n${err.message}`");
+}
+
+function cleanUtilsJsContent(content) {
+    return removeMarkedBlocks(content, UTILS_SUBFRAME_SIGNATURE_START, UTILS_SUBFRAME_SIGNATURE_END);
+}
+
 let wasAppRunning = false;
 
 function getPosixTargetUid() {
@@ -6756,6 +7673,7 @@ class AsarArchive {
             }
             walk(header.files, '');
 
+            const existingPaths = new Set(fileEntries.map(f => f.path));
             const packedFiles = fileEntries.filter(f => !f.entry.unpacked && f.entry.offset !== undefined);
             packedFiles.sort((a, b) => parseInt(a.entry.offset) - parseInt(b.entry.offset));
 
@@ -6768,6 +7686,32 @@ class AsarArchive {
                     item.patchBuffer = patchBuf;
                     item.entry.size = patchBuf.length;
                 }
+            }
+
+            for (const [rawPatchPath, patch] of Object.entries(filePatches)) {
+                const patchPath = rawPatchPath.replace(/\\/g, '/').replace(/^\/+/, '');
+                if (!patchPath || existingPaths.has(patchPath) || patch === undefined || patch === null) continue;
+                const parts = patchPath.split('/');
+                let dir = header.files;
+                for (let i = 0; i < parts.length - 1; i++) {
+                    const seg = parts[i];
+                    if (!dir[seg] || !dir[seg].files) {
+                        dir[seg] = { files: {} };
+                    }
+                    dir = dir[seg].files;
+                }
+                const fileName = parts[parts.length - 1];
+                const patchBuf = Buffer.isBuffer(patch) ? patch : Buffer.from(patch, 'utf8');
+                const newEntry = { size: patchBuf.length, offset: '0' };
+                dir[fileName] = newEntry;
+                existingPaths.add(patchPath);
+                packedFiles.push({
+                    path: patchPath,
+                    entry: newEntry,
+                    oldOffset: 0,
+                    oldSize: 0,
+                    patchBuffer: patchBuf
+                });
             }
 
             let currentOffset = BigInt(0);
@@ -6851,9 +7795,31 @@ function installLocalization(resourcesDir) {
         "showContextMenu: (items) => electron_1.ipcRenderer.invoke('window:show-context-menu', typeof globalThis.__agTranslateContextMenuItems === 'function' ? globalThis.__agTranslateContextMenuItems(items) : items),"
     );
     const translationJs = generateJs();
+    const subframeLocalizationJs = `"use strict";
+(() => {
+    try {
+        const g = globalThis;
+        const protocol = g.location && typeof g.location.protocol === 'string' ? g.location.protocol : '';
+        if (protocol !== 'plugin:') return;
+        let isTopFrame = false;
+        try {
+            isTopFrame = Boolean(g.top && g.self && g.top === g.self);
+        } catch (e) {
+            isTopFrame = false;
+        }
+        if (isTopFrame) return;
+        if (g.__agSubframeLocalizationInstalled) return;
+        g.__agSubframeLocalizationInstalled = true;
+    } catch (e) {
+        return;
+    }
+${translationJs}
+})();
+`;
 
     try {
         new vm.Script(translationJs);
+        new vm.Script(subframeLocalizationJs);
     } catch (syntaxErr) {
         console.error(`[致命错误] 生成的汉化注入脚本存在语法错误，已中止注入以避免客户端崩溃: ${syntaxErr.message}`);
         console.error(syntaxErr.stack);
@@ -6894,6 +7860,7 @@ function installLocalization(resourcesDir) {
         'Maximize': '最大化',
         'Close': '关闭',
         'Zoom': '缩放',
+        'Actual Size': '实际大小',
         'Reset Zoom': '重置缩放',
         'Zoom In': '放大',
         'Zoom Out': '缩小',
@@ -7045,15 +8012,91 @@ function installLocalization(resourcesDir) {
     const mainBuf = AsarArchive.readFile(sourceAsar, "dist/main.js");
     if (mainBuf) {
         console.log(`[修改] 正在向 main.js 注入主进程 WSL 提示汉化...`);
-        let mainContent = mainBuf.toString('utf-8');
-        mainContent = mainContent
+        const mainContent = cleanMainJsContent(mainBuf.toString('utf-8'))
             .replace("await electron_1.dialog.showErrorBox('WSL setup failed', msg);", "await electron_1.dialog.showErrorBox('WSL 设置失败', msg);")
             .replace("`Failed to install the server into WSL distro \"${WSL_DISTRO}\":\\n${err.message}`", "`未能将服务端安装至 WSL 分发版 \"${WSL_DISTRO}\"：\\n${err.message}`");
         filePatches["dist/main.js"] = mainContent;
-        console.log(`[修改] 主进程 WSL 提示汉化注入成功！`);
+        console.log(`[修改] 主进程 WSL 提示注入成功！`);
     }
 
-    // 8. dist/ipcHandlers.js
+    // 8. dist/utils.js
+    const utilsBuf = AsarArchive.readFile(sourceAsar, "dist/utils.js");
+    if (utilsBuf) {
+        console.log(`[修改] 正在向 utils.js 注入 plugin:// 子框架动态汉化钩子...`);
+        let utilsContent = cleanUtilsJsContent(utilsBuf.toString('utf-8'));
+        const onAnchor = "hubContents.on?.('page-title-updated', handleTitleUpdate);";
+        const offAnchor = "hubContents.off?.('page-title-updated', handleTitleUpdate);";
+        if (utilsContent.includes(onAnchor) && utilsContent.includes(offAnchor)) {
+            const onHookJs = `${UTILS_SUBFRAME_SIGNATURE_START}
+    let cachedSubframeLocalizationScript = null;
+    const findSubframeById = (frame, processId, routingId) => {
+        if (!frame) {
+            return null;
+        }
+        if (frame.processId === processId && frame.routingId === routingId) {
+            return frame;
+        }
+        const children = Array.isArray(frame.framesInSubtree)
+            ? frame.framesInSubtree
+            : (Array.isArray(frame.frames) ? frame.frames : []);
+        for (const child of children) {
+            if (!child || child === frame) {
+                continue;
+            }
+            if (child.processId === processId && child.routingId === routingId) {
+                return child;
+            }
+            const nested = Array.isArray(frame.framesInSubtree) ? null : findSubframeById(child, processId, routingId);
+            if (nested) {
+                return nested;
+            }
+        }
+        return null;
+    };
+    const localizePluginSubframe = (_event, isMainFrame, frameProcessId, frameRoutingId) => {
+        try {
+            if (isMainFrame || win.isDestroyed?.() || hubContents.isDestroyed?.()) {
+                return;
+            }
+            const frame = _event?.frame
+                || electron_1.webFrameMain?.fromId?.(frameProcessId, frameRoutingId)
+                || findSubframeById(hubContents.mainFrame, frameProcessId, frameRoutingId);
+            if (!frame || frame === hubContents.mainFrame || frame.isDestroyed?.() || frame.detached) {
+                return;
+            }
+            const frameUrl = typeof frame.url === 'string' ? frame.url : '';
+            if (!frameUrl.startsWith('plugin://')) {
+                return;
+            }
+            if (cachedSubframeLocalizationScript === null) {
+                const scriptPath = path_1.default.join(__dirname, 'subframeLocalizationPreload.js');
+                if (!fs.existsSync(scriptPath)) {
+                    return;
+                }
+                cachedSubframeLocalizationScript = fs.readFileSync(scriptPath, 'utf-8');
+            }
+            if (cachedSubframeLocalizationScript) {
+                void Promise.resolve(frame.executeJavaScript(cachedSubframeLocalizationScript, false)).catch(() => undefined);
+            }
+        }
+        catch (_err) {}
+    };
+    hubContents.on?.('did-frame-finish-load', localizePluginSubframe);${UTILS_SUBFRAME_SIGNATURE_END}`;
+            const offHookJs = `${UTILS_SUBFRAME_SIGNATURE_START}
+        hubContents.off?.('did-frame-finish-load', localizePluginSubframe);
+        cachedSubframeLocalizationScript = null;${UTILS_SUBFRAME_SIGNATURE_END}`;
+            utilsContent = utilsContent
+                .replace(onAnchor, onAnchor + onHookJs)
+                .replace(offAnchor, offAnchor + offHookJs);
+            filePatches["dist/utils.js"] = utilsContent;
+            filePatches["dist/subframeLocalizationPreload.js"] = subframeLocalizationJs;
+            console.log(`[修改] plugin:// 子框架动态汉化钩子注入成功！`);
+        } else {
+            console.warn(`[警告] 未能在 utils.js 中找到 did-frame-finish-load 注入点。`);
+        }
+    }
+
+    // 9. dist/ipcHandlers.js
     const ipcHandlersBuf = AsarArchive.readFile(sourceAsar, "dist/ipcHandlers.js");
     if (ipcHandlersBuf) {
         console.log(`[修改] 正在向 ipcHandlers.js 注入原生右键菜单汉化...`);
@@ -7159,7 +8202,7 @@ function installLocalization(resourcesDir) {
         }
     }
 
-    // 9. 打包并写入 app.asar
+    // 10. 打包并写入 app.asar
     const tempAsarPath = path.join(resourcesDir, "app.asar.tmp");
     try {
         console.log(`[打包] 正在将修改后的内容打包回 app.asar...`);
