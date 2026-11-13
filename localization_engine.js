@@ -109,6 +109,23 @@ function generateJs() {
 
     const jsSource = `${SIGNATURE_START}
 (() => {
+    const isAllowedLocalizationContext = () => {
+        try {
+            const loc = globalThis.location;
+            if (!loc) return false;
+            const protocol = typeof loc.protocol === 'string' ? loc.protocol.toLowerCase() : '';
+            if (protocol === 'plugin:') return true;
+            if (protocol === 'http:' || protocol === 'https:') {
+                const host = typeof loc.hostname === 'string' ? loc.hostname.toLowerCase() : '';
+                return host === '127.0.0.1' || host === 'localhost' || host === '[::1]' || host === '::1' || host.endsWith('.localhost');
+            }
+            return false;
+        } catch (e) {
+            return false;
+        }
+    };
+    if (!isAllowedLocalizationContext()) return;
+
     const map = new Map(Object.entries(DICT_PLACEHOLDER));
     const lowerMap = new Map();
     for (const [k, v] of map.entries()) lowerMap.set(k.toLowerCase(), v);
@@ -922,23 +939,6 @@ function generateJs() {
         return false;
     }
 
-    function isTimestampContext(node) {
-        if (!node) return false;
-        let curr = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
-        for (let depth = 0; curr && depth < 4; depth++) {
-            if (curr === document.body || curr === document.documentElement) break;
-            const tag = curr.tagName ? curr.tagName.toUpperCase() : '';
-            if (tag === 'P' || tag === 'LI' || tag === 'PRE' || tag === 'CODE' || tag === 'BLOCKQUOTE' || tag === 'ARTICLE') return false;
-            const cls = curr.className;
-            if (typeof cls === 'string' && /(?:prose|markdown)/i.test(cls)) return false;
-            if (tag === 'TIME' || curr.hasAttribute?.('datetime')) return true;
-            const meta = [curr.className, curr.getAttribute?.('data-testid'), curr.getAttribute?.('aria-label'), curr.getAttribute?.('title')].filter(Boolean).join(' ');
-            if (/(?:^|[-_\\s])(?:time|timestamp|date|muted|secondary|caption)(?:[-_\\s]|$)|(?:^|\\s)text-xs(?:\\s|$)/i.test(meta)) return true;
-            curr = curr.parentElement;
-        }
-        return false;
-    }
-
     // 0 = unblocked, 1 = soft-blocked (user-input-step / contenteditable / monaco-editor outer),
     // 2 = hard-blocked (SKIP_TRANSLATION_ATTR / BLOCKED_TAGS / view-lines / terminal: zero subtree work)
     function getElementBlockedState(el) {
@@ -1426,30 +1426,6 @@ function generateJs() {
             if (text.length <= 6000 && /(?:Comments?|评论)\\s*[（(]\\s*\\d+\\s*[)）]/i.test(text)) return true;
             if (text.length <= 2000 && /(?:Save Comment|保存评论|Submit comment|提交评论|Add Comment|添加评论)/i.test(text)) return true;
             current = current.parentElement || (current.getRootNode?.().host ?? null);
-        }
-        return false;
-    }
-
-    function hasRelativeTimeDescendant(element) {
-        if (!element || element.nodeType !== Node.ELEMENT_NODE) return false;
-        const pending = Array.from(element.childNodes || []);
-        let count = 0;
-        while (pending.length > 0 && ++count < 40) {
-            const current = pending.pop();
-            if (current.nodeType === Node.TEXT_NODE) {
-                const text = norm(current.nodeValue);
-                if (/^(?:just\\s+now|刚刚|\\d+\\s*(?:secs?|seconds?|mins?|minutes?|hrs?|hours?|days?|wks?|weeks?|mos?|months?|yrs?|years?)\\s+ago|\\d+\\s*(?:s|m|h|d|w|mo|yr|y)\\s+ago|\\d+\\s*(?:秒|分钟|小时|天|周|个月|年)前)$/i.test(text) || /^\\d+\\s*(?:s|m|h|d|w|mo|yr|y)$/.test(text)) {
-                    return true;
-                }
-                continue;
-            }
-            if (current.nodeType === Node.ELEMENT_NODE) {
-                const tag = current.tagName ? current.tagName.toUpperCase() : '';
-                if (tag === 'CODE' || tag === 'PRE' || tag === 'BLOCKQUOTE' || tag === 'P' || tag === 'LI') continue;
-                const cls = typeof current.className === 'string' ? current.className : '';
-                if (/(?:prose|markdown)/i.test(cls)) continue;
-                if (current.childNodes) pending.push(...current.childNodes);
-            }
         }
         return false;
     }
@@ -3616,54 +3592,6 @@ function getDynamicProductUiTranslation(value, node = null) {
         return false;
     }
 
-    function translateBrowserSubagentNotice(element) {
-        if (!element) return false;
-
-        let current = element.nodeType === Node.TEXT_NODE ? element.parentElement : element;
-        for (let depth = 0; current && depth < 6; depth++) {
-            if (current === document.body || current === document.documentElement) break;
-            if (current.nodeType === Node.ELEMENT_NODE && !isInBlockedZone(current)) {
-                const cText = getBoundedTextContent(current, 24, 500);
-                if (cText === null) break;
-                if (cText.length <= 500 &&
-                    /(?:Configure the browser subagent|Configure allowed and denied URLs for the browser subagent|配置浏览器子智能体|配置允许和禁止浏览器子智能体)/i.test(cText) &&
-                    /(?:Google Chrome|to be installed)/i.test(cText)) {
-                    const textNodes = collectTextNodes(current).filter(tn => !isInBlockedZone(tn));
-                    if (textNodes.length === 0) return false;
-
-                    let changed = false;
-                    for (let i = 0; i < textNodes.length; i++) {
-                        const tn = textNodes[i];
-                        const val = tn.nodeValue || '';
-                        const valN = norm(val);
-
-                        if (/^Configure the browser subagent\\.\\s*It requires$/i.test(valN)) {
-                            changed = replaceTextNode(tn, "配置浏览器子智能体. 它需要安装 ") || changed;
-                        } else if (/^Configure allowed and denied URLs for the browser subagent\\s*\\(invoked with \\/browser\\)\\.\\s*Requires$/i.test(valN)) {
-                            changed = replaceTextNode(tn, "配置允许和禁止浏览器子智能体(通过 /browser 调用)访问的 URL. 需要 ") || changed;
-                        } else if (/^Configure allowed and denied URLs for the browser subagent\\s*\\(invoked with$/i.test(valN)) {
-                            changed = replaceTextNode(tn, "配置允许和禁止浏览器子智能体(通过 ") || changed;
-                        } else if (/^\\)\\.\\s*Requires$/i.test(valN)) {
-                            changed = replaceTextNode(tn, ") 调用)访问的 URL. 需要 ") || changed;
-                        } else if (/^to be installed\\.?$/i.test(valN)) {
-                            changed = replaceTextNode(tn, ". ") || changed;
-                        } else if (/^to be installed\\.\\s*(.+)$/i.test(valN)) {
-                            const match = valN.match(/^to be installed\\.\\s*(.+)$/i);
-                            const rest = match[1];
-                            const restTrans = map.get(norm(rest)) || lowerMap.get(norm(rest).toLowerCase()) || rest;
-                            changed = replaceTextNode(tn, ". " + restTrans) || changed;
-                        } else if (/^The browser subagent can be invoked by typing \\/browser in the conversation input box\\.?$/i.test(valN)) {
-                            changed = replaceTextNode(tn, "您可以通过在会话输入框中输入 /browser 来调用浏览器子智能体.") || changed;
-                        }
-                    }
-                    if (changed) return true;
-                }
-            }
-            current = current.parentElement || (current.parentNode && current.parentNode.host);
-        }
-        return false;
-    }
-
     function translateLegalHelpNotice(element) {
         if (!element) return false;
 
@@ -5357,11 +5285,6 @@ function getDynamicProductUiTranslation(value, node = null) {
             /(?:conversations?|chats?|会话|within it)/i.test(rawText)) {
             translated = translateArchiveNotice(element) || translated;
         }
-        if (textLength <= 500 &&
-            /(?:Configure the browser subagent|Configure allowed and denied URLs for the browser subagent|配置浏览器子智能体|配置允许和禁止浏览器子智能体)/i.test(rawText) &&
-            /(?:Google Chrome|to be installed)/i.test(rawText)) {
-            translated = translateBrowserSubagentNotice(element) || translated;
-        }
         if (element.getAttribute?.('data-testid') === 'plan-command-fyi-alert' ||
             (textLength <= 250 && /(?:Type|类型|键入)\\s*\\/\\s*(?:and\\s+select|并选择)\\s*plan/i.test(rawText))) {
             translated = translatePlanCommandAlert(element) || translated;
@@ -5583,18 +5506,6 @@ function getDynamicProductUiTranslation(value, node = null) {
             }
         }
 
-        if (/^Configure allowed and denied URLs for the browser subagent\\s*\\(invoked with \\/browser\\)\\.\\s*Requires$/i.test(currentText)) {
-            const parentText = node && node.parentElement ? (getBoundedTextContent(node.parentElement, 16, 500) || '') : '';
-            if (/Google Chrome/i.test(parentText)) {
-                return "配置允许和禁止浏览器子智能体(通过 /browser 调用)访问的 URL. 需要 ";
-            }
-        }
-        if (/^to be installed\\.?$/i.test(currentText)) {
-            const parentText = node && node.parentElement ? (getBoundedTextContent(node.parentElement, 16, 500) || '') : '';
-            if (/^Google Chrome$/i.test(getPrevText()) || /(?:browser subagent|浏览器子智能体|Google Chrome)/i.test(parentText)) {
-                return ". ";
-            }
-        }
         if (/^to ask for content changes for legal reasons[.。]?$/i.test(currentText)) {
             const parentText = node && node.parentElement ? (getBoundedTextContent(node.parentElement, 16, 400) || '') : '';
             if (/^(?:Legal Help|法律帮助)$/i.test(getPrevText()) || /(?:Legal Help|法律帮助)/i.test(parentText)) {
@@ -5620,15 +5531,6 @@ function getDynamicProductUiTranslation(value, node = null) {
             const parentText = node && node.parentElement ? (getBoundedTextContent(node.parentElement, 16, 500) || '') : '';
             if (/(?:third party developer tools|第三方开发者工具)/i.test(parentText)) {
                 return "Google 将根据 ";
-            }
-        }
-        const toBeInstalledMatch = currentText.match(/^to be installed\\.\\s*(.+)$/i);
-        if (toBeInstalledMatch) {
-            const parentText = node && node.parentElement ? (getBoundedTextContent(node.parentElement, 16, 500) || '') : '';
-            if (/^Google Chrome$/i.test(getPrevText()) || /(?:browser subagent|浏览器子智能体|Google Chrome)/i.test(parentText)) {
-                const rest = toBeInstalledMatch[1];
-                const restTrans = map.get(norm(rest)) || lowerMap.get(norm(rest).toLowerCase()) || rest;
-                return ". " + restTrans;
             }
         }
 
@@ -6613,7 +6515,7 @@ function getDynamicProductUiTranslation(value, node = null) {
                     } else if (/^(\\d+)\\s+questions?$/i.test(valNorm)) {
                         newVal = valNorm.replace(/^(\\d+)\\s+questions?$/i, (match, num) => num + " 个问题");
                     }
-                } else if (/^(?:Show (?:\\d+)|See all \\(\\d+\\)|Send all \\(\\d+\\)|Available AI Credits:|Send feedback as\\s+|Media\\s*\\(|Updated\\s+|All (?:scheduled tasks|automations) run |Individual quota reached\\.|Mark\\s+|Version\\s+|Asking\\s+\\d+|View\\s+\\d+\\s+side|Asked\\s+\\d+)/i.test(valNorm)) {
+                } else if (/^(?:Show (?:\\d+)|See all \\(\\d+\\)|Send all \\(\\d+\\)|Available AI Credits:|Send feedback as\\s+|Media\\s*\\(|Updated\\s+|Individual quota reached\\.|Mark\\s+|Version\\s+|Asking\\s+\\d+|View\\s+\\d+\\s+side|Asked\\s+\\d+)/i.test(valNorm)) {
                     if (/^Show (\\d+) more(\\.\\.\\.|…)?$/i.test(valNorm)) {
                         newVal = valNorm.replace(/^Show (\\d+) more(\\.\\.\\.|…)?$/i, (match, num) => "显示另外 " + num + " 个...");
                     } else if (/^Show (\\d+) breakdowns?$/i.test(valNorm)) {
@@ -6633,11 +6535,6 @@ function getDynamicProductUiTranslation(value, node = null) {
                         });
                     } else if (/^Updated\\s+(.+)$/i.test(valNorm)) {
                         newVal = valNorm.replace(/^Updated\\s+(.+)$/i, (match, rest) => "更新于 " + rest);
-                    } else if (/^All (scheduled tasks|automations) run (?:as|with the)\\s+(.+?)(?:\\s+model)?[\\.\\s]*$/i.test(valNorm)) {
-                        newVal = valNorm.replace(/^All (scheduled tasks|automations) run (?:as|with the)\\s+(.+?)(?:\\s+model)?[\\.\\s]*$/i, (match, entity, model) => {
-                            const label = entity.toLowerCase() === "automations" ? "自动化" : "计划任务";
-                            return "所有" + label + "均以 " + model + " 模型运行";
-                        });
                     } else if (/^Individual quota reached\\. Please upgrade your subscription to increase your limits\\. Resets in (.+?)\\.?$/i.test(valNorm)) {
                         newVal = valNorm.replace(/^Individual quota reached\\. Please upgrade your subscription to increase your limits\\. Resets in (.+?)\\.?$/i, (match, t) => "个人配额已达上限. 请升级订阅以提高限额. 将于 " + t + " 后重置");
                     } else if (/^Mark\\s+(\\d+)\\s+conversations?\\s+as\\s+read$/i.test(valNorm)) {
@@ -6657,7 +6554,7 @@ function getDynamicProductUiTranslation(value, node = null) {
                     } else if (/^Asked\\s+(\\d+)\\s+questions?$/i.test(valNorm)) {
                         newVal = valNorm.replace(/^Asked\\s+(\\d+)\\s+questions?$/i, (match, num) => "已询问 " + num + " 个问题");
                     }
-                } else if (/^(?:This will (?:permanently delete|archive)|Permanently delete |Are you sure you want to delete |to be installed)|(?:within it[.。]?)$/i.test(valNorm)) {
+                } else if (/^(?:This will (?:permanently delete|archive)|Permanently delete |Are you sure you want to delete )|(?:within it[.。]?)$/i.test(valNorm)) {
                     if (/^This will permanently delete (\\d+) active (?:conversations?|chats?)(?: and (\\d+) archived (?:conversations?|chats?))? within it\\.?$/i.test(valNorm)) {
                         newVal = valNorm.replace(/^This will permanently delete (\\d+) active (?:conversations?|chats?)(?: and (\\d+) archived (?:conversations?|chats?))? within it\\.?$/i, (match, active, archived) => {
                             if (archived) {
@@ -6689,19 +6586,6 @@ function getDynamicProductUiTranslation(value, node = null) {
                         }
                     } else if (/^This will archive$/i.test(valNorm)) {
                         newVal = "这将归档其中的 ";
-                    } else if (/^to be installed\\.?$/i.test(valNorm)) {
-                        const parentText = node && node.parentElement ? (getBoundedTextContent(node.parentElement, 16, 500) || '') : '';
-                        if (/(?:browser subagent|浏览器子智能体|Google Chrome)/i.test(parentText)) {
-                            newVal = '. ';
-                        }
-                    } else if (/^to be installed\\.\\s*(.+)$/i.test(valNorm)) {
-                        const parentText = node && node.parentElement ? (getBoundedTextContent(node.parentElement, 16, 500) || '') : '';
-                        if (/(?:browser subagent|浏览器子智能体|Google Chrome)/i.test(parentText)) {
-                            const match = valNorm.match(/^to be installed\\.\\s*(.+)$/i);
-                            const rest = match[1];
-                            const restTrans = map.get(norm(rest)) || lowerMap.get(norm(rest).toLowerCase()) || rest;
-                            newVal = '. ' + restTrans;
-                        }
                     } else if (/^Are you sure you want to delete (?:the |this )?(project|workspace|项目|工作区) (.+?)\\??$/i.test(valNorm)) {
                         newVal = valNorm.replace(/^Are you sure you want to delete (?:the |this )?(project|workspace|项目|工作区) (.+?)\\??$/i, (match, scope, name) => {
                             const scopeLabel = /^(?:workspace|工作区)$/i.test(scope) ? "工作区" : "项目";
