@@ -4,7 +4,7 @@
 
 ## 1. 当前目标与权威基准
 
-- **当前版本**：当前汉化发布版本为 **v2.31.2**，匹配官方 **Antigravity v2.31.2** 客户端。当前版本独立词典固定为 `dicts/release.json`（文件名不随版本变化，版本号仅在本文件与 `README.md` 中维护）；请始终保持版本号、发布日期与 `README.md` 一致。
+- **当前版本**：当前汉化发布版本为 **v2.32.1**，匹配官方 **Antigravity v2.32.1** 客户端。当前版本独立词典固定为 `dicts/release.json`（文件名不随版本变化，版本号仅在本文件与 `README.md` 中维护）；请始终保持版本号、发布日期与 `README.md` 一致。
 - **权威依据**：以仓库实际文件与可执行行为为准。进行版本升级时，直接在 `dicts/release.json` 上审慎增删迁移词条，严禁按版本号新建或重命名字典文件；该文件名须在字母序上排在其他分包字典之后（引擎按文件名排序加载，后加载者覆盖同名键）。保持面向用户的安装、还原、支持平台与路径说明与引擎逻辑严格一致。
 
 ## 2. 词典归属与语义规则
@@ -48,12 +48,10 @@
 
 1. **修改前**：执行 `git status --short --untracked-files=all`，确认工作区状态，严格保留用户无关修改。
 2. **编码实施**：遵循最小侵入性原则，严禁无故重排字典或格式化无关文件。
-3. **轻量分级语法自检**：
-   - **仅修改字典（`dicts/*.json`）**：**仅需**执行轻量 JSON 校验，**严禁引入或执行 `localization_engine.js`**，防止意外触发杀进程逻辑：
-     ```bash
-     node -e "require('fs').readdirSync('dicts').filter(f=>f.endsWith('.json')).forEach(f=>JSON.parse(require('fs').readFileSync('dicts/'+f,'utf8'))); console.log('Dicts valid!');"
-     ```
-   - **修改引擎（`localization_engine.js`）**：在交付前须使用独立沙箱只读测试 `generateJs()` 编译合法性，且严禁触发引擎底部的 `main()` 安装函数。
+3. **内置工具被动自检与动态排查（优先复用 `scripts/ag_audit.js`，禁止重复造轮子）**：
+   - **仅修改字典（`dicts/*.json`）**：必须执行 `node scripts/ag_audit.js dicts`（纯读 `dicts/*.json`，不加载 `localization_engine.js`，一次性完成 JSON 合法性、跨分包重键、大小写冲突、1:1 半角标点对齐与孤立单字预警校验）。
+   - **修改引擎（`localization_engine.js`）或升级客户端适配**：必须执行 `node scripts/ag_audit.js check`（或在仅验证语法时执行 `node scripts/ag_audit.js engine` / `asar [--asar <path>]`）；脚本会在只读沙箱中校验 `generateJs()` 编译合法性，并动态从 `localization_engine.js` 解析主进程补丁锚点校验 `app.asar` 与原生菜单覆盖（严禁触发 `main()`）。
+   - **定位客户端渲染源码/动态模板**：需要查验客户端前端渲染原句与上下文时，直接调用 `node scripts/ag_audit.js search <kw> [contextLen]` 与 `node scripts/ag_audit.js slice <offset> [len]` 检索运行态 `main.js`，无需额外手写临时扫描脚本。
 4. **修改后审查**：使用 `git diff` 仔细审查改动，确认无非预期修改。
 
 ## 6. 安装与 Git 平台底线
@@ -61,7 +59,7 @@
 - **严禁直接执行安装脚本**：严禁在开发期间直接执行 `node localization_engine.js`、`install.sh`、`uninstall.sh`、批处理或命令脚本，严禁删除备份或用户数据。所有安装部署统一指引用户手动运行官方入口脚本。
 - **Git 规范与文件属性保护**：仅在用户明确指示时执行版本升级、打标签或提交推送。跨平台脚本（`install.sh`、`*.command`）在 Git 中固化了 `100755` 权限位，Windows 下维护时保持 `core.filemode = false`，禁止提交虚假权限变动；`.bat` 脚本必须严格保持 GBK/CP936 编码与 CRLF 换行符。
 
-## 7. 插件市场汉化与专项技能索引
+## 7. 插件市场与 MCP 商店汉化及专项技能索引
 
-- **词典归属**：官方插件市场文案专用分包字典为 `dicts/marketplace_plugins.json`。
-- **专项技能边界**：插件市场同步与审计技能（[`.agents/skills/sync-marketplace-plugins/`](.agents/skills/sync-marketplace-plugins/SKILL.md)）专用于官方插件市场的全量同步与审计比对，**严格仅在用户明确要求官方市场插件同步/审计插件市场缓存或涉及的翻译文案命中专用分包字典处理 `dicts/marketplace_plugins.json` 时按需激活，常规零散界面汉化严禁预载或调用**。
+- **词典归属（严格分包）**：官方插件市场文案专用分包字典为 `dicts/marketplace_plugins.json`；官方 MCP 服务器商店文案专用分包字典为 `dicts/page_mcp_knowledge.json`，两份词典保持独立，严禁合并。
+- **专项技能边界**：插件市场同步与审计技能（[`.agents/skills/sync-marketplace-plugins/`](.agents/skills/sync-marketplace-plugins/SKILL.md)）统一覆盖官方插件市场与官方 MCP 服务器商店的全量同步与审计比对，**严格仅在用户明确要求同步或审计插件市场/MCP 商店，或涉及的翻译文案命中上述两份专用分包字典时按需激活，常规零散界面汉化严禁预载或调用**。

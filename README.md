@@ -4,15 +4,15 @@
 >
 > **语言支持**：简体中文
 >
-> **汉化版本**：v2.31.2
+> **汉化版本**：v2.32.1
 >
-> **匹配版本**：Antigravity v2.31.2
+> **匹配版本**：Antigravity v2.32.1
 >
-> **最近更新**：2026-11-13
+> **最近更新**：2026-11-14
 >
 > **核心运行环境**： Node.js
 >
-> **汉化范围**：当前 v2.31.2 词典面向 Antigravity v2.31.2，覆盖主界面、顶部系统菜单与任务栏菜单、加载页、设置面板、新手引导与登录流程、对话及自动化/计划任务管理、个性化定制与插件市场、MCP 服务器列表，以及各类动态状态、提示和操作反馈。少量内容可能因客户端异步渲染、第三方嵌入或官方后续新增界面而暂未覆盖。
+> **汉化范围**：当前 v2.32.1 词典面向 Antigravity v2.32.1，覆盖主界面、顶部系统菜单、标签页与编辑器原生右键菜单、任务栏菜单、加载页、设置面板、新手引导与登录流程、对话及自动化/计划任务管理、个性化定制与插件市场、MCP 服务器商店，以及各类动态状态、提示和操作反馈。少量内容可能因客户端异步渲染、第三方嵌入或官方后续新增界面而暂未覆盖。
 >
 > **注入原理**：通过 ASAR 还原与重包，安全注入 `preload.js` 动态翻译机制，macOS 端自动完成隔离属性清除与由内而外应用自签名，绝不修改核心二进制，一键安装与完美还原。
 
@@ -20,8 +20,8 @@
 > **内容隔离与匹配机制说明（开发者必读）**：
 >
 > - **全方位内容禁区隔离**：
->   - **会话与思考流隔离**：默认跳过用户消息（`data-testid="user-input-step"`，仅放行 `Commented on:` 等固定 UI 标签）、模型思考正文（Thought 流式块）、散文段落及工具活动折叠块（如 `Explored/Edited X files`、`Ran X commands`），状态区仅翻译顶层进度与耗时（如 `工作中`、`正在压缩`、`工作了 XX 分钟`）。
->   - **文件树、路径与代码/图标隔离**：通过 `WeakMap` 缓存与整树剪枝（零子树递归），直接跳过工作区文件树（`role="tree"` / `treeitem`）、辅助面板路径面包屑（`File path breadcrumbs`）、动态文件/目录标签页、变更文件列表路径、Monaco 编辑器、终端及图标字体节点（`.google-symbols` / `.codicon` 等），确保原文件名、目录路径与图标绝不被误译。
+>   - **会话与思考流隔离**：默认跳过用户消息（`data-testid="user-input-step"`，仅放行 `Commented on:` 等固定 UI 标签）、模型思考正文（Thought 流式块，仅精确放行模型不可用倒计时重试等固定状态提示）、散文段落及工具活动折叠块（如 `Explored/Edited X files`、`Ran X commands`），状态区仅翻译顶层进度与耗时（如 `工作中`、`正在压缩`、`工作了 XX 分钟`）。
+>   - **文件树、路径与代码/图标隔离**：通过 `WeakMap` 缓存与整树剪枝，直接跳过工作区文件树（`role="tree"` / `treeitem`）、辅助面板路径面包屑（`File path breadcrumbs`）、动态文件/目录标签页、变更文件列表路径、Monaco 编辑器、代码预览区与代码块（`.code-line` / `.line-content` / `.code-block` / `data-line-tokens`）、终端及图标字体节点（`.google-symbols` / `.codicon` 等），确保原文件名、目录路径与图标绝不被误译。
 >   - **自定义禁区**：任意容器添加 `data-ag-localization-skip` 属性即可显式禁用其子树翻译。
 > - **核心匹配与性能机制**：
 >   - **1:1 匹配与独立控件守卫**：文本归一化后与词典 1:1 匹配；短词与单字词条受独立控件守卫（`isIsolatedUiControlLabel`）约束，仅在独立按钮、菜单、表头或表单控件上生效；长度 > 20 的具体长句支持带单词边界保护的子串替换。
@@ -54,15 +54,16 @@
 - **`install.sh`**：macOS / Linux 一键汉化终端执行入口。
 - **`uninstall.sh`**：macOS / Linux 使用备份还原官方英文终端执行入口。
 - **`localization_engine.js`**：核心汉化逻辑，跨平台自动适配，负责 app.asar 的解包、代码注入、macOS 隔离修复与自签名及重新打包。
-- **`dicts/`**：汉化字典文件夹，内含按模块分类的 JSON 对照翻译字典；当前版本的核心词典为 `dicts/release.json`（文件名固定，版本号仅在本文件中维护）。
-- **`.agents/skills/sync-marketplace-plugins/`**：官方插件市场同步与审计技能，内置直连官方云端实时元数据与内存零落盘技术的全自动比对审计工具。
+- **`dicts/`**：汉化字典文件夹，内含按模块分类的 JSON 对照翻译字典；当前版本的核心词典为 `dicts/release.json`。
+- **`scripts/ag_audit.js`**：只读工程巡检与动态排查脚本，自动完成词典校验、注入脚本沙箱编译验证、桌面壳动态锚点体检与运行态前端文案检索。
+- **`.agents/skills/sync-marketplace-plugins/`**：官方插件市场与 MCP 商店联合同步审计技能，内置直连官方云端插件元数据、实时获取官方 MCP 商店条目及内存零落盘解析的全自动比对审计工具。
 - **`AGENTS.md`**：项目通用规则。支持 `AGENTS.md` 的 AI 会将其作为项目上下文，按其中的汉化边界与动态文案处理要求工作。
 - **`.gitattributes`**：Git 属性规则。它会保护 Windows `.bat` 文件的 GBK/CRLF 字节内容与 macOS `.command` 文件的 LF 换行符，避免 Git 的自动文本转换破坏安装或卸载脚本。
 
 ---
 
 
-## 🚀 极速使用指南
+## 🚀 使用指南
 
 ### 1. 获取汉化包代码（二选一）
 
@@ -110,7 +111,7 @@
 
 ## 🛠️ 汉化原理说明
 
-本引擎采用 **原生 ASAR 内存原生注入模式**，深度适配 **Antigravity 2.0+** 的 Electron 架构：
+本引擎采用 **原生 ASAR 内存极速注入**，深度适配 **Antigravity 2.0+** 的 Electron 架构：
 
 1. **自动释放锁**：脚本运行前会自动探测并安全关闭 Antigravity 进程，防止文件占用锁定。
 2. **安全备份**：首次运行时，会在软件目录自动创建原始 `app.asar.bak` 文件，确保随时可无损还原。
@@ -121,13 +122,14 @@
    - 注入 `preload.js`：采用 WeakMap 记录与 Shadow DOM 穿透，启动高效的 `MutationObserver` 引擎，动态监测并将渲染层文本翻译为中文。
    - 注入 `menu.js`：在确认的插入点补充系统级标题栏与原生菜单（含 macOS 专有菜单）译文。
    - 注入 `tray.js`：汉化托盘与右键通知状态菜单。
-   - 注入 `updater.js`：汉化固定的更新检查结果弹窗。
+   - 注入 `updater.js`：汉化固定的更新检查结果弹窗与原生菜单更新状态项。
    - 注入 `wsl.js` / `provisionSplash.js` / `main.js` / `utils.js` / `subframeLocalizationPreload.js`：汉化 WSL 引导遮罩与错误弹窗，并在 Hub `did-frame-finish-load` 时仅向 `plugin://` 扩展子框架安全注入动态翻译脚本。
+   - 注入 `ipcHandlers.js`：汉化原生右键上下文菜单。
 5. **macOS 隔离修复与自签名**：还原与注入后，自动递归清除 `com.apple.quarantine` 隔离属性，并采用 Inside-Out 模式对框架与 App 执行 ad-hoc 自签名。
 
 ---
 
-## 💡 如何通过 AI 助手自动补充或修改汉化？
+## 💡 如何通过 AI 助手自动补充汉化？
 
 若在使用中遇到漏译的文案，直接发送截图或文字描述即可让 AI 助手协助更新词库：
 
@@ -158,81 +160,16 @@
 </details>
 
 <details>
-<summary><strong>3. 方式三：一键同步与审计官方插件市场（Marketplace 🧩）</strong></summary>
+<summary><strong>3. 方式三：一键同步与审计官方插件市场与 MCP 商店🧩 </strong></summary>
 
-当 Antigravity 客户端更新版本后，官方插件市场可能会新增插件、更新建议提示词或下架旧插件。您可以直接向 AI 发送指令进行全自动比对审计：
+当 Antigravity 客户端更新版本后，官方插件市场与 MCP 服务器商店可能会新增条目、更新说明文案或下架旧项目。您可以直接向 AI 发送指令进行全自动联合比对审计：
 
-> **"请使用 `sync-marketplace-plugins` 技能比对官方插件市场元数据，检查是否有新上架的插件、文案变动或下架插件，并输出比对报告。"**
+> **"请使用 `sync-marketplace-plugins` 技能比对官方插件市场与 MCP 服务器商店元数据，检查是否有新上架条目、文案变动或已下架项目，并输出比对报告。"**
 
-AI 会自动激活内置技能并调用原生 Node.js 工具，以官方权威云端插件数据为基准比对 `dicts/marketplace_plugins.json`，并采用流式内存零落盘技术精准提取技能详情，呈现结构化清单并征求您的确认后再执行汉化或清理。
-
-</details>
-
-## 📝 自定义与高级开发指南 (供极客使用)
-
-<details>
-<summary><strong>点击展开查看高级开发与词库维护指南</strong></summary>
-
-根据界面文案的呈现机制，汉化分为**静态固定文本**与**动态/原生规则**两类维护途径：
-
-### 1. 静态固定词条（修改 `dicts/*.json`）
-
-对于界面上不含变量的固定标签、按钮文字、弹窗标题等，直接维护 `dicts/` 下的 JSON 文件：
-
-- **`release.json`**：当前版本（v2.31.2）专用词典，适配官方版本迭代的独有界面；文件名固定，跨版本持续沿用，各版本差异通过 Git 标签追溯。
-- **`common.json`**：通用基础词汇、侧边栏概览、登录与引导流程、通用按钮与权限弹窗。
-- **`menu_nav.json`**：系统菜单、顶部导航与状态栏菜单。
-- **`page_agents.json`**：智能体、任务及会话管理相关页面。
-- **`page_mcp_knowledge.json`**：MCP 服务器、知识库与扩展配置页面。
-- **`marketplace_plugins.json`**：官方插件市场、插件详情与建议提示词。
-- **`page_settings.json`**：详细参数设置面板与二级权限菜单。
-- **`page_workspaces.json`**：工作区与项目管理相关页面。
-
-在对应 JSON 中新增键值对即可：
-
-```json
-"Original English Text": "您的中文翻译"
-```
----
-
-### 2. 动态文案与复杂 DOM 规则（修改 `localization_engine.js`）
-
-如果界面文案包含**动态数字、时间、路径、分支**，或者属于**React 碎片化分拆**与**原生层组件**，修改词典将无法生效，须在 `localization_engine.js` 中编写代码规则：
-
-- **动态变量正则捕获**：
-  - 场景：包含数字、时长或分支名的动态文案（例如 `5m ago`、`Push 2 commits to origin` 等）。
-  - 实现：在引擎对应的动态转换函数（如 `getRelativeTimeTranslation`、`getVersionControlUiTranslation`、`getDynamicProductUiTranslation` 等）中添加具有严格锚定（`^...$`）和捕获组的正则表达式，返回带参数插值的翻译字符串。
-- **属性与结构化 DOM 拦截**：
-  - 场景：输入框占位符（`placeholder`）、悬停提示（`title`）、无障碍标签（`aria-label`）或跨子节点渲染的复合文本。
-  - 实现：在引擎属性监听列表或特化节点处理逻辑中注册，禁止破坏节点原有的 React 事件挂载与 DOM 结构。
-- **原生层与独立窗口**：
-  - 场景：Electron 原生标题栏（`menu.js`）、系统托盘（`tray.js`）及更新检查（`updater.js`）。
-  - 实现：修改引擎中对应的原生代码注入模板。
-
----
-
-### 3. 插件市场（Marketplace）自动审计与同步
-
-项目内置了直连官方云端权威接口与流式内存零落盘技术的全自动比对审计工具：
-
-```bash
-# 1. 运行官方插件市场元数据与字典比对（默认并发直连官方云端双专区权威接口，流式内存零落盘审计）
-node .agents/skills/sync-marketplace-plugins/scripts/diff_marketplace_plugins.js
-
-# 2. 离线环境或本地构建测试时，指定读取本地缓存
-node .agents/skills/sync-marketplace-plugins/scripts/diff_marketplace_plugins.js --local
-
-# 3. 以 JSON 格式输出分析结果
-node .agents/skills/sync-marketplace-plugins/scripts/diff_marketplace_plugins.js --json
-```
-
-- **权威数据源与零落盘设计**：
-  - **云端权威源**：以 Google 云端实时动态下发的官方全量专区清单（Google 官方专区 + 官方合作伙伴专区）为唯一权威基准，自动审计卡片简介、建议提示词与专区目录元数据。
-  - **内存流式提取**：针对 Google专区插件深层技能定义，自动流式拉取归档至内存 Buffer 并在内存中解压提取 `SKILL.md` 与 `README.md`，全程零磁盘落盘、零临时文件，保障与官方最新发布版本绝对一致。
+AI 会自动激活内置技能并调用原生 Node.js 工具，同时以官方权威云端插件数据及运行态客户端 MCP 商店元数据为基准，分别比对 `dicts/marketplace_plugins.json` 与 `dicts/page_mcp_knowledge.json`，并采用流式内存零落盘技术精准提取技能详情，呈现结构化清单后再执行汉化或清理。
 
 </details>
 
----
 
 ## 常见问题解答 (FAQ)
 
@@ -329,7 +266,7 @@ node .agents/skills/sync-marketplace-plugins/scripts/diff_marketplace_plugins.js
    - 引入编码保护（GBK/CRLF 隔离）、macOS 隔离属性修复与由内而外应用自签名、以及权限自适应机制，杜绝 Windows 控制台乱码、macOS 签名失效闪退与 Linux 权限异常。
 
 2. **严格的内容隔离与高安全渲染保护边界**：
-   - **用户消息与思考流绝对隔离**：严格适配客户端的 `data-testid="user-input-step"`、`data-ag-localization-skip`、模型思考正文（Thought 流）及会话工具活动折叠区禁区机制，坚决不翻译、不篡改用户提示词正文、模型思考过程、代码块与终端输出，防止误译与数据污染。
+   - **用户消息与思考流绝对隔离**：严格适配客户端的 `data-testid="user-input-step"`、`data-ag-localization-skip`、模型思考正文及会话工具活动折叠区禁区机制，坚决不翻译、不篡改用户提示词正文、模型思考过程、代码块与终端输出，防止误译与数据污染。
    - **分级精准匹配与零阻塞遍历**：结合独立 UI 控件边界守卫（`isIsolatedUiControlLabel`）、带单词边界保护的长句替换规则，以及 `WeakMap` 祖先缓存与 Monaco/代码行整树剪枝，杜绝短词误伤非界面文本并保障大型设置面板与代码预览流畅无卡顿。
 
 3. **原生极速注入架构（零网络依赖与秒级注入）**：
@@ -337,7 +274,7 @@ node .agents/skills/sync-marketplace-plugins/scripts/diff_marketplace_plugins.js
    - **零临时文件与无感部署**：仅对目标脚本进行内存流式修补，无磁盘小碎文件生成，从根源上消除 Windows Defender 等安全软件的拦截与卡顿。
    - **严格体积守恒**：精准继承官方 `--unpack` 机制，防止将外部二进制及 MCP 工具重复打包进 ASAR，避免体积膨胀。
 
-4. **官方插件市场与技能体系自动化同步与审计**：
-   - **全量多专区专用分包**：独立收录 `dicts/marketplace_plugins.json`，全量覆盖 Google 官方专区与官方合作伙伴专区插件。
-   - **云端直连与内存零落盘比对架构**：默认直连官方云端权威接口实时拉取最新插件清单，针对 Google专区插件采用流式内存零落盘解压技术。
+4. **官方插件市场、MCP 商店与技能体系自动化同步与审计**：
+   - **独立分包覆盖**：分别维护 `dicts/marketplace_plugins.json` 与 `dicts/page_mcp_knowledge.json`，全量覆盖 Google 官方专区、合作伙伴专区插件及官方 MCP 服务器商店。
+   - **双源联动与内存零落盘比对架构**：默认直连官方云端权威接口实时拉取最新插件清单并在内存中流式提取技能元数据，同时支持与运行态 Antigravity 客户端联动审计官方 MCP 商店条目。
    - **技能选择器安全有界绑定**：在斜杠命令与技能选择器中提供中文友好展示，防止底层路径或技术标识符被意外汉化污染。

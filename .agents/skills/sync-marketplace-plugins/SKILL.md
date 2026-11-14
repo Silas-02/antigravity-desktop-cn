@@ -1,12 +1,12 @@
 ---
 name: sync-marketplace-plugins
 description: >-
-  同步、审计并比对官方 Antigravity 插件市场插件与插件市场专用词典。在 Antigravity 版本升级或需要更新、审计及清理插件市场汉化文案时使用此技能。
+  同步、审计并比对官方 Antigravity 插件市场（Plugin Marketplace）与 MCP 服务器商店（MCP Store），分别对应插件市场专用词典（dicts/marketplace_plugins.json）与 MCP 商店词典（dicts/page_mcp_knowledge.json）。在 Antigravity 版本升级或需要更新、审计及清理个性化定制商店文案时使用此技能。
 ---
 
-# Antigravity 插件市场官方同步与审计技能
+# Antigravity 个性化定制商店（Plugin + MCP）官方同步与审计技能
 
-本技能专门用于在 Antigravity 客户端发生版本更新或维护插件市场区域时，**以官方云端下发的权威元数据为唯一基准**，采用流式内存零落盘技术全方位拉取并解析官方全量专区插件，深度比对插件市场文案与汉化词典，并支持跨字典感知与多层文案架构审计。
+本技能专门用于在 Antigravity 客户端发生版本更新或维护个性化定制区域（插件市场与 MCP 服务器商店）时，**以官方权威数据源为唯一基准**，同步比对全量插件与 MCP 服务器描述，并严格保持两份词典分包独立。
 
 ---
 
@@ -20,6 +20,10 @@ description: >-
 2. **官方合作伙伴插件专区**（`antigravity-plugins-partners`）：
    - 云端权威接口：`https://www.gstatic.com/antigravity/plugins-partners/marketplace.json`
    - 涵盖 Canva, Figma, Linear, Atlassian, Dropbox, Zapier, Zoho, Datadog, Supabase, Vercel 等由官方精选和认证的合作伙伴套件。
+
+3. **官方 MCP 服务器商店目录**（`MCP Store`）：
+   - 本地运行态权威接口：通过本机运行中的 Antigravity `language_server` 调用 `GetAvailableCascadePlugins` 获取当前版本官方全量 MCP 服务器清单及描述。
+   - 独立词典归属：统一且仅收录在 `dicts/page_mcp_knowledge.json`，**与 `dicts/marketplace_plugins.json` 保持分包独立，严禁合并或跨字典重复录入**。
 
 > [!IMPORTANT]
 > **以云端实时下发为准，严禁依赖可能过时的本地缓存**：
@@ -86,13 +90,15 @@ Google Workspace 协同办公专区插件具备**三层独立并存**的文案�
 
 ---
 
-## 4. 跨字典感知与字典归属原则
+## 4. 跨字典感知与独立词典归属原则
 
-- **唯一主字典**：插件市场专区的所有卡片描述、README 概览、建议提示词、Workspace 技能说明及专区分类框架文案统一收录在 `dicts/marketplace_plugins.json`。
-- **严禁跨字典重复**：严禁将上述内容重复录入到主版本字典（`release.json`）或其他分包字典中。
+- **插件市场唯一主字典**：插件市场专区的所有卡片描述、README 概览、建议提示词、Workspace 技能说明及专区分类框架文案统一收录在 `dicts/marketplace_plugins.json`。
+- **MCP 商店唯一主字典**：官方 MCP 服务器商店的所有服务器介绍文案统一收录在 `dicts/page_mcp_knowledge.json`（两份字典保持分开维护，互不混淆）。
+- **严禁跨字典重复**：严禁将插件市场或 MCP 商店词条重复录入到主版本字典（`release.json`）或其他分包字典中。
 - **跨字典错位迁移**：比对脚本具备全字典感知能力（自动扫描 `dicts/*.json`）。
-  - 若比对报告标记 `[已存在于 dicts/xxx.json，建议迁移归位]`，说明该词条已有翻译，但放错了字典文件。应将其从原字典迁移剪切至 `dicts/marketplace_plugins.json`，严禁重复录入或判定为完全缺失。
-  - 若比对报告标记 `🚨 【跨字典重复收录警告】`，应清理其他非主字典中的冗余条目。
+  - 若插件市场报告标记 `[已存在于 dicts/xxx.json，建议迁移归位]`，应将其迁移至 `dicts/marketplace_plugins.json`；
+  - 若 MCP 商店报告标记跨字典错位，应将其从原字典迁移剪切至 `dicts/page_mcp_knowledge.json`；
+  - 若报告标记 `🚨 【跨字典重复收录警告】`，应清理其他非主字典中的冗余条目。
 
 ---
 
@@ -101,10 +107,16 @@ Google Workspace 协同办公专区插件具备**三层独立并存**的文案�
 ### 步骤 1：运行自动化比对脚本
 在项目根目录下直接执行自带的比对工具：
 ```bash
-# 默认直接直连官方云端接口，拉取全量双专区最新元数据并进行流式深度审计
+# 默认模式：云端拉取插件市场双专区，并在本机 Antigravity 运行时顺带完成 MCP 商店比对
 node .agents/skills/sync-marketplace-plugins/scripts/diff_marketplace_plugins.js
 
-# 离线环境或测试本地构建时，显式指定读取本地缓存
+# 仅运行 MCP 服务器商店比对（需本机已启动 Antigravity 客户端）
+node .agents/skills/sync-marketplace-plugins/scripts/diff_marketplace_plugins.js --mcp-only
+
+# 仅运行插件市场比对（跳过 MCP 商店）
+node .agents/skills/sync-marketplace-plugins/scripts/diff_marketplace_plugins.js --no-mcp
+
+# 离线环境或测试本地缓存时，显式指定读取本地插件缓存
 node .agents/skills/sync-marketplace-plugins/scripts/diff_marketplace_plugins.js --local
 
 # 以结构化 JSON 格式输出结果
@@ -112,25 +124,29 @@ node .agents/skills/sync-marketplace-plugins/scripts/diff_marketplace_plugins.js
 ```
 
 ### 步骤 2：解读结构化比对报告
-脚本自动输出以下三部分：
+脚本自动输出以下部分：
 1. **插件覆盖状态概览**：
    - 权威数据来源与双专区插件总数
    - 云端动态专区目录说明覆盖状态
    - Workspace 插件四维指标：`✅ 卡片简介 | ✅ 详情概览(README) | ✅ 技能路由 (1/1) | ✅ 提示词 (3/3)`
    - 官方与合作伙伴插件双维指标：`✅ 卡片简介 | ✅ 提示词 (3/3)`
-2. **增量待补充/更新清单**：
+2. **插件市场增量待补充/更新清单**：
    - 🟢 全新上架插件
    - ⚠️ 专区目录说明待翻译 (动态自云端元数据)
    - ⚠️ Tier 1: 市场卡片一句话简介待翻译 / 变更
    - ⚠️ Tier 2: 详情抽屉概览待翻译 (Workspace README.md)
    - ⚠️ Tier 3: 技能路由完整规则待翻译 (Workspace SKILL.md)
    - ⚠️ 官方建议提示词待翻译
-3. **跨字典错位迁移与重复收录警告**：
-   - 明确指出需要从其他字典迁移归位的词条，以及跨字典重复冗余项。
+3. **MCP 服务器商店（MCP Store）官方目录比对**：
+   - 官方当前 MCP 服务器总数、全词典覆盖率与 `page_mcp_knowledge.json` 主字典收录数
+   - ⚠️ 缺失未翻译的官方 MCP 服务器描述
+   - 🔄 需从其他分包迁移至 `dicts/page_mcp_knowledge.json` 的错位词条
+   - 🗑️ `page_mcp_knowledge.json` 中已改版或下架的历史描述（附带同标题现版参考）
+4. **跨字典错位迁移与重复收录警告**。
 
 ### 步骤 3：向用户呈现结构化报告并征求确认
 将比对得出的分析结论呈现给用户：
-- 列出新上架插件及其待翻译文本；
+- 列出新上架插件与缺失 MCP 服务器及其待翻译文本；
 - 列出文案变更项（注明需**原位更新替换**并**清理废弃旧词条**）；
 - 列出跨字典错位迁移建议；
 - 征询用户确认后再执行修改。
@@ -138,16 +154,16 @@ node .agents/skills/sync-marketplace-plugins/scripts/diff_marketplace_plugins.js
 ### 步骤 4：执行更新、迁移与验证
 在用户确认后：
 1. **严格 1:1 格式与标点对齐**：英文是什么标点，译文必须严格对应半角标点。
-2. **执行字典写入或迁移**：
-   - 增量新词条写入 `dicts/marketplace_plugins.json`；
-   - 错位词条从原字典迁移至 `dicts/marketplace_plugins.json`；
+2. **执行对应词典写入或迁移（两份词典保持独立）**：
+   - 插件市场增量/变更写入或迁移至 `dicts/marketplace_plugins.json`；
+   - MCP 商店增量/变更写入或迁移至 `dicts/page_mcp_knowledge.json`；
    - 同一层级因版本升级发生变动的文案，执行原位替换并清理旧英文。
 3. 若涉及 Workspace 技能描述变更，同步更新 `localization_engine.js` 中的 `SKILL_PICKER_DISPLAY_ENTRIES`。
 4. 执行轻量字典校验：
    ```bash
    node -e "require('fs').readdirSync('dicts').filter(f=>f.endsWith('.json')).forEach(f=>JSON.parse(require('fs').readFileSync('dicts/'+f,'utf8'))); console.log('Dicts valid!');"
    ```
-5. 再次运行比对脚本，验证是否达到 100% 同步且无任何缺失或重复：
+5. 再次运行比对脚本，验证插件市场与 MCP 商店均达到 100% 同步且无任何缺失、错位或重复：
    ```bash
    node .agents/skills/sync-marketplace-plugins/scripts/diff_marketplace_plugins.js
    ```

@@ -139,7 +139,7 @@ function generateJs() {
     const skillContextCache = new WeakMap();
 
     const BLOCKED_CLASSES = ['monaco-editor', 'editor-container', 'terminal', 'output-view', 'debug-console', 'code-view', 'artifact-container', 'suggest-widget'];
-    const HARD_PRUNED_CLASS_REGEX = /(?:^|\\s)(?:view-lines|view-line|view-overlays|lines-content|margin|margin-view-overlays|minimap|decorationsOverviewRuler|cursors-layer|monaco-tokenized-source|xterm|terminal|output-view|debug-console|material-symbols(?:-[a-z]+)?|material-icons(?:-[a-z]+)?|codicon(?:-[a-z]+)?|google-symbols)(?:\\s|$)/;
+    const HARD_PRUNED_CLASS_REGEX = /(?:^|\\s)(?:view-lines|view-line|view-overlays|lines-content|margin|margin-view-overlays|minimap|decorationsOverviewRuler|cursors-layer|monaco-tokenized-source|code-block|code-line|line-content|line-number|xterm|terminal|output-view|debug-console|material-symbols(?:-[a-z]+)?|material-icons(?:-[a-z]+)?|codicon(?:-[a-z]+)?|google-symbols)(?:\\s|$)/;
     const BLOCKED_TAGS = ['SCRIPT', 'STYLE', 'CODE', 'PRE', 'INPUT', 'TEXTAREA', 'SVG', 'CANVAS', 'SYMBOL', 'PATH'];
     const BLOCKED_TAGS_SET = new Set(BLOCKED_TAGS);
     const AUTO_TRANSLATE_PROTECTED_TAGS = new Set(['CODE', 'PRE', 'INPUT', 'TEXTAREA']);
@@ -978,7 +978,7 @@ function generateJs() {
 
         const testId = el.getAttribute('data-testid');
         const prevTestId = prev ? prev.getAttribute?.('data-testid') : null;
-        if (testId === 'file-title-name' || prevTestId === 'file-title-name' || prevTestId === 'file-tree-node-icon') {
+        if (testId === 'file-title-name' || testId === 'code-gutter' || prevTestId === 'file-title-name' || prevTestId === 'file-tree-node-icon' || el.hasAttribute('data-line-tokens')) {
             blockedZoneCache.set(el, -1);
             return 2;
         }
@@ -1197,9 +1197,65 @@ function generateJs() {
         return false;
     }
 
+    function translateSideQuestionOriginPrefix(text) {
+        if (text === "Started from") return "发起自";
+        if (text === "Started during") return "进行中发起自";
+        return null;
+    }
+
+    function translateSideQuestionOriginFallbackTarget(text) {
+        if (text === "the main conversation") return "主会话";
+        if (text === "the subagent conversation") return "子智能体会话";
+        return null;
+    }
+
+    function translateSideQuestionOriginAttr(value, el) {
+        if (!el || el.nodeType !== Node.ELEMENT_NODE || el.getAttribute?.("data-testid") !== "side-question-origin") {
+            return null;
+        }
+        const normalized = norm(value);
+        if (!normalized) return null;
+
+        let match = normalized.match(/^(Started from|Started during)\\s+([\\s\\S]+?)\\.\\s+Show in (main conversation|subagent conversation)$/);
+        if (match) {
+            const prefix = translateSideQuestionOriginPrefix(match[1]);
+            const origin = translateSideQuestionOriginFallbackTarget(match[2]) || match[2];
+            const scope = match[3] === "main conversation" ? "主会话" : "子智能体会话";
+            return prefix + " " + origin + ". 在" + scope + "中显示";
+        }
+
+        match = normalized.match(/^(Started from|Started during)\\s+([\\s\\S]+)$/);
+        if (match) {
+            const prefix = translateSideQuestionOriginPrefix(match[1]);
+            const origin = translateSideQuestionOriginFallbackTarget(match[2]) || match[2];
+            return prefix + " " + origin;
+        }
+        return null;
+    }
+
+    function getSideQuestionOriginTextNodeTranslation(node, valNorm) {
+        if (!node || !valNorm) return null;
+        const parentSpan = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+        if (!parentSpan || parentSpan.tagName?.toUpperCase() !== "SPAN") return null;
+        const originBtn = parentSpan.parentElement;
+        if (!originBtn || originBtn.getAttribute?.("data-testid") !== "side-question-origin") return null;
+
+        const spanClass = typeof parentSpan.className === "string" ? parentSpan.className : "";
+        if (spanClass.includes("truncate")) {
+            return translateSideQuestionOriginFallbackTarget(valNorm);
+        }
+        const prefix = translateSideQuestionOriginPrefix(valNorm);
+        if (prefix) return prefix;
+        if (valNorm === "Show") return "显示";
+        return null;
+    }
+
     function getProtectedProductUiTranslation(node, value) {
         const normalized = norm(value);
         const lower = normalized.toLowerCase();
+
+        const sideOriginTrans = getSideQuestionOriginTextNodeTranslation(node, normalized);
+        if (sideOriginTrans) return sideOriginTrans;
 
         if (isMessageActionTimestamp(node)) {
             const relativeTime = getRelativeTimeTranslation(normalized, node);
@@ -1975,6 +2031,16 @@ function generateJs() {
             descriptions: [
                 "Discover UI plugin panels relevant to the current task and surface a one-click pill in chat to open (toggle) them in the side pane. Use when a running UI plugin's panel would help with what the user is doing, or right after the user enables a new UI plugin pane and a shortcut to open it is handy.",
                 "发现与当前任务相关的 UI 插件面板，并在聊天中提供一键胶囊按钮以便在侧边面板中打开（切换）它们。当运行中的 UI 插件面板对用户正在进行的操作有所帮助，或在用户启用新的 UI 插件面板且需要便捷快捷方式打开它时使用"
+            ]
+        },
+        {
+            source: 'mcp-app-development',
+            display: "MCP 应用开发",
+            descriptions: [
+                "Build, package, and debug MCP Apps for Antigravity: MCP server tools whose results render as interactive UI in the conversation, in the side pane, or full-page from the sidebar. Use when adding a UI to an MCP tool, building or theming the app itself, packaging it as a plugin, or debugging an app that doesn't render or behave as expected.",
+                "Build, package, and debug MCP Apps for Antigravity: MCP server tools whose results render as interactive UI in the conversation, in the side pane, or full-page from the sidebar.",
+                "为 Antigravity 构建、打包和调试 MCP 应用: 其结果可在对话中、侧边面板或从侧边栏以全页形式呈现为交互式界面的 MCP 服务器工具. 当向 MCP 工具添加界面、构建或设置应用主题、将其打包为插件，或调试无法按预期渲染或运行的应用时使用.",
+                "为 Antigravity 构建、打包和调试 MCP 应用：其结果可在对话中、侧边面板或从侧边栏以全页形式呈现为交互式界面的 MCP 服务器工具。当向 MCP 工具添加界面、构建或设置应用主题、将其打包为插件，或调试无法按预期渲染或运行的应用时使用"
             ]
         },
         {
@@ -2808,9 +2874,46 @@ function generateJs() {
         return match[1] + " " + translatedStatus;
     }
 
+function getModelUnavailableRetryTranslation(value) {
+        if (!value || typeof value !== 'string') return null;
+        const valNorm = norm(value);
+        if (!/^Model\\s+unavailable,\\s*retrying\\b/i.test(valNorm)) return null;
+        const m = valNorm.match(/^Model\\s+unavailable,\\s*retrying(?:\\s+in\\s+(\\d+)s)?(?:\\s*\\(attempt\\s+(\\d+)\\/(\\d+)\\))?$/i);
+        if (!m) return null;
+        let res = m[1] ? "模型不可用，将在 " + m[1] + " 秒后重试" : "模型不可用，正在重试";
+        if (m[2] && m[3]) {
+            res += " (第 " + m[2] + "/" + m[3] + " 次尝试)";
+        }
+        return res;
+    }
+
 function getDynamicProductUiTranslation(value, node = null) {
         const normalized = norm(value);
-        let match = normalized.match(/^Hi\\s+(.+?),\\s+what can we get done today\\?$/i);
+        const sideOriginAttrTrans = translateSideQuestionOriginAttr(normalized, node);
+        if (sideOriginAttrTrans) return sideOriginAttrTrans;
+        const sideOriginTextTrans = getSideQuestionOriginTextNodeTranslation(node, normalized);
+        if (sideOriginTextTrans) return sideOriginTextTrans;
+        const retryTrans = getModelUnavailableRetryTranslation(normalized);
+        if (retryTrans) return retryTrans;
+
+        let match = normalized.match(/^(.+?)\\s+needs?\\s+the\\s+terminal\\s+sandbox,\\s*which\\s+isn't\\s+available\\s+on\\s+this\\s+host\\.$/i);
+        if (match && match[1].length <= 80) {
+            const modeMap = {
+                "request review": "请求审查",
+                "default": "默认",
+                "auto": "自动",
+                "turbo": "极速"
+            };
+            const parts = match[1].split(/\\s+and\\s+/i).map(p => modeMap[p.trim().toLowerCase()] || p.trim());
+            return parts.join(" 和 ") + " 需要终端沙箱，但此主机上不可用.";
+        }
+
+        match = normalized.match(/^Sign-ins\\s+to\\s+(.+?)\\s+are\\s+kept\\s+in\\s+the\\s+cloud\\s+with\\s+your\\s+account\\.$/i);
+        if (match && match[1].length <= 160) {
+            return "登录到 " + match[1] + " 的凭据将随您的账号保存在云端.";
+        }
+
+        match = normalized.match(/^Hi\\s+(.+?),\\s+what can we get done today\\?$/i);
         if (match) return "嗨 " + match[1] + "，今天我们可以完成些什么？";
 
         match = normalized.match(/^Your\\s+Plan:\\s*(.+)$/i);
@@ -4451,7 +4554,7 @@ function getDynamicProductUiTranslation(value, node = null) {
         return false;
     }
 
-    const SKILL_PICKER_CONTAINER_REGEX = /(?:quick question without interrupting|align on a plan|team of agents to autonomously|recent successes or corrections|Boost multi-agent orchestrator|Antigravity Customization System|comprehensive guide, quick reference, and sitemap|render rich interactive HTML widgets|scheduled background automation|manage and create plugins|namespaced bundles of skills|MCP servers, skills, slash commands|other coding agents|manage Google Docs|draft, and edit docs|and write your Google Docs|schedule events, and RSVP|draft, and send emails in Gmail|Run your Gmail inbox|manage Gmail messages, drafts, labels|format spreadsheets|edit, and export presentations|upload, download, and share files|Preview & Quota Heavy\\) Run a swarm|several agents working in parallel|native-swarm worker whose brief says it is the monitor|不中断主会话|通过访谈与我对齐|智能体团队自主应对|反思最近的成功或改进|Boost 多智能体编排器|个性化定制系统的综合指南|全面指南、快速参考和网站地图|交互式 HTML 小组件|定时后台自动化|计划后台自动化|管理和创建插件|迁移到一个新的 Antigravity 插件中|管理 Google 文档|起草和编辑文档|安排活动并回复邀请|在 Gmail 中搜索、阅读、起草并发送电子邮件|管理您的 Gmail 收件箱|管理 Gmail 邮件、草稿、标签|编写和格式化电子表格|导出演示文稿|上传、下载和共享文件|运行蜂群协作|指定为监控员的原生蜂群)/i;
+    const SKILL_PICKER_CONTAINER_REGEX = /(?:quick question without interrupting|align on a plan|team of agents to autonomously|recent successes or corrections|Boost multi-agent orchestrator|Antigravity Customization System|comprehensive guide, quick reference, and sitemap|render rich interactive HTML widgets|scheduled background automation|manage and create plugins|namespaced bundles of skills|MCP servers, skills, slash commands|other coding agents|Build, package, and debug MCP Apps|manage Google Docs|draft, and edit docs|and write your Google Docs|schedule events, and RSVP|draft, and send emails in Gmail|Run your Gmail inbox|manage Gmail messages, drafts, labels|format spreadsheets|edit, and export presentations|upload, download, and share files|Preview & Quota Heavy\\) Run a swarm|several agents working in parallel|native-swarm worker whose brief says it is the monitor|不中断主会话|通过访谈与我对齐|智能体团队自主应对|反思最近的成功或改进|Boost 多智能体编排器|个性化定制系统的综合指南|全面指南、快速参考和网站地图|交互式 HTML 小组件|定时后台自动化|计划后台自动化|管理和创建插件|迁移到一个新的 Antigravity 插件中|构建、打包和调试 MCP 应用|管理 Google 文档|起草和编辑文档|安排活动并回复邀请|在 Gmail 中搜索、阅读、起草并发送电子邮件|管理您的 Gmail 收件箱|管理 Gmail 邮件、草稿、标签|编写和格式化电子表格|导出演示文稿|上传、下载和共享文件|运行蜂群协作|指定为监控员的原生蜂群)/i;
 
     function translateSwarmBoardEmptyBody(element) {
         if (!element || element.nodeType !== Node.ELEMENT_NODE) return false;
@@ -5180,6 +5283,30 @@ function getDynamicProductUiTranslation(value, node = null) {
                 return translateBaselineQuotaNotice(element);
             }
             return false;
+        }
+
+        if (element.getAttribute?.("data-testid") === "side-question-origin") {
+            for (const attr of ["title", "aria-label"]) {
+                const v = element.getAttribute(attr);
+                if (!v) continue;
+                const transAttr = translateSideQuestionOriginAttr(v, element);
+                if (transAttr && transAttr !== v) {
+                    element.setAttribute(attr, transAttr);
+                }
+            }
+            const spans = Array.from(element.children || []).filter(ch => ch.tagName?.toUpperCase() === "SPAN");
+            for (const span of spans) {
+                for (const child of Array.from(span.childNodes || [])) {
+                    if (child.nodeType !== Node.TEXT_NODE) continue;
+                    const textVal = norm(child.nodeValue || "");
+                    if (!textVal) continue;
+                    const trans = getSideQuestionOriginTextNodeTranslation(child, textVal);
+                    if (trans) {
+                        replaceTextNode(child, trans);
+                    }
+                }
+            }
+            return "skip_children";
         }
 
         const rawText = getBoundedTextContent(element, 36, 1600);
@@ -6019,6 +6146,63 @@ function getDynamicProductUiTranslation(value, node = null) {
         } catch (e) {}
     }
 
+    function isPureThoughtSkipContext(el) {
+        let curr = el;
+        let sawThoughtSkip = false;
+        for (let depth = 0; curr && depth < 12; depth++) {
+            if (curr === document.body || curr === document.documentElement) break;
+            const tag = curr.tagName ? curr.tagName.toUpperCase() : '';
+            if (tag && BLOCKED_TAGS_SET.has(tag)) return false;
+            const cls = typeof curr.className === 'string' ? curr.className : '';
+            if (cls && HARD_PRUNED_CLASS_REGEX.test(cls)) return false;
+            if (curr.getAttribute?.('contenteditable') === 'true') return false;
+            const testId = curr.getAttribute?.('data-testid');
+            if (testId === 'user-input-step') return false;
+            if (curr.hasAttribute?.(SKIP_TRANSLATION_ATTR)) {
+                sawThoughtSkip = true;
+            }
+            const prev = curr.previousElementSibling;
+            if (prev && prev.hasAttribute?.('data-ag-thought-header') && curr.parentElement && curr.parentElement.children.length === 2) {
+                sawThoughtSkip = true;
+            }
+            curr = curr.parentElement;
+        }
+        return sawThoughtSkip;
+    }
+
+    function translateModelRetryInsideThought(el) {
+        if (!el || el.nodeType !== Node.ELEMENT_NODE) return false;
+        const bounded = getBoundedTextContent(el, 8, 120);
+        if (bounded && /Model\\s+unavailable,\\s*retrying\\b/i.test(bounded)) {
+            const queue = [el];
+            for (let qi = 0; qi < queue.length && qi < 12; qi++) {
+                const item = queue[qi];
+                for (const child of item.childNodes) {
+                    if (child.nodeType === Node.TEXT_NODE) {
+                        const tv = child.nodeValue || '';
+                        const retryTrans = getModelUnavailableRetryTranslation(tv);
+                        if (retryTrans && retryTrans !== tv) {
+                            replaceTextNode(child, retryTrans);
+                            return true;
+                        }
+                    } else if (child.nodeType === Node.ELEMENT_NODE && !BLOCKED_TAGS_SET.has((child.tagName || '').toUpperCase())) {
+                        queue.push(child);
+                    }
+                }
+            }
+            return false;
+        }
+        let tail = el.lastElementChild;
+        for (let d = 0; tail && d < 4; d++) {
+            const tailText = getBoundedTextContent(tail, 6, 120);
+            if (tailText && /Model\\s+unavailable,\\s*retrying\\b/i.test(tailText)) {
+                return translateModelRetryInsideThought(tail);
+            }
+            tail = tail.lastElementChild;
+        }
+        return false;
+    }
+
     function translateNode(node, parentContainersScanned = false, visitedElements = null) {
         try {
             if (!node) return;
@@ -6033,18 +6217,26 @@ function getDynamicProductUiTranslation(value, node = null) {
                     if (visitedElements.has(node)) return;
                     visitedElements.add(node);
                 }
-                if (node.hasAttribute(SKIP_TRANSLATION_ATTR)) return;
+                if (node.hasAttribute(SKIP_TRANSLATION_ATTR)) {
+                    if (isPureThoughtSkipContext(node)) {
+                        translateModelRetryInsideThought(node);
+                    }
+                    return;
+                }
                 const prev = node.previousElementSibling;
                 if (prev && prev.hasAttribute('data-ag-thought-header') && node.parentElement && node.parentElement.children.length === 2) {
                     node.setAttribute(SKIP_TRANSLATION_ATTR, 'true');
                     blockedZoneCache.set(node, -1);
+                    if (isPureThoughtSkipContext(node)) {
+                        translateModelRetryInsideThought(node);
+                    }
                     return;
                 }
 
                 const tag = node.tagName.toUpperCase();
                 const className = typeof node.className === 'string' ? node.className : '';
 
-                if (className && HARD_PRUNED_CLASS_REGEX.test(className)) {
+                if ((className && HARD_PRUNED_CLASS_REGEX.test(className)) || node.hasAttribute('data-line-tokens') || node.getAttribute('data-testid') === 'code-gutter') {
                     if (node.getAttribute('translate') !== 'no') node.setAttribute('translate', 'no');
                     try {
                         if (!node.classList.contains('notranslate')) node.classList.add('notranslate');
@@ -6125,7 +6317,12 @@ function getDynamicProductUiTranslation(value, node = null) {
                 }
 
                 const blockedState = getElementBlockedState(node);
-                if (blockedState === 2) return;
+                if (blockedState === 2) {
+                    if (isPureThoughtSkipContext(node)) {
+                        translateModelRetryInsideThought(node);
+                    }
+                    return;
+                }
 
                 if (isSwarmBoardDocument()) {
                     if (translateSwarmBoardContainers(node) === 'skip_children') return;
@@ -6188,7 +6385,15 @@ function getDynamicProductUiTranslation(value, node = null) {
 
                 const parentEl = node.parentElement;
                 const parentBlockedState = getElementBlockedState(parentEl);
-                if (parentBlockedState === 2) return;
+                if (parentBlockedState === 2) {
+                    if (originalVal.length <= 96 && /^\\s*Model\\s+unavailable,\\s*retrying\\b/i.test(originalVal) && isPureThoughtSkipContext(parentEl)) {
+                        const retryTrans = getModelUnavailableRetryTranslation(originalVal);
+                        if (retryTrans && retryTrans !== originalVal) {
+                            replaceTextNode(node, retryTrans);
+                        }
+                    }
+                    return;
+                }
 
                 if (originalVal.length >= 9 && (originalVal.includes('pack.info') || originalVal.includes('PACK.INFO') || originalVal.toLowerCase().includes('pack.info'))) {
                     if (parentEl) {
@@ -6791,7 +6996,11 @@ function getDynamicProductUiTranslation(value, node = null) {
         "Select All": "全选",
         "Close Tab": "关闭标签页",
         "Close Other Tabs": "关闭其他标签页",
+        "Close Tabs to the Left": "关闭左侧标签页",
         "Close Tabs to the Right": "关闭右侧标签页",
+        "Pin Tab": "置顶标签页",
+        "Unpin Tab": "取消置顶标签页",
+        "Keep Open": "保持打开",
         "Back": "后退",
         "Forward": "前进",
         "Reload": "重新加载",
@@ -7856,7 +8065,7 @@ ${translationJs}
     // 4. dist/updater.js
     const updaterBuf = AsarArchive.readFile(sourceAsar, "dist/updater.js");
     if (updaterBuf) {
-        console.log(`[修改] 正在向 updater.js 注入更新弹窗汉化...`);
+        console.log(`[修改] 正在向 updater.js 注入更新弹窗及菜单状态汉化...`);
         let updaterContent = updaterBuf.toString('utf-8');
         const targetOptions = `                title: 'Check for Updates',
                 message: 'No updates available',
@@ -7865,9 +8074,14 @@ ${translationJs}
                 message: '暂无可用更新',
                 buttons: ['确定'],`;
 
-        updaterContent = updaterContent.replace(targetOptions, replacementOptions);
+        updaterContent = updaterContent
+            .replace(targetOptions, replacementOptions)
+            .replace('MenuUpdateStep["CheckForUpdates"] = "Check for Updates";', 'MenuUpdateStep["CheckForUpdates"] = "检查更新";')
+            .replace('MenuUpdateStep["CheckingForUpdates"] = "Checking for Updates...";', 'MenuUpdateStep["CheckingForUpdates"] = "正在检查更新...";')
+            .replace('MenuUpdateStep["DownloadingUpdate"] = "Downloading Update...";', 'MenuUpdateStep["DownloadingUpdate"] = "正在下载更新...";')
+            .replace('MenuUpdateStep["RestartToUpdate"] = "Restart to Update";', 'MenuUpdateStep["RestartToUpdate"] = "重启以更新";');
         filePatches["dist/updater.js"] = updaterContent;
-        console.log(`[修改] 更新弹窗汉化注入成功！`);
+        console.log(`[修改] 更新弹窗及菜单状态汉化注入成功！`);
     }
 
     // 5. dist/provisionSplash.js
@@ -8036,7 +8250,11 @@ ${translationJs}
         "Save Video": "保存视频",
         "Close Tab": "关闭标签页",
         "Close Other Tabs": "关闭其他标签页",
+        "Close Tabs to the Left": "关闭左侧标签页",
         "Close Tabs to the Right": "关闭右侧标签页",
+        "Pin Tab": "置顶标签页",
+        "Unpin Tab": "取消置顶标签页",
+        "Keep Open": "保持打开",
         "Back": "后退",
         "Forward": "前进",
         "Reload": "重新加载",

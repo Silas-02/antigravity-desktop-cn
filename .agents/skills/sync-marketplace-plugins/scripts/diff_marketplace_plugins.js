@@ -4,6 +4,8 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const zlib = require('zlib');
+const https = require('https');
+const childProcess = require('child_process');
 
 // 官方权威云端数据源（双专区）
 const OFFICIAL_REMOTE_MARKETPLACE_URLS = [
@@ -13,6 +15,7 @@ const OFFICIAL_REMOTE_MARKETPLACE_URLS = [
 
 const DEFAULT_MARKETPLACES_DIR = path.join(os.homedir(), '.gemini', 'antigravity', 'cache', 'marketplaces');
 const DEFAULT_DICT_PATH = path.resolve(__dirname, '../../../../dicts/marketplace_plugins.json');
+const DEFAULT_MCP_DICT_PATH = path.resolve(__dirname, '../../../../dicts/page_mcp_knowledge.json');
 const DICTS_DIR = path.resolve(__dirname, '../../../../dicts');
 
 const KNOWN_WORKSPACE_PLUGINS = new Set([
@@ -610,12 +613,274 @@ function printReport(cachePlugins, catalogDescriptions, diffResult, primaryDict,
   console.log('==================================================================');
 }
 
+function escapeRegExp(str) {
+  return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function normalizeMcpLookupText(text) {
+  if (!text) return '';
+  return String(text)
+    .replace(/\r\n/g, '\n')
+    .replace(/\s+/g, ' ')
+    .replace(/[’‘]/g, "'")
+    .replace(/[“”]/g, '"')
+    .replace(/…/g, '...')
+    .trim();
+}
+
+function discoverLocalLanguageServer() {
+  try {
+    if (process.platform === 'win32') {
+      const out = childProcess.execFileSync(
+        'powershell',
+        ['-NoProfile', '-Command', "Get-CimInstance Win32_Process -Filter \"Name='language_server.exe'\" | Select-Object ProcessId, CommandLine | ConvertTo-Json"],
+        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
+      );
+      if (!out.trim()) return null;
+      let list = JSON.parse(out.trim());
+      if (!Array.isArray(list)) list = [list];
+      const proc = list.find(p => p && p.CommandLine && p.CommandLine.includes('--csrf_token'));
+      if (!proc) return null;
+      const tokenMatch = proc.CommandLine.match(/--csrf_token\s+([a-f0-9-]+)/i);
+      const netOut = childProcess.execFileSync(
+        'powershell',
+        ['-NoProfile', '-Command', `Get-NetTCPConnection -OwningProcess ${proc.ProcessId} -State Listen | Select-Object -ExpandProperty LocalPort`],
+        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
+      );
+      const ports = netOut.trim().split(/\r?\n/).map(x => Number(x.trim())).filter(n => !isNaN(n));
+      return { pid: proc.ProcessId, csrfToken: tokenMatch ? tokenMatch[1] : '', ports };
+    }
+
+    const psOut = childProcess.execFileSync('ps', ['-eo', 'pid=,args='], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    const line = psOut.split(/\r?\n/).find(l => l.includes('language_server') && l.includes('--csrf_token'));
+    if (!line) return null;
+    const m = line.trim().match(/^(\d+)\s+(.*)$/);
+    if (!m) return null;
+    const pid = Number(m[1]);
+    const cmd = m[2];
+    const tokenMatch = cmd.match(/--csrf_token\s+([a-f0-9-]+)/i);
+    const lsofOut = childProcess.execFileSync('lsof', ['-nP', '-iTCP', '-sTCP:LISTEN', '-a', '-p', String(pid)], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    const ports = [];
+    for (const pm of lsofOut.matchAll(/:(\d+)\s+\(LISTEN\)/g)) {
+      const p = Number(pm[1]);
+      if (!ports.includes(p)) ports.push(p);
+    }
+    return { pid, csrfToken: tokenMatch ? tokenMatch[1] : '', ports };
+  } catch (e) {
+    return null;
+  }
+}
+
+function localLanguageServerPost(port, method, csrfToken, payloadObj) {
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify(payloadObj || {});
+    const req = https.request(
+      {
+        host: '127.0.0.1',
+        port,
+        path: `/exa.language_server_pb.LanguageServerService/${method}`,
+        method: 'POST',
+        rejectUnauthorized: false,
+        timeout: 4000,
+        headers: {
+          'content-type': 'application/json',
+          'x-codeium-csrf-token': csrfToken
+        }
+      },
+      res => {
+        const chunks = [];
+        res.on('data', c => chunks.push(c));
+        res.on('end', () => {
+          const raw = Buffer.concat(chunks).toString('utf8');
+          if (res.statusCode !== 200) {
+            return reject(new Error(`HTTP ${res.statusCode}`));
+          }
+          try {
+            resolve(JSON.parse(raw));
+          } catch (err) {
+            reject(err);
+          }
+        });
+      }
+    );
+    req.on('error', reject);
+    req.on('timeout', () => req.destroy(new Error('Request timeout')));
+    req.write(body);
+    req.end();
+  });
+}
+
+/** 对比官方实时 MCP 服务器商店目录与独立词典 (page_mcp_knowledge.json) */
+async function auditMcpStore(dictsDir, mcpDictFile) {
+  const srv = discoverLocalLanguageServer();
+  if (!srv || !srv.csrfToken || srv.ports.length === 0) {
+    return {
+      available: false,
+      skippedReason: '未检测到运行中的 Antigravity 客户端 (language_server)'
+    };
+  }
+
+  let catalogData = null;
+  const osName = process.platform === 'win32' ? 'windows' : (process.platform === 'darwin' ? 'darwin' : 'linux');
+  for (const port of srv.ports) {
+    try {
+      const data = await localLanguageServerPost(port, 'GetAvailableCascadePlugins', srv.csrfToken, {
+        os: osName,
+        searchQuery: ''
+      });
+      if (data && Array.isArray(data.plugins)) {
+        catalogData = data;
+        break;
+      }
+    } catch (e) {}
+  }
+
+  if (!catalogData) {
+    return {
+      available: false,
+      skippedReason: '未能从运行中的 language_server 获取官方 MCP 目录'
+    };
+  }
+
+  const mcpFileName = path.basename(mcpDictFile);
+  const normLowerMap = new Map();
+  let mcpDict = {};
+
+  if (fs.existsSync(dictsDir)) {
+    const files = fs.readdirSync(dictsDir).filter(f => f.endsWith('.json')).sort();
+    for (const file of files) {
+      const fullPath = path.join(dictsDir, file);
+      const data = JSON.parse(fs.readFileSync(fullPath, 'utf-8'));
+      if (path.resolve(fullPath) === path.resolve(mcpDictFile)) {
+        mcpDict = data;
+      }
+      for (const [k, v] of Object.entries(data)) {
+        const nk = normalizeMcpLookupText(k).toLowerCase();
+        if (!normLowerMap.has(nk)) {
+          normLowerMap.set(nk, { file, key: k, value: v });
+        }
+      }
+    }
+  }
+
+  const plugins = catalogData.plugins || [];
+  const coveredInMcpDict = [];
+  const misplacedInOtherDicts = [];
+  const missing = [];
+
+  for (const p of plugins) {
+    if (!p.description) continue;
+    const desc = normalizeMcpLookupText(p.description);
+    const hit = normLowerMap.get(desc.toLowerCase());
+    if (!hit) {
+      missing.push({
+        id: p.id,
+        title: p.title,
+        description: desc
+      });
+    } else if (hit.file === mcpFileName) {
+      coveredInMcpDict.push(p.id);
+    } else {
+      misplacedInOtherDicts.push({
+        id: p.id,
+        title: p.title,
+        description: desc,
+        currentFile: hit.file,
+        key: hit.key
+      });
+    }
+  }
+
+  const officialNormDescs = new Set(plugins.map(p => normalizeMcpLookupText(p.description).toLowerCase()).filter(Boolean));
+  const officialByTitleWord = plugins.map(p => ({
+    id: p.id,
+    title: p.title,
+    desc: normalizeMcpLookupText(p.description)
+  }));
+
+  const obsoleteMcpEntries = [];
+  const NON_STORE_UI_PREFIX = /^(Loading|No |MCP |Installed |Add |Search|Refresh|Open |View |Could not|Failed |Error |Used |Plugins are )/i;
+
+  for (const [k, v] of Object.entries(mcpDict)) {
+    const nk = normalizeMcpLookupText(k).toLowerCase();
+    if (k.length < 30 || NON_STORE_UI_PREFIX.test(k)) continue;
+    if (!officialNormDescs.has(nk)) {
+      const matchedPlugin = officialByTitleWord.find(p => {
+        if (!p.title || p.title.length < 2) return false;
+        const re = new RegExp(`\\b${escapeRegExp(p.title.toLowerCase())}\\b`, 'i');
+        return re.test(nk);
+      });
+      obsoleteMcpEntries.push({
+        key: k,
+        translation: v,
+        matchedTitle: matchedPlugin ? matchedPlugin.title : null,
+        replacementHint: matchedPlugin ? matchedPlugin.desc : null
+      });
+    }
+  }
+
+  return {
+    available: true,
+    mcpDictFile: mcpFileName,
+    mcpDictCount: Object.keys(mcpDict).length,
+    totalOfficial: plugins.length,
+    coveredCount: coveredInMcpDict.length + misplacedInOtherDicts.length,
+    coveredInMcpDictCount: coveredInMcpDict.length,
+    misplacedInOtherDicts,
+    missing,
+    obsoleteMcpEntries
+  };
+}
+
+function printMcpSection(mcpResult) {
+  console.log('\n------------------------------------------------------------------');
+  console.log('3. MCP 服务器商店（MCP Store）官方目录与词典比对');
+  console.log('------------------------------------------------------------------');
+  if (!mcpResult) return;
+  if (!mcpResult.available) {
+    console.log(`ℹ️ 已跳过 MCP 商店比对：${mcpResult.skippedReason}（如需同时校验 MCP 商店，请先启动客户端）。`);
+    return;
+  }
+
+  console.log(`🔌 官方 MCP 服务器总数: ${mcpResult.totalOfficial} | 全词典覆盖: ${mcpResult.coveredCount}/${mcpResult.totalOfficial} | 主字典 (${mcpResult.mcpDictFile}) 收录: ${mcpResult.coveredInMcpDictCount}`);
+
+  let hasMcpIssues = false;
+  if (mcpResult.missing.length > 0) {
+    hasMcpIssues = true;
+    console.log(`\n⚠️ 【MCP 商店缺失未翻译描述】共 ${mcpResult.missing.length} 条:`);
+    for (const m of mcpResult.missing) {
+      console.log(`   [${m.id}] (${m.title}) ${m.description}`);
+    }
+  }
+  if (mcpResult.misplacedInOtherDicts.length > 0) {
+    hasMcpIssues = true;
+    console.log(`\n🔄 【MCP 词条跨字典错位，建议迁移至 ${mcpResult.mcpDictFile}】共 ${mcpResult.misplacedInOtherDicts.length} 条:`);
+    for (const m of mcpResult.misplacedInOtherDicts) {
+      console.log(`   • [${m.id}] 现存于 dicts/${m.currentFile} -> "${m.key}"`);
+    }
+  }
+  if (mcpResult.obsoleteMcpEntries.length > 0) {
+    hasMcpIssues = true;
+    console.log(`\n🗑️ 【${mcpResult.mcpDictFile} 中已改版或下架的历史描述】共 ${mcpResult.obsoleteMcpEntries.length} 条:`);
+    for (const o of mcpResult.obsoleteMcpEntries) {
+      const hint = o.replacementHint ? ` (现版 [${o.matchedTitle}]: ${o.replacementHint})` : ' (当前官方列表无对应描述)';
+      console.log(`   • "${o.key}" => "${o.translation}"${hint}`);
+    }
+  }
+
+  if (!hasMcpIssues) {
+    console.log(`🎉 当前 ${mcpResult.mcpDictFile} 与官方 ${mcpResult.totalOfficial} 个 MCP 服务器已 100% 同步！无缺失、错位或过时条目。`);
+  }
+}
+
 function parseCliArgs() {
   const args = process.argv.slice(2);
   let marketplacePath = null;
   let dictFile = DEFAULT_DICT_PATH;
+  let mcpDictFile = DEFAULT_MCP_DICT_PATH;
   let isJson = false;
   let useLocal = false;
+  let mcpMode = 'auto'; // 'auto' | 'only' | 'skip'
 
   for (let i = 0; i < args.length; i++) {
     if ((args[i] === '--cache-dir' || args[i] === '--marketplace-file') && args[i + 1]) {
@@ -625,16 +890,25 @@ function parseCliArgs() {
       useLocal = true;
     } else if (args[i] === '--dict-file' && args[i + 1]) {
       dictFile = path.resolve(args[++i]);
+    } else if (args[i] === '--mcp-dict' && args[i + 1]) {
+      mcpDictFile = path.resolve(args[++i]);
+    } else if (args[i] === '--mcp-only') {
+      mcpMode = 'only';
+    } else if (args[i] === '--no-mcp') {
+      mcpMode = 'skip';
     } else if (args[i] === '--json') {
       isJson = true;
     } else if (args[i] === '--help' || args[i] === '-h') {
       console.log(`用法: node diff_marketplace_plugins.js [选项]
 
 选项:
-  (默认)                      直连官方云端拉取全量双专区最新元数据 (官方 + 合作伙伴)
-  --local                     使用本地 Antigravity 缓存目录进行离线比对
+  (默认)                      直连官方云端拉取插件市场双专区数据，并在客户端运行时顺带审计 MCP 商店
+  --local                     插件市场改用本地缓存目录进行离线比对
   --cache-dir <path>          指定本地市场缓存目录或 marketplace.json 文件路径
-  --dict-file <path>          市场字典路径 (默认: dicts/marketplace_plugins.json)
+  --dict-file <path>          插件市场字典路径 (默认: dicts/marketplace_plugins.json)
+  --mcp-dict <path>           MCP 商店字典路径 (默认: dicts/page_mcp_knowledge.json)
+  --mcp-only                  仅运行官方 MCP 商店比对（需先启动 Antigravity 客户端）
+  --no-mcp                    仅运行插件市场比对（跳过 MCP 商店）
   --json                      以 JSON 结构化格式输出比对结果
   -h, --help                  显示此帮助信息
 `);
@@ -642,11 +916,29 @@ function parseCliArgs() {
     }
   }
 
-  return { marketplacePath, dictFile, isJson, useLocal };
+  return { marketplacePath, dictFile, mcpDictFile, isJson, useLocal, mcpMode };
 }
 
 async function main() {
-  const { marketplacePath, dictFile, isJson, useLocal } = parseCliArgs();
+  const { marketplacePath, dictFile, mcpDictFile, isJson, useLocal, mcpMode } = parseCliArgs();
+
+  if (mcpMode === 'only') {
+    if (!fs.existsSync(mcpDictFile)) {
+      console.error(`错误: MCP 字典文件未找到: ${mcpDictFile}`);
+      process.exit(1);
+    }
+    const mcpResult = await auditMcpStore(DICTS_DIR, mcpDictFile);
+    if (!mcpResult.available) {
+      console.error(`错误: ${mcpResult.skippedReason}`);
+      process.exit(1);
+    }
+    if (isJson) {
+      console.log(JSON.stringify({ mcp: mcpResult }, null, 2));
+    } else {
+      printMcpSection(mcpResult);
+    }
+    return;
+  }
 
   const { catalog, source: catalogSource, localBaseDir, error: loadErr } = await loadMarketplaceCatalog(marketplacePath, useLocal);
   if (loadErr) {
@@ -666,19 +958,23 @@ async function main() {
   }
 
   const { primaryDict, allDicts, primaryFileName } = loadAllDictionaries(DICTS_DIR, dictFile);
-
   const diffResult = diffPlugins(cachePlugins, catalogDescriptions, primaryDict, allDicts, primaryFileName);
+  const mcpResult = mcpMode === 'skip' ? null : await auditMcpStore(DICTS_DIR, mcpDictFile);
 
   if (isJson) {
     const output = {
       catalogSource,
       totalPlugins: Object.keys(cachePlugins).length,
       dictEntriesCount: Object.keys(primaryDict).length,
-      diff: diffResult
+      diff: diffResult,
+      ...(mcpResult ? { mcp: mcpResult } : {})
     };
     console.log(JSON.stringify(output, null, 2));
   } else {
     printReport(cachePlugins, catalogDescriptions, diffResult, primaryDict, catalogSource, primaryFileName);
+    if (mcpResult) {
+      printMcpSection(mcpResult);
+    }
   }
 }
 
