@@ -8304,6 +8304,27 @@ ${translationJs}
         }
     }
 
+    // 9.5 上下文监控模块注入
+    const contextMonitorPath = path.join(__dirname, "context_monitor.js");
+    if (fs.existsSync(contextMonitorPath)) {
+        try {
+            const contextMonitorSrc = fs.readFileSync(contextMonitorPath, "utf-8");
+            new vm.Script(contextMonitorSrc);
+            filePatches["dist/contextMonitor.js"] = contextMonitorSrc;
+            if (typeof filePatches["dist/main.js"] === "string") {
+                const mainBase = removeMarkedBlocks(filePatches["dist/main.js"], "'__AG_CTX_MONITOR_START__';", "'__AG_CTX_MONITOR_END__';");
+                filePatches["dist/main.js"] = mainBase + "\n'__AG_CTX_MONITOR_START__';\ntry{require('./contextMonitor.js');}catch(_e){}\n'__AG_CTX_MONITOR_END__';\n";
+            }
+            if (typeof filePatches["dist/preload.js"] === "string") {
+                const preloadBase = removeMarkedBlocks(filePatches["dist/preload.js"], "'__AG_CTX_BRIDGE_START__';", "'__AG_CTX_BRIDGE_END__';");
+                filePatches["dist/preload.js"] = preloadBase + "\n'__AG_CTX_BRIDGE_START__';\ntry{electron_1.contextBridge.exposeInMainWorld('__agCtxBridge',{getMetrics:(id,force,details)=>electron_1.ipcRenderer.invoke('ag-ctx:metrics',id,Boolean(force),Boolean(details))});}catch(_e){}\n'__AG_CTX_BRIDGE_END__';\n";
+            }
+            console.log(`[修改] 上下文监控模块注入成功！`);
+        } catch (ctxErr) {
+            console.warn(`[警告] 上下文监控模块校验失败，已跳过挂载: ${ctxErr.message}`);
+        }
+    }
+
     // 10. 打包并写入 app.asar
     const tempAsarPath = path.join(resourcesDir, "app.asar.tmp");
     try {

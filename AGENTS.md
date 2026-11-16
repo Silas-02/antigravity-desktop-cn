@@ -63,3 +63,9 @@
 
 - **词典归属（严格分包）**：官方插件市场文案专用分包字典为 `dicts/marketplace_plugins.json`；官方 MCP 服务器商店文案专用分包字典为 `dicts/page_mcp_knowledge.json`，两份词典保持独立，严禁合并。
 - **专项技能边界**：插件市场同步与审计技能（[`.agents/skills/sync-marketplace-plugins/`](.agents/skills/sync-marketplace-plugins/SKILL.md)）统一覆盖官方插件市场与官方 MCP 服务器商店的全量同步与审计比对，**严格仅在用户明确要求同步或审计插件市场/MCP 商店，或涉及的翻译文案命中上述两份专用分包字典时按需激活，常规零散界面汉化严禁预载或调用**。
+
+## 8. 上下文窗口与速率监控模块（context_monitor.js）
+
+- **挂载与隔离边界**：`context_monitor.js` 由 `localization_engine.js`（第 9.5 步）打包为 `dist/contextMonitor.js` 并通过 `ag-ctx:metrics` IPC 桥接；维护或升级引擎时须保留该挂载点。监控 UI 直接使用简体中文并挂载于带 `data-ag-localization-skip` 标记的 Shadow DOM 中，严禁将其界面文案录入 `dicts/*.json`。
+- **只读采集与动态模型映射**：指标采集必须经主进程内置 `./languageServer` 通道并保持流式白名单裁剪（不驻留对话/文件正文），严禁扫描或读取 `language_server` 二进制；模型显示名优先通过 `GetUserStatus` 动态获取客户端配置并辅以通用清洗，禁止硬编码特定内部占位符或第三方模型代号对照表。
+- **跨平台与自检要求**：路径分类正则与主进程探测逻辑须同时兼容 Windows、macOS 与 Linux，严禁写入硬编码系统路径或调用平台专属进程探测命令；修改 `context_monitor.js` 后须执行 `node -c context_monitor.js` 与 `node scripts/ag_audit.js check` 校验。
