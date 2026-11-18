@@ -414,5 +414,15 @@
   "Web search, content extraction, website crawling, URL discovery, and deep research for Antigravity via Tavily's hosted MCP server and skills.": "通过 Tavily 托管的 MCP 服务器和技能，为 Antigravity 提供网页搜索、内容提取、网站抓取、URL 发现与深度研究能力.",
   "Find key decision-makers at [company] and summarize their professional backgrounds.": "查找 [company] 的关键决策人并总结他们的职业背景.",
   "Research [company], including its products, competitors, and latest news.": "调研 [company]，包括其产品、竞争对手和最新动态.",
-  "Find the latest documentation and code examples for integrating [API or library] into my project.": "查找将 [API or library] 集成到我项目中的最新文档与代码示例."
+  "Find the latest documentation and code examples for integrating [API or library] into my project.": "查找将 [API or library] 集成到我项目中的最新文档与代码示例.",
+  "Robotics skills for any robot: 3D perception, collision-free motion planning, visual servoing, robot bring-up, sim2real, agent iteration, MuJoCo simulation, SimReady 3D asset authoring and physics auditing, and a live MuJoCo Studio 3D web sidecar.": "适用于各类机器人的机器人技能: 3D 感知、无碰撞运动规划、视觉伺服、机器人启动调试、Sim2Real、智能体迭代、MuJoCo 仿真、SimReady 3D 资产制作与物理审计，以及实时 MuJoCo Studio 3D Web 侧边栏.",
+  "Localize the target object in 3D from RGB-only cameras": "仅通过 RGB 相机对目标物体进行 3D 定位",
+  "Plan a collision-free joint trajectory in MuJoCo": "在 MuJoCo 中规划无碰撞关节轨迹",
+  "Run closed-loop eye-in-hand visual servoing": "运行闭环眼在手视觉伺服",
+  "Run the Sim-to-Real Gauntlet and compare paired CRN controller candidates": "运行 Sim-to-Real Gauntlet 并对比成对的 CRN 控制器候选方案",
+  "Use mujoco-playground with motion-planning, rgb-object-localization, and visual-servoing to pick a block on YAM or SO-101 in sim and zero-shot to real": "结合使用 mujoco-playground 与 motion-planning、rgb-object-localization 及 visual-servoing 在仿真中控制 YAM 或 SO-101 抓取方块并零样本迁移至真机",
+  "Use mujoco-playground-rl to create and train a quadruped joystick locomotion RL task on a new MuJoCo Menagerie robot": "使用 mujoco-playground-rl 为新的 MuJoCo Menagerie 机器人创建并训练四足摇杆运动强化学习任务",
+  "Launch a live MuJoCo Studio simulation in this workspace": "在此工作区启动实时 MuJoCo Studio 仿真",
+  "Create a SimReady MuJoCo asset in Blender from a product URL or reference photo": "根据产品 URL 或参考照片在 Blender 中创建 SimReady MuJoCo 资产",
+  "Audit an existing MuJoCo model.xml with the 10-scenario physics suite and fix any defects": "使用 10 场景物理测试套件审计现有的 MuJoCo model.xml 并修复缺陷"
 }

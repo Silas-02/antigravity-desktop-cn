@@ -31,7 +31,6 @@
     // -------------------------------------------------------------------------
 
     const SCALAR = 'scalar';
-    const TEXT_METRICS = Symbol('textMetrics');
     const DURATION = Symbol('duration');
     const DURATION_OBJECT_SCHEMA = { seconds: SCALAR, nanos: SCALAR };
     const DROP = Symbol('drop');
@@ -92,64 +91,6 @@
             },
         },
     };
-    const STEP_SCHEMA = {
-        type: SCALAR,
-        status: SCALAR,
-        metadata: {
-            toolCall: {
-                name: SCALAR,
-                argumentsJson: SCALAR,
-            },
-        },
-        viewFile: {
-            absolutePathUri: SCALAR,
-            startLine: SCALAR,
-            endLine: SCALAR,
-            numLines: SCALAR,
-            numBytes: SCALAR,
-            lineRangeBytes: SCALAR,
-            isSkillFile: SCALAR,
-            content: TEXT_METRICS,
-            rawContent: TEXT_METRICS,
-        },
-        viewFileOutline: {
-            absolutePathUri: SCALAR,
-            numLines: SCALAR,
-            numBytes: SCALAR,
-            contents: TEXT_METRICS,
-            rawContent: TEXT_METRICS,
-        },
-        mcpTool: {
-            serverName: SCALAR,
-            toolCall: {
-                name: SCALAR,
-                argumentsJson: TEXT_METRICS,
-            },
-            resultString: TEXT_METRICS,
-        },
-        generic: {
-            args: {
-                AbsolutePath: SCALAR,
-                path: SCALAR,
-                Path: SCALAR,
-                TargetFile: SCALAR,
-                StartLine: SCALAR,
-                start_line: SCALAR,
-                EndLine: SCALAR,
-                end_line: SCALAR,
-                IsSkillFile: SCALAR,
-                isSkillFile: SCALAR,
-                ServerName: SCALAR,
-                ToolName: SCALAR,
-                Arguments: TEXT_METRICS,
-                ArgumentsJson: TEXT_METRICS,
-                Uri: SCALAR,
-            },
-            result: {
-                result: TEXT_METRICS,
-            },
-        },
-    };
     const CLIENT_MODEL_CONFIG_SCHEMA = {
         label: SCALAR,
         modelId: SCALAR,
@@ -163,12 +104,10 @@
     };
     const SUMMARIES_MAP_SCHEMA = { [SUMMARY_ENTRY]: SUMMARY_SCHEMA };
     const GENERATORS_ARRAY_SCHEMA = { '*': GENERATOR_SCHEMA };
-    const STEPS_ARRAY_SCHEMA = { '*': STEP_SCHEMA };
     const RPC_PROJECTION_SCHEMA = {
         trajectorySummaries: SUMMARIES_MAP_SCHEMA,
         generatorMetadata: GENERATORS_ARRAY_SCHEMA,
         generatorMetadatas: GENERATORS_ARRAY_SCHEMA,
-        steps: STEPS_ARRAY_SCHEMA,
         userStatus: { cascadeModelConfigData: MODEL_CONFIG_DATA_SCHEMA },
         cascadeModelConfigData: MODEL_CONFIG_DATA_SCHEMA,
     };
@@ -242,13 +181,6 @@
 
         const appendStringChunk = (text) => {
             const tk = activeToken;
-            if (!tk.isKey && tk.schema === TEXT_METRICS) {
-                tk.chars += text.length;
-                for (let idx = 0; idx < text.length; idx++) {
-                    if (text.charCodeAt(idx) >= 0x80) tk.nonAscii++;
-                }
-                return;
-            }
             if (!tk.isKey && tk.schema !== SCALAR && tk.schema !== DURATION) return;
             if (tk.truncated) return;
             tk.buf += text;
@@ -271,10 +203,7 @@
                 return;
             }
             let out = DROP;
-            if (tk.schema === TEXT_METRICS) {
-                out = { chars: tk.chars, nonAscii: tk.nonAscii };
-                addCost(32);
-            } else if (tk.schema === SCALAR || tk.schema === DURATION) {
+            if (tk.schema === SCALAR || tk.schema === DURATION) {
                 out = tk.buf;
                 addCost(out.length * 2);
             }
@@ -387,8 +316,6 @@
                             isKey,
                             schema: isKey ? null : resolveSlotSchema(),
                             buf: '',
-                            chars: 0,
-                            nonAscii: 0,
                             truncated: false,
                             esc: 0,
                             hex: '',
@@ -868,10 +795,6 @@
         { match: /(?:^|_)(?:WORKFLOWS|PLUGINS|FLOWS)$|^(?:8|9|10)$/, key: 'extensions', label: '扩展与工作流', color: '#a855f7', order: 7 },
         { match: /(?:^|_)CHAT_MESSAGES$|^7$/, key: 'chat_messages', label: '对话消息', color: '#3b82f6', order: 8 },
     ];
-    const TOKEN_META_BY_KEY = new Map(TOKEN_TYPE_META.map((item) => [item.key, item]));
-    const MCP_SCHEMA_PATH_RE = /[\\/]\.gemini[\\/]antigravity[\\/]mcp[\\/]/i;
-    const SKILL_FILE_PATH_RE = /(?:^|[\\/])skills[\\/][^\\/]+[\\/]SKILL\.md$/i;
-    const MCP_CALL_TOOL_RE = /^(?:call_mcp_tool|mcp_tool|read_resource|list_resources)$/;
 
     function resolveTokenTypeMeta(rawType) {
         const str = String(rawType ?? '').trim();
@@ -881,201 +804,11 @@
         return { key: 'other', label: '其他上下文', color: '#94a3b8', order: 90 };
     }
 
-    function textMetricsFromString(str) {
-        if (typeof str !== 'string' || !str) return null;
-        let nonAscii = 0;
-        for (let i = 0; i < str.length; i++) {
-            if (str.charCodeAt(i) >= 0x80) nonAscii++;
-        }
-        return { chars: str.length, nonAscii };
-    }
-
-    function estimateTokensFromMetrics(metrics, fallbackBytes, startLine, endLine) {
-        if (metrics && typeof metrics.chars === 'number' && metrics.chars > 0) {
-            const nonAscii = Math.min(metrics.chars, typeof metrics.nonAscii === 'number' ? metrics.nonAscii : 0);
-            const ascii = metrics.chars - nonAscii;
-            return Math.max(1, Math.round(ascii / 3.8 + nonAscii / 1.5));
-        }
-        const bytes = parseNonNegInt(fallbackBytes);
-        if (bytes !== null && bytes > 0) {
-            return Math.max(1, Math.round(bytes / 3.8));
-        }
-        const sLine = parseNonNegInt(startLine);
-        const eLine = parseNonNegInt(endLine);
-        if (sLine !== null && eLine !== null && eLine >= sLine) {
-            return Math.max(1, (eLine - sLine + 1) * 12);
-        }
-        return 0;
-    }
-
-    /** 按文件路径与技能标记将读取步骤归类为 skill / mcp / file */
-    function classifyReadPathKind(pathStr, isSkillFlag) {
-        if (isSkillFlag === true || isSkillFlag === 'true') return 'skill';
-        const normalized = String(pathStr || '').trim().replace(/^file:\/\//i, '');
-        if (SKILL_FILE_PATH_RE.test(normalized)) return 'skill';
-        if (MCP_SCHEMA_PATH_RE.test(normalized)) return 'mcp';
-        return 'file';
-    }
-
-    /** 从单个 Trajectory 步骤提取动态上下文估算（file / skill / mcp） */
-    function extractStepCategoryTokens(step) {
-        if (!step || typeof step !== 'object') return null;
-        const st = String(step.status || '');
-        if (/ERROR|INVALID|CANCEL|REJECT/i.test(st) || st === '5' || st === '6') return null;
-
-        if (step.viewFile && typeof step.viewFile === 'object') {
-            const vf = step.viewFile;
-            if (typeof vf.absolutePathUri !== 'string' || !vf.absolutePathUri.trim()) return null;
-            const tokens = estimateTokensFromMetrics(
-                vf.content || vf.rawContent,
-                vf.lineRangeBytes !== undefined ? vf.lineRangeBytes : vf.numBytes,
-                vf.startLine,
-                vf.endLine
-            );
-            return tokens > 0 ? { kind: classifyReadPathKind(vf.absolutePathUri, vf.isSkillFile), tokens } : null;
-        }
-
-        if (step.viewFileOutline && typeof step.viewFileOutline === 'object') {
-            const vo = step.viewFileOutline;
-            if (typeof vo.absolutePathUri !== 'string' || !vo.absolutePathUri.trim()) return null;
-            const tokens = estimateTokensFromMetrics(vo.contents || vo.rawContent, vo.numBytes);
-            return tokens > 0 ? { kind: classifyReadPathKind(vo.absolutePathUri, false), tokens } : null;
-        }
-
-        if (step.mcpTool && typeof step.mcpTool === 'object') {
-            const mc = step.mcpTool;
-            const reqMetrics = (mc.toolCall && mc.toolCall.argumentsJson)
-                || textMetricsFromString(step.metadata && step.metadata.toolCall && step.metadata.toolCall.argumentsJson);
-            const resMetrics = mc.resultString
-                || (step.generic && step.generic.result && step.generic.result.result);
-            const reqTok = estimateTokensFromMetrics(reqMetrics);
-            const resTok = estimateTokensFromMetrics(resMetrics);
-            const tokens = reqTok + resTok + 12;
-            return tokens > 0 ? { kind: 'mcp', tokens } : null;
-        }
-
-        const toolName = step.metadata && step.metadata.toolCall && String(step.metadata.toolCall.name || '');
-        if (toolName === 'view_file' || toolName === 'read_file') {
-            const args = (step.generic && step.generic.args) || {};
-            let parsedArgs = null;
-            if (!args.AbsolutePath && !args.path && !args.Path && !args.TargetFile && step.metadata.toolCall.argumentsJson) {
-                try {
-                    parsedArgs = JSON.parse(step.metadata.toolCall.argumentsJson);
-                } catch {}
-            }
-            const src = parsedArgs || args;
-            const hasPath = src.AbsolutePath || src.path || src.Path || src.TargetFile;
-            if (typeof hasPath !== 'string' || !hasPath.trim()) return null;
-            const startLine = parseNonNegInt(src.StartLine ?? src.start_line);
-            const endLine = parseNonNegInt(src.EndLine ?? src.end_line);
-            const resultMetrics = step.generic && step.generic.result && step.generic.result.result;
-            const tokens = estimateTokensFromMetrics(resultMetrics, null, startLine, endLine);
-            if (tokens <= 0) return null;
-            const skillFlag = src.IsSkillFile ?? src.isSkillFile ?? args.IsSkillFile ?? args.isSkillFile;
-            return { kind: classifyReadPathKind(hasPath, skillFlag), tokens };
-        }
-
-        if (MCP_CALL_TOOL_RE.test(toolName)) {
-            const args = (step.generic && step.generic.args) || {};
-            const reqMetrics = args.Arguments || args.ArgumentsJson
-                || textMetricsFromString(step.metadata && step.metadata.toolCall && step.metadata.toolCall.argumentsJson);
-            const resMetrics = step.generic && step.generic.result && step.generic.result.result;
-            const reqTok = estimateTokensFromMetrics(reqMetrics);
-            const resTok = estimateTokensFromMetrics(resMetrics);
-            return { kind: 'mcp', tokens: Math.max(1, reqTok + resTok + 12) };
-        }
-
-        return null;
-    }
-
-    async function fetchStepFileReads(endpoint, cascadeId, startStep, stepCount, cachedStepsState, force) {
-        const canReuse = Boolean(
-            !force &&
-            cachedStepsState &&
-            cachedStepsState.startStep === startStep &&
-            cachedStepsState.offset >= startStep
-        );
-        let offset = canReuse ? cachedStepsState.offset : startStep;
-        const slots = canReuse && Array.isArray(cachedStepsState.slots) ? cachedStepsState.slots.slice() : [];
-        const visited = new Set();
-        for (let pageIdx = 0; pageIdx < 512; pageIdx++) {
-            if (stepCount !== null && offset >= stepCount) break;
-            if (visited.has(offset)) break;
-            visited.add(offset);
-            const page = await callLsRpc(endpoint, 'GetCascadeTrajectorySteps', {
-                cascadeId,
-                stepOffset: offset,
-                trajectoryVerbosity: 2,
-            });
-            const items = (page && page.steps) || [];
-            if (!Array.isArray(items) || items.length === 0) break;
-            for (let i = 0; i < items.length; i++) {
-                slots[offset + i] = extractStepCategoryTokens(items[i]);
-            }
-            offset += items.length;
-        }
-        slots.length = offset;
-        return { startStep, offset, slots, loaded: true };
-    }
-
-    /** 汇总步骤拆出的 file / skill / mcp 估算值，并按 capTokens 等比封顶不超扣 */
-    function sumStepBreakdownTokens(slots, startStep, capTokens) {
-        const zero = { file: 0, skill: 0, mcp: 0, total: 0 };
-        if (!Array.isArray(slots) || slots.length === 0) return zero;
-        let rawFile = 0;
-        let rawSkill = 0;
-        let rawMcp = 0;
-        for (let i = Math.max(0, startStep); i < slots.length; i++) {
-            const entry = slots[i];
-            if (!entry) continue;
-            if (typeof entry === 'number' && entry > 0) {
-                rawFile += entry;
-            } else if (typeof entry === 'object' && typeof entry.tokens === 'number' && entry.tokens > 0) {
-                if (entry.kind === 'skill') rawSkill += entry.tokens;
-                else if (entry.kind === 'mcp') rawMcp += entry.tokens;
-                else rawFile += entry.tokens;
-            }
-        }
-        const rawTotal = rawFile + rawSkill + rawMcp;
-        if (rawTotal <= 0) return zero;
-        if (typeof capTokens === 'number' && capTokens >= 0 && rawTotal > capTokens) {
-            if (capTokens === 0) return zero;
-            const scale = capTokens / rawTotal;
-            const file = Math.floor(rawFile * scale);
-            const skill = Math.floor(rawSkill * scale);
-            const mcp = Math.floor(rawMcp * scale);
-            return { file, skill, mcp, total: file + skill + mcp };
-        }
-        return { file: rawFile, skill: rawSkill, mcp: rawMcp, total: rawTotal };
-    }
-
-    function mergeEstimatedCategory(grouped, metaKey, tokens) {
-        if (!tokens || tokens <= 0) return;
-        let cur = grouped.get(metaKey);
-        if (!cur) {
-            const meta = TOKEN_META_BY_KEY.get(metaKey);
-            if (!meta) return;
-            cur = {
-                key: meta.key,
-                label: meta.label,
-                color: meta.color,
-                order: meta.order,
-                tokens: 0,
-                estimated: true,
-                isFree: false,
-            };
-            grouped.set(meta.key, cur);
-        } else {
-            cur.estimated = true;
-        }
-        cur.tokens += tokens;
-    }
-
-    function buildContextBreakdown(context, latestChat, stepsState, startStep) {
+    /** 按官方 tokenBreakdown 原生分类直接构建上下文构成（不做步骤估算二次拆分） */
+    function buildContextBreakdown(context, latestChat) {
         if (!context) return null;
         const denom = context.maxTokens !== null && context.maxTokens > 0 ? context.maxTokens : context.usedTokens;
         const basis = context.maxTokens !== null && context.maxTokens > 0 ? 'window' : 'used';
-        const filesLoaded = Boolean(stepsState && stepsState.loaded);
 
         const rawBreakdown = latestChat &&
             latestChat.chatStartMetadata &&
@@ -1091,7 +824,7 @@
             const meta = resolveTokenTypeMeta(grp.type);
             let cur = grouped.get(meta.key);
             if (!cur) {
-                cur = { key: meta.key, label: meta.label, color: meta.color, order: meta.order, tokens: 0, estimated: false, isFree: false };
+                cur = { key: meta.key, label: meta.label, color: meta.color, order: meta.order, tokens: 0, isFree: false };
                 grouped.set(meta.key, cur);
             }
             cur.tokens += n;
@@ -1099,50 +832,8 @@
 
         const categories = [];
         if (grouped.size > 0) {
-            let serverSum = 0;
-            for (const g of grouped.values()) serverSum += g.tokens;
-
-            const chatBucket = grouped.get('chat_messages');
-            const poolCap = chatBucket
-                ? chatBucket.tokens
-                : Math.max(0, context.usedTokens - serverSum);
-            const stepTotals = filesLoaded
-                ? sumStepBreakdownTokens(stepsState.slots, startStep, poolCap)
-                : { file: 0, skill: 0, mcp: 0, total: 0 };
-
-            if (stepTotals.total > 0 && chatBucket) {
-                chatBucket.tokens = Math.max(0, chatBucket.tokens - stepTotals.total);
-            } else if (!chatBucket && context.usedTokens > serverSum) {
-                const msgTokens = Math.max(0, context.usedTokens - serverSum - stepTotals.total);
-                if (msgTokens > 0) {
-                    grouped.set('chat_messages', {
-                        key: 'chat_messages',
-                        label: '对话消息与历史',
-                        color: '#3b82f6',
-                        order: 8,
-                        tokens: msgTokens,
-                        estimated: false,
-                        isFree: false,
-                    });
-                }
-            }
-
-            mergeEstimatedCategory(grouped, 'mcp_tools', stepTotals.mcp);
-            mergeEstimatedCategory(grouped, 'skills', stepTotals.skill);
-
             for (const g of grouped.values()) {
                 if (g.tokens > 0) categories.push(g);
-            }
-            if (stepTotals.file > 0) {
-                categories.push({
-                    key: 'read_files',
-                    label: '已读文件',
-                    color: '#38bdf8',
-                    order: 8.5,
-                    tokens: stepTotals.file,
-                    estimated: true,
-                    isFree: false,
-                });
             }
             const totalPlaced = categories.reduce((s, c) => s + c.tokens, 0);
             if (context.usedTokens - totalPlaced > 64) {
@@ -1152,63 +843,19 @@
                     color: '#94a3b8',
                     order: 89,
                     tokens: context.usedTokens - totalPlaced,
-                    estimated: true,
                     isFree: false,
                 });
             }
             categories.sort((a, b) => a.order - b.order);
-        } else {
-            const stepTotals = filesLoaded
-                ? sumStepBreakdownTokens(stepsState.slots, startStep, context.usedTokens)
-                : { file: 0, skill: 0, mcp: 0, total: 0 };
-            if (stepTotals.mcp > 0) {
-                const meta = TOKEN_META_BY_KEY.get('mcp_tools');
-                categories.push({
-                    key: meta.key,
-                    label: meta.label,
-                    color: meta.color,
-                    order: meta.order,
-                    tokens: stepTotals.mcp,
-                    estimated: true,
-                    isFree: false,
-                });
-            }
-            if (stepTotals.skill > 0) {
-                const meta = TOKEN_META_BY_KEY.get('skills');
-                categories.push({
-                    key: meta.key,
-                    label: meta.label,
-                    color: meta.color,
-                    order: meta.order,
-                    tokens: stepTotals.skill,
-                    estimated: true,
-                    isFree: false,
-                });
-            }
-            if (stepTotals.file > 0) {
-                categories.push({
-                    key: 'read_files',
-                    label: '已读文件',
-                    color: '#38bdf8',
-                    order: 8.5,
-                    tokens: stepTotals.file,
-                    estimated: true,
-                    isFree: false,
-                });
-            }
-            const restUsed = Math.max(0, context.usedTokens - stepTotals.total);
-            if (restUsed > 0 || stepTotals.total === 0) {
-                categories.push({
-                    key: 'messages_and_system',
-                    label: stepTotals.total > 0 ? '消息与系统提示等' : '已用上下文 (消息/提示/工具)',
-                    color: '#3b82f6',
-                    order: 8,
-                    tokens: restUsed,
-                    estimated: stepTotals.total > 0,
-                    isFree: false,
-                });
-            }
-            categories.sort((a, b) => a.order - b.order);
+        } else if (context.usedTokens > 0) {
+            categories.push({
+                key: 'messages_and_system',
+                label: '已用上下文 (消息/提示/工具)',
+                color: '#3b82f6',
+                order: 8,
+                tokens: context.usedTokens,
+                isFree: false,
+            });
         }
 
         if (context.remainingTokens !== null && context.maxTokens !== null) {
@@ -1218,7 +865,6 @@
                 color: '#475569',
                 order: 99,
                 tokens: context.remainingTokens,
-                estimated: false,
                 isFree: true,
             });
         }
@@ -1226,8 +872,6 @@
         return {
             basis,
             denomTokens: denom,
-            filesLoaded,
-            startStep,
             categories: categories.map((r) => ({
                 ...r,
                 fraction: denom > 0 ? r.tokens / denom : null,
@@ -1235,7 +879,7 @@
         };
     }
 
-    async function queryConversationContext(rawId, force, withBreakdown) {
+    async function queryConversationContext(rawId, force) {
         const endpoint = getLsEndpoint();
         if (!endpoint) return { status: 'offline', running: false, conversationId: null, context: null, cache: null, speed: null, breakdown: null };
         if (typeof rawId !== 'string' || !UUID_RE.test(rawId)) {
@@ -1257,8 +901,7 @@
 
         const cached = sessionCache.get(id);
         const now = Date.now();
-        const cachedStepsOk = Boolean(!withBreakdown || (cached && cached.steps && cached.steps.loaded));
-        if (cached && cached.endpointKey === endpoint.key && !force && cached.mark === mark && cachedStepsOk) {
+        if (cached && cached.endpointKey === endpoint.key && !force && cached.mark === mark) {
             const ttl = settled ? 10000 : 1200;
             if (now - cached.verifiedAt < ttl) {
                 return cached.payload;
@@ -1296,19 +939,9 @@
         }
 
         const context = buildContextMetrics(scan.latestChat, modelCatalog);
-        const startStep = parseNonNegInt(scan.latestChat && scan.latestChat.chatStartMetadata && scan.latestChat.chatStartMetadata.startStepIndex) ?? 0;
-        let stepsState = cached && cached.endpointKey === endpoint.key && canIncremental && cached.steps
-            ? cached.steps
-            : { startStep, offset: startStep, slots: [], loaded: false };
-
-        if (withBreakdown && context && (!stepsState.loaded || stepsState.startStep !== startStep || (stepCount !== null && stepsState.offset < stepCount) || force)) {
-            stepsState = await fetchStepFileReads(endpoint, id, startStep, stepCount, stepsState, Boolean(force))
-                .catch(() => stepsState);
-        }
-
         const cache = aggregateCacheSlots(scan.cacheSlots);
         const speed = aggregateSpeedSlots(scan.speedSlots);
-        const breakdown = buildContextBreakdown(context, scan.latestChat, stepsState, startStep);
+        const breakdown = buildContextBreakdown(context, scan.latestChat);
         const payload = {
             status: context ? 'ready' : 'waiting',
             running,
@@ -1330,7 +963,6 @@
             lastChat: scan.latestChat,
             cacheSlots: scan.cacheSlots,
             speedSlots: scan.speedSlots,
-            steps: stepsState,
             verifiedAt: Date.now(),
             payload,
         });
@@ -1340,14 +972,14 @@
         return payload;
     }
 
-    ipcMain.handle('ag-ctx:metrics', async (event, rawId, force, withBreakdown) => {
+    ipcMain.handle('ag-ctx:metrics', async (event, rawId, force) => {
         const senderUrl = event && event.senderFrame ? event.senderFrame.url : '';
         if (!LOCAL_ORIGIN_RE.test(senderUrl)) {
             return { status: 'offline', running: false, conversationId: null, context: null, cache: null, speed: null, breakdown: null };
         }
-        const key = (typeof rawId === 'string' && UUID_RE.test(rawId) ? rawId.toLowerCase() : 'none') + ':' + (force ? '1' : '0') + ':' + (withBreakdown ? '1' : '0');
+        const key = (typeof rawId === 'string' && UUID_RE.test(rawId) ? rawId.toLowerCase() : 'none') + ':' + (force ? '1' : '0');
         if (inflightRequests.has(key)) return inflightRequests.get(key);
-        const promise = queryConversationContext(rawId, Boolean(force), Boolean(withBreakdown))
+        const promise = queryConversationContext(rawId, Boolean(force))
             .catch(() => ({ status: 'error', running: false, conversationId: typeof rawId === 'string' ? rawId.toLowerCase() : null, context: null, cache: null, speed: null, breakdown: null }))
             .finally(() => {
                 inflightRequests.delete(key);
@@ -2307,7 +1939,6 @@
                 lastFetchAt: 0,
                 lastToolbarWidth: -1,
                 isFetching: false,
-                pendingDetails: false,
                 fetchEpoch: 0,
                 resizeObserver: null,
             };
@@ -2451,12 +2082,6 @@
             if (open) {
                 renderPortalCard(activeInst);
                 positionCard();
-                if (!skipFetch && breakdownOpen && activeInst.conversationId && activeInst.latestPayload && activeInst.latestPayload.status === 'ready') {
-                    const bd = activeInst.latestPayload.breakdown;
-                    if (!bd || !bd.filesLoaded) {
-                        void refreshInstance(activeInst, false, true);
-                    }
-                }
             }
         }
 
@@ -2612,10 +2237,9 @@
             const catRows = [];
             const categories = bd && Array.isArray(bd.categories) ? bd.categories : [];
             for (const cat of categories) {
-                const prefix = cat.estimated ? '~' : '';
-                const tokStr = `${prefix}${formatCompactTokens(cat.tokens)}`;
+                const tokStr = formatCompactTokens(cat.tokens);
                 const pctStr = cat.fraction === null || cat.fraction === undefined ? '—' : formatPct(cat.fraction);
-                const title = `${cat.label}: ${formatExactTokens(cat.tokens)}${cat.estimated ? ' (按步骤记录估算)' : ''}${pctStr !== '—' ? ` · ${pctStr}` : ''}`;
+                const title = `${cat.label}: ${formatExactTokens(cat.tokens)}${pctStr !== '—' ? ` · ${pctStr}` : ''}`;
                 const frac = typeof cat.fraction === 'number'
                     ? cat.fraction
                     : (denom > 0 && typeof cat.tokens === 'number' ? cat.tokens / denom : 0);
@@ -2651,9 +2275,6 @@
                 if (!bd) {
                     noteEl.hidden = false;
                     noteEl.textContent = '等待首个请求后展示分类构成';
-                } else if (!bd.filesLoaded) {
-                    noteEl.hidden = false;
-                    noteEl.textContent = '正在统计分类占比…';
                 } else if (categories.length === 0) {
                     noteEl.hidden = false;
                     noteEl.textContent = '暂无可拆分的构成数据';
@@ -2766,12 +2387,8 @@
             }
         }
 
-        async function refreshInstance(inst, force = false, withDetails = false) {
-            const wantDetails = Boolean(
-                withDetails || (breakdownOpen && (pinnedOpen || hoverOpen) && inst === activeInst)
-            );
+        async function refreshInstance(inst, force = false) {
             if (inst.isFetching) {
-                if (wantDetails) inst.pendingDetails = true;
                 return;
             }
             const convId = inst.conversationId;
@@ -2788,7 +2405,7 @@
             inst.isFetching = true;
             inst.lastFetchAt = Date.now();
             try {
-                const res = await window.__agCtxBridge.getMetrics(convId, force, wantDetails);
+                const res = await window.__agCtxBridge.getMetrics(convId, force);
                 if (myEpoch !== inst.fetchEpoch || convId !== inst.conversationId) return;
                 inst.latestPayload = res || { status: 'error', running: false, conversationId: convId, context: null, cache: null, speed: null, breakdown: null };
                 renderInstance(inst);
@@ -2797,10 +2414,6 @@
             } finally {
                 if (myEpoch === inst.fetchEpoch) {
                     inst.isFetching = false;
-                    if (inst.pendingDetails) {
-                        inst.pendingDetails = false;
-                        void refreshInstance(inst, false, true);
-                    }
                 }
             }
         }
@@ -2840,7 +2453,6 @@
                     inst.lastFetchAt = 0;
                     inst.lastToolbarWidth = -1;
                     inst.isFetching = false;
-                    inst.pendingDetails = false;
                     renderInstance(inst);
                     void refreshInstance(inst, true);
                 } else if (moved || (comp.toolbar && comp.toolbar.clientWidth !== inst.lastToolbarWidth)) {

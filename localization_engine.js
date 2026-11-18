@@ -609,6 +609,9 @@ function generateJs() {
 
         match = normalized.match(/^(\\+)?\\s*(\\d+)\\s+more\\s+lines?$/i);
         if (match) return (match[1] ? match[1] : "") + match[2] + " 行代码";
+
+        match = normalized.match(/^(\\d+)\\s+hidden\\s+hosts?$/i);
+        if (match) return match[1] + " 个已隐藏主机";
         return null;
     }
 
@@ -5190,7 +5193,7 @@ function getDynamicProductUiTranslation(value, node = null) {
 
     function translateSwarmBoardElementAttributes(el) {
         if (!el || el.nodeType !== Node.ELEMENT_NODE) return;
-        for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label']) {
+        for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label', 'data-tooltip']) {
             const v = el.getAttribute(attr);
             if (!v) continue;
             const target = getSwarmBoardUiTranslation(el, norm(v), v, true, attr);
@@ -6070,7 +6073,7 @@ function getDynamicProductUiTranslation(value, node = null) {
                 const tag = node.tagName ? node.tagName.toUpperCase() : '';
                 if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SVG') {
                     const parentState = getElementBlockedState(node.parentElement);
-                    for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label']) {
+                    for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label', 'data-tooltip']) {
                         const v = node.getAttribute(attr);
                         if (v) {
                             const searchingTrans = getSearchingStatusTranslation(v);
@@ -6093,7 +6096,7 @@ function getDynamicProductUiTranslation(value, node = null) {
                 return;
             }
             if (node.getAttribute('contenteditable') === 'true') {
-                for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'aria-label', 'title']) {
+                for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'aria-label', 'title', 'data-tooltip']) {
                     const value = node.getAttribute(attr);
                     if (!value) continue;
                     const normalizedValue = norm(value);
@@ -6107,7 +6110,7 @@ function getDynamicProductUiTranslation(value, node = null) {
                 return;
             }
             if (blockedState === 0 || node.tagName === 'BUTTON' || node.getAttribute?.('role') === 'button' || node.tagName === 'INPUT' || node.tagName === 'TEXTAREA') {
-                for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label']) {
+                for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label', 'data-tooltip']) {
                     const v = node.getAttribute(attr);
                     if (v) {
                         const searchingTrans = getSearchingStatusTranslation(v);
@@ -6127,7 +6130,7 @@ function getDynamicProductUiTranslation(value, node = null) {
                     }
                 }
             } else {
-                for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label']) {
+                for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label', 'data-tooltip']) {
                     const v = node.getAttribute(attr);
                     if (v) {
                         const searchingTrans = getSearchingStatusTranslation(v);
@@ -6257,7 +6260,7 @@ function getDynamicProductUiTranslation(value, node = null) {
                 if (node.getAttribute('contenteditable') === 'true') {
                     isBlocked = true;
 
-                    for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'aria-label', 'title']) {
+                    for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'aria-label', 'title', 'data-tooltip']) {
                         const value = node.getAttribute(attr);
                         if (!value) continue;
                         const normalizedValue = norm(value);
@@ -6293,7 +6296,7 @@ function getDynamicProductUiTranslation(value, node = null) {
                     }
                     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SVG') {
                         const parentBlocked = getElementBlockedState(node.parentElement) !== 0;
-                        for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label']) {
+                        for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label', 'data-tooltip']) {
                             const v = node.getAttribute(attr);
                             if (v) {
                                 const searchingTrans = getSearchingStatusTranslation(v);
@@ -6338,7 +6341,7 @@ function getDynamicProductUiTranslation(value, node = null) {
                 if (blockedState === 0 || isFoldButtonContainer) {
                     if (translateSpecialContainers(node) === 'skip_children') return;
                     translateCombinedTextChildren(node);
-                    for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label']) {
+                    for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label', 'data-tooltip']) {
                         const v = node.getAttribute(attr);
                         if (v) {
                             const searchingTrans = getSearchingStatusTranslation(v);
@@ -6358,7 +6361,7 @@ function getDynamicProductUiTranslation(value, node = null) {
                         }
                     }
                 } else {
-                    for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label']) {
+                    for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label', 'data-tooltip']) {
                         const v = node.getAttribute(attr);
                         if (v) {
                             const searchingTrans = getSearchingStatusTranslation(v);
@@ -6944,7 +6947,7 @@ function getDynamicProductUiTranslation(value, node = null) {
         subtree: true,
         characterData: true,
         attributes: true,
-        attributeFilter: ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label']
+        attributeFilter: ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label', 'data-tooltip']
     };
 
     let engineStarted = false;
