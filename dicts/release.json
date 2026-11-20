@@ -1213,5 +1213,12 @@
   "Insert into main conversation": "插入到主会话",
   "Unarchive the main conversation to insert": "取消归档主会话以插入",
   "Pull Requests": "拉取请求",
-  "Author": "作者"
+  "Author": "作者",
+  "Orchestrator (Neon)": "编排器 (Neon)",
+  "Neon that may offload routine steps to Hydrogen. Same Neon-level quality, fewer tokens used.": "以 Neon 为主，可能会将常规步骤交由 Hydrogen 处理. 质量与 Neon 相当，Token 消耗更少.",
+  "For most deep reasoning and complex problems": "适用于大多数深度推理与复杂问题",
+  "The original Gemini 4 model for advanced workflows": "面向高级工作流的经典 Gemini 4 模型",
+  "For speed and efficiency in execution tasks": "兼顾执行任务的速度与效率",
+  "Error Loading Models": "加载模型出错",
+  "No models available": "暂无可用模型"
 }
