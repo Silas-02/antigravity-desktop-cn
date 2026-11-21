@@ -350,5 +350,16 @@
   "Reset to Default": "重置为默认值",
   "Reset to Defaults": "重置为默认值",
   "Reset All to Defaults": "全部重置为默认值",
-  "Reset All to Default": "全部重置为默认值"
+  "Reset All to Default": "全部重置为默认值",
+  "Input Box": "输入框",
+  "Choose which key sends a message in the chat composer.": "选择在对话输入框中通过哪个按键发送消息.",
+  "Press Enter to send, Shift+Enter for a new line.": "按 Enter 发送，按 Shift+Enter 换行.",
+  "Press Ctrl+Enter to send, Enter for a new line.": "按 Ctrl+Enter 发送，按 Enter 换行.",
+  "Press Cmd+Enter to send, Enter for a new line.": "按 Cmd+Enter 发送，按 Enter 换行.",
+  "Orchestrator Settings": "编排器设置",
+  "Choose the models Orchestrator uses. A larger, smarter orchestrator model with a faster, cheaper executor gives high quality for fewer tokens.": "选择编排器使用的模型. 将更大、更智能的编排模型与更快、更经济的执行模型搭配使用，可在消耗更少 Token 的同时获得高质量结果.",
+  "Orchestrator Model": "编排模型",
+  "Plans the work, makes design decisions, and reviews the result. Pick a top-tier model. You can also pick one per conversation from the Orchestrator row in the model menu.": "负责规划工作、制定设计决策并审查结果. 请选择顶级模型. 您也可以在模型菜单的\"编排器\"行中为每个会话单独选择.",
+  "Executor Model": "执行模型",
+  "Carries out the plan: searches, edits, builds, and tests. Pick a faster, cheaper model.": "负责执行计划: 搜索、编辑、构建与测试. 请选择更快、更经济的模型."
 }

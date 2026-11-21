@@ -1220,5 +1220,11 @@
   "The original Gemini 4 model for advanced workflows": "面向高级工作流的经典 Gemini 4 模型",
   "For speed and efficiency in execution tasks": "兼顾执行任务的速度与效率",
   "Error Loading Models": "加载模型出错",
-  "No models available": "暂无可用模型"
+  "No models available": "暂无可用模型",
+  "Offloads routine steps to a faster executor. Same quality, fewer tokens used.": "将常规步骤交由更快的执行器处理. 质量相同，Token 消耗更少.",
+  "Thinking effort": "思考深度",
+  "Controls how much time and quota the model spends reasoning before responding. Higher effort improves accuracy on hard problems, at the cost of slower responses and higher quota use.": "控制模型在响应前花费在推理上的时间与配额. 更高的深度可提升难题的准确率，但代价是响应更慢且配额消耗更高.",
+  "What the coordinator writes so the Swarm UI's Overview can show the swarm's goal, its groups of work and a screenshot timeline. Load it before you brief and add the first workers to a swarm.": "协调者用于编写蜂群界面概览所需的内容，以便展示蜂群目标、工作分组与截图时间线. 请在向蜂群下达任务简报并添加首批工作节点前加载此技能.",
+  "Inspect element to comment": "检查元素以发表评论",
+  "Exit inspect element mode (Esc)": "退出检查元素模式 (Esc)"
 }

@@ -5,6 +5,7 @@ const path = require('path');
 const os = require('os');
 const zlib = require('zlib');
 const https = require('https');
+const crypto = require('crypto');
 const childProcess = require('child_process');
 
 // 官方权威云端数据源（双专区）
@@ -671,7 +672,7 @@ function discoverLocalLanguageServer() {
   }
 }
 
-function localLanguageServerPost(port, method, csrfToken, payloadObj) {
+function localLanguageServerPost(port, method, csrfToken, payloadObj, timeoutMs = 4000) {
   return new Promise((resolve, reject) => {
     const body = JSON.stringify(payloadObj || {});
     const req = https.request(
@@ -681,10 +682,11 @@ function localLanguageServerPost(port, method, csrfToken, payloadObj) {
         path: `/exa.language_server_pb.LanguageServerService/${method}`,
         method: 'POST',
         rejectUnauthorized: false,
-        timeout: 4000,
+        timeout: timeoutMs,
         headers: {
           'content-type': 'application/json',
-          'x-codeium-csrf-token': csrfToken
+          'x-codeium-csrf-token': csrfToken,
+          'content-length': Buffer.byteLength(body)
         }
       },
       res => {
@@ -693,7 +695,7 @@ function localLanguageServerPost(port, method, csrfToken, payloadObj) {
         res.on('end', () => {
           const raw = Buffer.concat(chunks).toString('utf8');
           if (res.statusCode !== 200) {
-            return reject(new Error(`HTTP ${res.statusCode}`));
+            return reject(Object.assign(new Error(`HTTP ${res.statusCode}`), { statusCode: res.statusCode, body: raw }));
           }
           try {
             resolve(JSON.parse(raw));
@@ -705,41 +707,357 @@ function localLanguageServerPost(port, method, csrfToken, payloadObj) {
     );
     req.on('error', reject);
     req.on('timeout', () => req.destroy(new Error('Request timeout')));
-    req.write(body);
-    req.end();
+    req.end(body);
   });
 }
 
-/** 对比官方实时 MCP 服务器商店目录与独立词典 (page_mcp_knowledge.json) */
-async function auditMcpStore(dictsDir, mcpDictFile) {
-  const srv = discoverLocalLanguageServer();
-  if (!srv || !srv.csrfToken || srv.ports.length === 0) {
-    return {
-      available: false,
-      skippedReason: '未检测到运行中的 Antigravity 客户端 (language_server)'
-    };
+function resolveLsBinaryFromPath(candidate) {
+  if (!candidate || typeof candidate !== 'string') return null;
+  const trimmed = candidate.trim().replace(/^"|"$/g, '');
+  if (!trimmed) return null;
+  let resolved;
+  try {
+    resolved = path.resolve(trimmed);
+  } catch (e) {
+    return null;
+  }
+  if (!fs.existsSync(resolved)) return null;
+
+  const binName = process.platform === 'win32' ? 'language_server.exe' : 'language_server';
+  let stat;
+  try {
+    stat = fs.statSync(resolved);
+  } catch (e) {
+    return null;
   }
 
-  let catalogData = null;
-  const osName = process.platform === 'win32' ? 'windows' : (process.platform === 'darwin' ? 'darwin' : 'linux');
-  for (const port of srv.ports) {
+  if (stat.isFile()) {
+    if (/^language_server(?:\.exe)?$/i.test(path.basename(resolved))) {
+      return resolved;
+    }
+    resolved = path.dirname(resolved);
+  }
+
+  const dirsToCheck = [
+    resolved,
+    path.join(resolved, 'bin'),
+    path.join(resolved, 'resources', 'bin'),
+    path.join(resolved, 'Contents', 'Resources', 'bin'),
+    path.resolve(resolved, '..'),
+    path.resolve(resolved, '..', 'bin'),
+    path.resolve(resolved, '..', 'resources', 'bin'),
+    path.resolve(resolved, '..', 'Contents', 'Resources', 'bin')
+  ];
+
+  for (const dir of dirsToCheck) {
+    const target = path.join(dir, binName);
     try {
-      const data = await localLanguageServerPost(port, 'GetAvailableCascadePlugins', srv.csrfToken, {
-        os: osName,
-        searchQuery: ''
-      });
-      if (data && Array.isArray(data.plugins)) {
-        catalogData = data;
-        break;
+      if (fs.existsSync(target) && fs.statSync(target).isFile()) {
+        return target;
+      }
+    } catch (e) {}
+  }
+  return null;
+}
+
+function detectRunningLsBinaryPaths() {
+  const found = [];
+  try {
+    if (process.platform === 'win32') {
+      const out = childProcess.execFileSync(
+        'powershell',
+        [
+          '-NoProfile',
+          '-Command',
+          "Get-CimInstance Win32_Process -Filter \"Name='language_server.exe' OR Name='Antigravity.exe'\" | Select-Object -ExpandProperty ExecutablePath"
+        ],
+        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
+      );
+      for (const line of out.split(/\r?\n/)) {
+        if (line.trim()) found.push(line.trim());
+      }
+      return found;
+    }
+
+    if (process.platform === 'darwin') {
+      const out = childProcess.execFileSync('ps', ['-eo', 'args='], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+      for (const line of out.split(/\r?\n/)) {
+        const lsMatch = line.match(/(\/[^\n]*?\/language_server)\b/);
+        if (lsMatch) found.push(lsMatch[1]);
+        const appMatch = line.match(/(\/[^\n]*?\.app)\/Contents\/MacOS\/Antigravity\b/i);
+        if (appMatch) found.push(appMatch[1]);
+      }
+      return found;
+    }
+
+    const out = childProcess.execFileSync('ps', ['-eo', 'pid=,args='], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    for (const line of out.split(/\r?\n/)) {
+      if (!line.includes('language_server') && (!/antigravity/i.test(line) || line.includes('--type='))) continue;
+      const m = line.trim().match(/^(\d+)\s+/);
+      if (!m) continue;
+      try {
+        found.push(fs.realpathSync(`/proc/${m[1]}/exe`));
+      } catch (e) {}
+    }
+  } catch (e) {}
+  return found;
+}
+
+function locateLanguageServerBinary(explicitPath) {
+  const candidates = [
+    explicitPath,
+    process.env.ANTIGRAVITY_LS_BIN,
+    process.env.CODEIUM_LANGUAGE_SERVER_BIN,
+    process.env.ANTIGRAVITY_INSTALL_DIR,
+    process.env.ANTIGRAVITY_HOME
+  ].filter(Boolean);
+
+  for (const c of candidates) {
+    const resolved = resolveLsBinaryFromPath(c);
+    if (resolved) return resolved;
+  }
+
+  for (const p of detectRunningLsBinaryPaths()) {
+    const resolved = resolveLsBinaryFromPath(p);
+    if (resolved) return resolved;
+  }
+
+  // 检查 ~/.gemini/antigravity/bin/agentapi 包装脚本中记录的官方路径
+  const agentApiWrapper = path.join(os.homedir(), '.gemini', 'antigravity', 'bin', 'agentapi');
+  if (fs.existsSync(agentApiWrapper)) {
+    try {
+      const content = fs.readFileSync(agentApiWrapper, 'utf8');
+      const m = content.match(/"([^"]*language_server(?:\.exe)?)"/i);
+      if (m) {
+        const resolved = resolveLsBinaryFromPath(m[1]);
+        if (resolved) return resolved;
       }
     } catch (e) {}
   }
 
-  if (!catalogData) {
-    return {
-      available: false,
-      skippedReason: '未能从运行中的 language_server 获取官方 MCP 目录'
+  const defaultDirs = [];
+  if (process.platform === 'win32') {
+    const localAppData = process.env.LOCALAPPDATA || '';
+    if (localAppData) {
+      defaultDirs.push(path.join(localAppData, 'Programs', 'Antigravity'));
+      defaultDirs.push(path.join(localAppData, 'Antigravity'));
+    }
+    defaultDirs.push('C:\\Program Files\\Antigravity', 'C:\\Program Files (x86)\\Antigravity');
+  } else if (process.platform === 'darwin') {
+    defaultDirs.push('/Applications/Antigravity.app', path.join(os.homedir(), 'Applications', 'Antigravity.app'));
+  } else {
+    defaultDirs.push(
+      '/opt/antigravity/Antigravity-x64',
+      '/opt/antigravity',
+      '/opt/Antigravity',
+      '/usr/share/antigravity',
+      '/usr/lib/antigravity',
+      path.join(os.homedir(), '.local', 'share', 'antigravity'),
+      path.join(os.homedir(), '.local', 'share', 'Antigravity'),
+      path.join(os.homedir(), 'antigravity'),
+      path.join(os.homedir(), 'Antigravity')
+    );
+  }
+
+  for (const dir of defaultDirs) {
+    const resolved = resolveLsBinaryFromPath(dir);
+    if (resolved) return resolved;
+  }
+  return null;
+}
+
+/** 启动完全隔离的临时无头 language_server 实例拉取官方 MCP 商店目录（兼容 v2.34.0+） */
+function fetchMcpCatalogViaEphemeralLs(lsBinPath, osName) {
+  return new Promise(resolve => {
+    let tmpDir = '';
+    try {
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ag-mcp-audit-'));
+    } catch (e) {
+      resolve({ data: null, error: `创建临时目录失败: ${e.message}` });
+      return;
+    }
+
+    const csrfToken = crypto.randomUUID();
+    const args = [
+      '--standalone',
+      '--headless',
+      '--disable_telemetry',
+      '--exit_on_stdin_close',
+      '--gemini_dir', tmpDir,
+      '--app_data_dir', 'mcp_audit',
+      '--https_server_port', '0',
+      '--override_ide_name', 'antigravity',
+      '--subclient_type', 'hub',
+      '--cloud_code_endpoint', 'https://daily-cloudcode-pa.googleapis.com'
+    ];
+
+    let proc;
+    try {
+      proc = childProcess.spawn(lsBinPath, args, {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: { ...process.env, ANTIGRAVITY_SERVER_CSRF_TOKEN: csrfToken }
+      });
+    } catch (e) {
+      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_) {}
+      resolve({ data: null, error: `启动临时 language_server 失败: ${e.message}` });
+      return;
+    }
+
+    proc.stdin?.on('error', () => {});
+
+    let finished = false;
+    let startedQuery = false;
+    let logTail = '';
+    let hardTimer = null;
+
+    const removeTmpDir = () => {
+      if (!tmpDir) return;
+      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_) {}
     };
+
+    const onSignal = () => {
+      try { proc.stdin?.end(); } catch (_) {}
+      try { proc.kill('SIGTERM'); } catch (_) {}
+      removeTmpDir();
+      process.exit(130);
+    };
+    process.once('SIGINT', onSignal);
+    process.once('SIGTERM', onSignal);
+
+    const finalize = (result) => {
+      if (finished) return;
+      finished = true;
+      if (hardTimer) clearTimeout(hardTimer);
+      process.removeListener('SIGINT', onSignal);
+      process.removeListener('SIGTERM', onSignal);
+
+      const done = () => {
+        removeTmpDir();
+        resolve(result);
+      };
+
+      if (proc.exitCode !== null || proc.signalCode !== null) {
+        done();
+        return;
+      }
+
+      let exited = false;
+      const finishOnce = () => {
+        if (exited) return;
+        exited = true;
+        clearTimeout(killFallback);
+        done();
+      };
+      proc.once('exit', finishOnce);
+      try { proc.stdin?.end(); } catch (_) {}
+      try { proc.kill('SIGTERM'); } catch (_) {}
+      const killFallback = setTimeout(() => {
+        try { proc.kill('SIGKILL'); } catch (_) {}
+        finishOnce();
+      }, 1500);
+      killFallback.unref?.();
+    };
+
+    hardTimer = setTimeout(() => {
+      finalize({ data: null, error: '临时 language_server 查询 MCP 目录超时' });
+    }, 22000);
+
+    const handleOutput = chunk => {
+      if (finished) return;
+      logTail = (logTail + chunk.toString('utf8')).slice(-8192);
+      if (startedQuery) return;
+      const m = logTail.match(/listening on \w+ port at (\d+) for HTTPS\b/i)
+        || logTail.match(/listening on \w+ port at (\d+) for HTTP(S)?\b/i);
+      if (!m) return;
+      startedQuery = true;
+      const port = Number(m[1]);
+
+      (async () => {
+        let lastErr = '';
+        for (let attempt = 0; attempt < 25 && !finished; attempt++) {
+          try {
+            const data = await localLanguageServerPost(
+              port,
+              'GetAvailableCascadePlugins',
+              csrfToken,
+              { os: osName, searchQuery: '' },
+              10000
+            );
+            if (data && Array.isArray(data.plugins)) {
+              finalize({ data, error: null });
+              return;
+            }
+            lastErr = '响应缺少 plugins 列表';
+            break;
+          } catch (err) {
+            lastErr = err && err.message ? err.message : String(err);
+            if (err && typeof err.statusCode === 'number' && err.statusCode >= 400 && err.statusCode < 500 && err.statusCode !== 408 && err.statusCode !== 429) {
+              break;
+            }
+            await new Promise(r => setTimeout(r, 250));
+          }
+        }
+        finalize({ data: null, error: lastErr || '未能从临时 language_server 获取官方 MCP 目录' });
+      })();
+    };
+
+    proc.stdout?.on('data', handleOutput);
+    proc.stderr?.on('data', handleOutput);
+    proc.on('error', err => {
+      finalize({ data: null, error: `临时 language_server 运行异常: ${err.message}` });
+    });
+    proc.on('exit', code => {
+      if (!finished) {
+        finalize({ data: null, error: `临时 language_server 提前退出 (code=${code})` });
+      }
+    });
+  });
+}
+
+/** 对比官方实时 MCP 服务器商店目录与独立词典 (page_mcp_knowledge.json) */
+async function auditMcpStore(dictsDir, mcpDictFile, options = {}) {
+  let catalogData = null;
+  let sourceMode = '';
+  const osName = process.platform === 'win32' ? 'windows' : (process.platform === 'darwin' ? 'darwin' : 'linux');
+
+  // 路径 1（旧版 v2.33.0 及更早快速通道）：若运行中进程仍携带 --csrf_token，直接复用
+  if (!options.lsBinPath) {
+    const srv = discoverLocalLanguageServer();
+    if (srv && srv.csrfToken && srv.ports.length > 0) {
+      for (const port of srv.ports) {
+        try {
+          const data = await localLanguageServerPost(port, 'GetAvailableCascadePlugins', srv.csrfToken, {
+            os: osName,
+            searchQuery: ''
+          });
+          if (data && Array.isArray(data.plugins)) {
+            catalogData = data;
+            sourceMode = 'running-ls';
+            break;
+          }
+        } catch (e) {}
+      }
+    }
+  }
+
+  // 路径 2（v2.34.0+ 主路径及离线 GUI 兼容）：临时拉起隔离无头 language_server 查询
+  if (!catalogData) {
+    const lsBinPath = locateLanguageServerBinary(options.lsBinPath);
+    if (!lsBinPath) {
+      return {
+        available: false,
+        skippedReason: '未定位到 Antigravity language_server 可执行文件（可通过 --ls-bin 指定路径）'
+      };
+    }
+    const probe = await fetchMcpCatalogViaEphemeralLs(lsBinPath, osName);
+    if (!probe.data) {
+      return {
+        available: false,
+        skippedReason: probe.error || '未能从临时 language_server 获取官方 MCP 目录'
+      };
+    }
+    catalogData = probe.data;
+    sourceMode = 'ephemeral-ls';
   }
 
   const mcpFileName = path.basename(mcpDictFile);
@@ -821,6 +1139,7 @@ async function auditMcpStore(dictsDir, mcpDictFile) {
 
   return {
     available: true,
+    sourceMode,
     mcpDictFile: mcpFileName,
     mcpDictCount: Object.keys(mcpDict).length,
     totalOfficial: plugins.length,
@@ -838,10 +1157,14 @@ function printMcpSection(mcpResult) {
   console.log('------------------------------------------------------------------');
   if (!mcpResult) return;
   if (!mcpResult.available) {
-    console.log(`ℹ️ 已跳过 MCP 商店比对：${mcpResult.skippedReason}（如需同时校验 MCP 商店，请先启动客户端）。`);
+    console.log(`ℹ️ 已跳过 MCP 商店比对：${mcpResult.skippedReason}。`);
     return;
   }
 
+  const sourceHint = mcpResult.sourceMode === 'ephemeral-ls'
+    ? '临时隔离无头 language_server (v2.34.0+ 兼容模式)'
+    : '运行态 language_server';
+  console.log(`📡 MCP 数据来源: ${sourceHint}`);
   console.log(`🔌 官方 MCP 服务器总数: ${mcpResult.totalOfficial} | 全词典覆盖: ${mcpResult.coveredCount}/${mcpResult.totalOfficial} | 主字典 (${mcpResult.mcpDictFile}) 收录: ${mcpResult.coveredInMcpDictCount}`);
 
   let hasMcpIssues = false;
@@ -878,6 +1201,7 @@ function parseCliArgs() {
   let marketplacePath = null;
   let dictFile = DEFAULT_DICT_PATH;
   let mcpDictFile = DEFAULT_MCP_DICT_PATH;
+  let lsBinPath = null;
   let isJson = false;
   let useLocal = false;
   let mcpMode = 'auto'; // 'auto' | 'only' | 'skip'
@@ -892,6 +1216,8 @@ function parseCliArgs() {
       dictFile = path.resolve(args[++i]);
     } else if (args[i] === '--mcp-dict' && args[i + 1]) {
       mcpDictFile = path.resolve(args[++i]);
+    } else if ((args[i] === '--ls-bin' || args[i] === '--install-dir') && args[i + 1]) {
+      lsBinPath = path.resolve(args[++i]);
     } else if (args[i] === '--mcp-only') {
       mcpMode = 'only';
     } else if (args[i] === '--no-mcp') {
@@ -902,12 +1228,13 @@ function parseCliArgs() {
       console.log(`用法: node diff_marketplace_plugins.js [选项]
 
 选项:
-  (默认)                      直连官方云端拉取插件市场双专区数据，并在客户端运行时顺带审计 MCP 商店
+  (默认)                      直连官方云端拉取插件市场双专区数据，并同步审计官方 MCP 商店
   --local                     插件市场改用本地缓存目录进行离线比对
   --cache-dir <path>          指定本地市场缓存目录或 marketplace.json 文件路径
   --dict-file <path>          插件市场字典路径 (默认: dicts/marketplace_plugins.json)
   --mcp-dict <path>           MCP 商店字典路径 (默认: dicts/page_mcp_knowledge.json)
-  --mcp-only                  仅运行官方 MCP 商店比对（需先启动 Antigravity 客户端）
+  --ls-bin <path>             指定 language_server 可执行文件或 Antigravity 安装目录路径
+  --mcp-only                  仅运行官方 MCP 商店比对（支持 v2.34.0+ 隔离无头拉取，无需启动桌面端）
   --no-mcp                    仅运行插件市场比对（跳过 MCP 商店）
   --json                      以 JSON 结构化格式输出比对结果
   -h, --help                  显示此帮助信息
@@ -916,18 +1243,18 @@ function parseCliArgs() {
     }
   }
 
-  return { marketplacePath, dictFile, mcpDictFile, isJson, useLocal, mcpMode };
+  return { marketplacePath, dictFile, mcpDictFile, lsBinPath, isJson, useLocal, mcpMode };
 }
 
 async function main() {
-  const { marketplacePath, dictFile, mcpDictFile, isJson, useLocal, mcpMode } = parseCliArgs();
+  const { marketplacePath, dictFile, mcpDictFile, lsBinPath, isJson, useLocal, mcpMode } = parseCliArgs();
 
   if (mcpMode === 'only') {
     if (!fs.existsSync(mcpDictFile)) {
       console.error(`错误: MCP 字典文件未找到: ${mcpDictFile}`);
       process.exit(1);
     }
-    const mcpResult = await auditMcpStore(DICTS_DIR, mcpDictFile);
+    const mcpResult = await auditMcpStore(DICTS_DIR, mcpDictFile, { lsBinPath });
     if (!mcpResult.available) {
       console.error(`错误: ${mcpResult.skippedReason}`);
       process.exit(1);
@@ -959,7 +1286,7 @@ async function main() {
 
   const { primaryDict, allDicts, primaryFileName } = loadAllDictionaries(DICTS_DIR, dictFile);
   const diffResult = diffPlugins(cachePlugins, catalogDescriptions, primaryDict, allDicts, primaryFileName);
-  const mcpResult = mcpMode === 'skip' ? null : await auditMcpStore(DICTS_DIR, mcpDictFile);
+  const mcpResult = mcpMode === 'skip' ? null : await auditMcpStore(DICTS_DIR, mcpDictFile, { lsBinPath });
 
   if (isJson) {
     const output = {

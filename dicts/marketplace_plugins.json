@@ -7,6 +7,8 @@
   "Browse the Marketplace": "浏览插件市场",
   "Find skills, agents, and more in the Marketplace.": "在插件市场中探索技能、智能体及更多内容.",
   "No plugins available in the marketplace.": "插件市场中暂无可用插件.",
+  "No plugins available": "暂无可用插件",
+  "No plugins available.": "暂无可用插件.",
   "No matching plugins found.": "未找到匹配的插件.",
   "No plugins match your search.": "未找到符合您搜索条件的插件.",
   "No plugin found for": "未找到插件",
@@ -473,5 +475,12 @@
   "AlphaFold, 3D visualization tools, and protein databases to explore protein structures, sequences, pathways, and drug interactions.": "结合 AlphaFold、3D 可视化工具与蛋白质数据库，用于探索蛋白质结构、序列、通路及药物相互作用.",
   "Fetch the AlphaFold structure of tardigrade Dsup (UniProt P0DOW4), open it in 3D, and explain what its confidence profile reveals about protecting DNA.": "获取缓步动物 Dsup (UniProt P0DOW4) 的 AlphaFold 结构并在 3D 中打开，解释其置信度分布揭示了哪些保护 DNA 的机制.",
   "Find the top 5 interaction partners of human CLOCK in STRING and explain how they work together to keep 24-hour time.": "在 STRING 中查找人类 CLOCK 蛋白的前 5 个相互作用伴侣，并解释它们如何协同维持 24 小时昼夜节律.",
-  "Visualize the engineered plastic-eating enzyme FAST-PETase (PDB 7SH6) in 3D and annotate its active site and key thermostability mutations.": "在 3D 中可视化工程化塑料降解酶 FAST-PETase (PDB 7SH6)，并标注其活性位点与关键热稳定性突变."
+  "Visualize the engineered plastic-eating enzyme FAST-PETase (PDB 7SH6) in 3D and annotate its active site and key thermostability mutations.": "在 3D 中可视化工程化塑料降解酶 FAST-PETase (PDB 7SH6)，并标注其活性位点与关键热稳定性突变.",
+  "Build, test, and manage n8n workflows and Agents through your instance MCP server. Use official skills for node setup, credentials, and debugging.": "通过您的实例 MCP 服务器构建、测试和管理 n8n 工作流与智能体. 使用官方技能完成节点配置、凭据设置与调试.",
+  "Find workflows on my n8n instance.": "查找我的 n8n 实例上的工作流.",
+  "Help me build and test an n8n workflow.": "帮助我构建并测试一个 n8n 工作流.",
+  "Review an n8n workflow for errors.": "审查 n8n 工作流中的错误.",
+  "Research US case law, statutes, and regulations, plus live dockets from federal and state courts. A Midpage account is required.": "检索美国判例法、成文法与行政法规，以及联邦和州法院的实时案件卷宗. 需要拥有 Midpage 账号.",
+  "Find recent federal cases on trade secret misappropriation.": "查找近期关于商业秘密侵占的联邦判例.",
+  "Can a California tenant recover damages under a late delivery provision in a commercial lease?": "根据商业租约中的逾期交付条款，加利福尼亚州租户能否获得损害赔偿?"
 }

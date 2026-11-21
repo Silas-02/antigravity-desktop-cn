@@ -2177,6 +2177,16 @@ function generateJs() {
                 "仅限任务简报中指定为监控员的原生蜂群工作节点使用. 它会按定时器检查整个蜂群是否处于停滞状态，并唤醒唯一能推动进展的成员打破僵局. 协调者及其他工作节点: 请勿加载此技能.",
                 "仅限任务简报中指定为监控员的原生蜂群工作节点使用."
             ]
+        },
+        {
+            source: 'swarm_pane',
+            display: "蜂群面板",
+            descriptions: [
+                "What the coordinator writes so the Swarm UI's Overview can show the swarm's goal, its groups of work and a screenshot timeline. Load it before you brief and add the first workers to a swarm.",
+                "What the coordinator writes so the Swarm UI's Overview can show the swarm's goal, its groups of work and a screenshot timeline.",
+                "协调者用于编写蜂群界面概览所需的内容，以便展示蜂群目标、工作分组与截图时间线. 请在向蜂群下达任务简报并添加首批工作节点前加载此技能.",
+                "协调者用于编写蜂群界面概览所需的内容，以便展示蜂群目标、工作分组与截图时间线."
+            ]
         }
     ];
 

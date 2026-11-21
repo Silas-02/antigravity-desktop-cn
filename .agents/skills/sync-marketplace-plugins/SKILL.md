@@ -22,7 +22,7 @@ description: >-
    - 涵盖 Canva, Figma, Linear, Atlassian, Dropbox, Zapier, Zoho, Datadog, Supabase, Vercel 等由官方精选和认证的合作伙伴套件。
 
 3. **官方 MCP 服务器商店目录**（`MCP Store`）：
-   - 本地运行态权威接口：通过本机运行中的 Antigravity `language_server` 调用 `GetAvailableCascadePlugins` 获取当前版本官方全量 MCP 服务器清单及描述。
+   - 官方实时接口：调用官方 `language_server` 的 `GetAvailableCascadePlugins` 获取当前版本官方全量 MCP 服务器清单及描述；适配 Antigravity v2.34.0+ 时自动以隔离临时目录（`--gemini_dir` + `--headless` + `--exit_on_stdin_close`）短生命周期拉起独立无头实例查询，不触碰运行中客户端进程凭据且无需提前开启桌面端（旧版仍支持快速复用运行态实例）。
    - 独立词典归属：统一且仅收录在 `dicts/page_mcp_knowledge.json`，**与 `dicts/marketplace_plugins.json` 保持分包独立，严禁合并或跨字典重复录入**。
 
 > [!IMPORTANT]
@@ -107,10 +107,10 @@ Google Workspace 协同办公专区插件具备**三层独立并存**的文案�
 ### 步骤 1：运行自动化比对脚本
 在项目根目录下直接执行自带的比对工具：
 ```bash
-# 默认模式：云端拉取插件市场双专区，并在本机 Antigravity 运行时顺带完成 MCP 商店比对
+# 默认模式：云端拉取插件市场双专区，并同步完成官方 MCP 商店比对（兼容 v2.34.0+ 隔离无头拉取）
 node .agents/skills/sync-marketplace-plugins/scripts/diff_marketplace_plugins.js
 
-# 仅运行 MCP 服务器商店比对（需本机已启动 Antigravity 客户端）
+# 仅运行 MCP 服务器商店比对（支持 --ls-bin <path> 手动指定 language_server 或安装目录）
 node .agents/skills/sync-marketplace-plugins/scripts/diff_marketplace_plugins.js --mcp-only
 
 # 仅运行插件市场比对（跳过 MCP 商店）

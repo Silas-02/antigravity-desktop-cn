@@ -722,7 +722,7 @@
         };
     }
 
-    function buildContextMetrics(chatModel, modelCatalog) {
+    function readContextWindowTokens(chatModel) {
         if (!chatModel || typeof chatModel !== 'object') return null;
         const startMeta = chatModel.chatStartMetadata;
         const ctxMeta = startMeta && startMeta.contextWindowMetadata;
@@ -731,6 +731,13 @@
         if (usedTokens === null) return null;
         const rawMax = parseNonNegInt(ctxMeta.maxContextTokens);
         const maxTokens = rawMax !== null && rawMax > 0 ? rawMax : null;
+        return { usedTokens, maxTokens };
+    }
+
+    function buildContextMetrics(chatModel, modelCatalog) {
+        const tokens = readContextWindowTokens(chatModel);
+        if (!tokens) return null;
+        const { usedTokens, maxTokens } = tokens;
         return {
             usedTokens,
             maxTokens,
@@ -757,7 +764,7 @@
         return summariesCache.pending;
     }
 
-    async function fetchLatestChatModel(endpoint, cascadeId, startOffset, initialChat, initialCacheSlots, initialSpeedSlots, modelCatalog) {
+    async function fetchLatestChatModel(endpoint, cascadeId, startOffset, initialChat, initialCacheSlots, initialSpeedSlots) {
         let offset = startOffset;
         let latestChat = initialChat || null;
         const cacheSlots = Array.isArray(initialCacheSlots) ? initialCacheSlots.slice(0, startOffset) : [];
@@ -778,7 +785,7 @@
             for (let i = 0; i < items.length; i++) {
                 const chat = items[i] && items[i].chatModel;
                 if (chat) {
-                    if (buildContextMetrics(chat, modelCatalog) || !latestChat) {
+                    if (readContextWindowTokens(chat) || !latestChat) {
                         latestChat = chat;
                     }
                     cacheSlots[offset + i] = readCacheSlot(chat.usage);
@@ -945,7 +952,7 @@
         ]);
         let scan = initialScan;
         if (scan.emptyAtStart) {
-            scan = await fetchLatestChatModel(endpoint, id, 0, null, null, null, modelCatalog);
+            scan = await fetchLatestChatModel(endpoint, id, 0, null, null, null);
         }
 
         const context = buildContextMetrics(scan.latestChat, modelCatalog);
