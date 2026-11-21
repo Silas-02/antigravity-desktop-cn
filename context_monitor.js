@@ -345,19 +345,29 @@
     // -------------------------------------------------------------------------
 
     function getLsEndpoint() {
-        const port = typeof languageServer.getLsPort === 'function' ? Number(languageServer.getLsPort()) : 0;
+        let port = typeof languageServer.getLsPort === 'function' ? Number(languageServer.getLsPort()) : 0;
         const proc = typeof languageServer.getLsProcess === 'function' ? languageServer.getLsProcess() : null;
-        const args = Array.isArray(proc && proc.spawnargs) ? proc.spawnargs : [];
-        let csrf = '';
-        for (let i = 0; i < args.length; i++) {
-            const arg = String(args[i] || '');
-            if (arg === '--csrf_token' && i + 1 < args.length) {
-                csrf = String(args[i + 1] || '');
-                break;
-            }
-            if (arg.startsWith('--csrf_token=')) {
-                csrf = arg.slice('--csrf_token='.length);
-                break;
+        if ((!Number.isInteger(port) || port <= 0 || port > 65535) && typeof languageServer.getLsBaseUrl === 'function') {
+            try {
+                const baseUrl = String(languageServer.getLsBaseUrl() || '').trim();
+                if (baseUrl) port = Number(new URL(baseUrl).port) || 0;
+            } catch {}
+        }
+        let csrf = typeof languageServer.getLsCsrfToken === 'function'
+            ? String(languageServer.getLsCsrfToken() || '').trim()
+            : '';
+        if (!csrf) {
+            const args = Array.isArray(proc && proc.spawnargs) ? proc.spawnargs : [];
+            for (let i = 0; i < args.length; i++) {
+                const arg = String(args[i] || '');
+                if (arg === '--csrf_token' && i + 1 < args.length) {
+                    csrf = String(args[i + 1] || '');
+                    break;
+                }
+                if (arg.startsWith('--csrf_token=')) {
+                    csrf = arg.slice('--csrf_token='.length);
+                    break;
+                }
             }
         }
         if (!Number.isInteger(port) || port <= 0 || port > 65535 || !csrf) return null;
