@@ -25,6 +25,7 @@
     const inflightRequests = new Map();
     let summariesCache = { endpointKey: '', pending: null };
     let modelCatalogCache = { endpointKey: '', map: new Map(), fetchedAt: 0, pending: null };
+    let quotaCache = { endpointKey: '', fetchedAt: 0, payload: null, pending: null };
 
     // -------------------------------------------------------------------------
     // 1. 轻量级流式 JSON 白名单投影器（避免长对话大包占用内存）
@@ -94,13 +95,60 @@
     const CLIENT_MODEL_CONFIG_SCHEMA = {
         label: SCALAR,
         modelId: SCALAR,
+        disabled: SCALAR,
         modelOrAlias: {
             model: SCALAR,
             alias: SCALAR,
         },
+        quotaInfo: {
+            remainingFraction: SCALAR,
+            resetTime: SCALAR,
+        },
+    };
+    const AVAILABLE_CREDIT_SCHEMA = {
+        creditType: SCALAR,
+        creditAmount: SCALAR,
+        minimumCreditAmountForUsage: SCALAR,
+    };
+    const USER_TIER_SCHEMA = {
+        id: SCALAR,
+        name: SCALAR,
+        description: SCALAR,
+        availableCredits: { '*': AVAILABLE_CREDIT_SCHEMA },
+    };
+    const MODEL_SORT_GROUP_SCHEMA = {
+        groupName: SCALAR,
+        modelLabels: { '*': SCALAR },
+    };
+    const MODEL_SORT_SCHEMA = {
+        name: SCALAR,
+        groups: { '*': MODEL_SORT_GROUP_SCHEMA },
     };
     const MODEL_CONFIG_DATA_SCHEMA = {
         clientModelConfigs: { '*': CLIENT_MODEL_CONFIG_SCHEMA },
+        clientModelSorts: { '*': MODEL_SORT_SCHEMA },
+    };
+    const USER_STATUS_SCHEMA = {
+        userTier: USER_TIER_SCHEMA,
+        cascadeModelConfigData: MODEL_CONFIG_DATA_SCHEMA,
+    };
+    const QUOTA_BUCKET_SCHEMA = {
+        bucketId: SCALAR,
+        displayName: SCALAR,
+        description: SCALAR,
+        window: SCALAR,
+        disabled: SCALAR,
+        remainingFraction: SCALAR,
+        resetTime: SCALAR,
+    };
+    const QUOTA_GROUP_SCHEMA = {
+        displayName: SCALAR,
+        description: SCALAR,
+        buckets: { '*': QUOTA_BUCKET_SCHEMA },
+    };
+    const QUOTA_SUMMARY_SCHEMA = {
+        description: SCALAR,
+        groups: { '*': QUOTA_GROUP_SCHEMA },
     };
     const SUMMARIES_MAP_SCHEMA = { [SUMMARY_ENTRY]: SUMMARY_SCHEMA };
     const GENERATORS_ARRAY_SCHEMA = { '*': GENERATOR_SCHEMA };
@@ -108,8 +156,13 @@
         trajectorySummaries: SUMMARIES_MAP_SCHEMA,
         generatorMetadata: GENERATORS_ARRAY_SCHEMA,
         generatorMetadatas: GENERATORS_ARRAY_SCHEMA,
-        userStatus: { cascadeModelConfigData: MODEL_CONFIG_DATA_SCHEMA },
+        userStatus: USER_STATUS_SCHEMA,
         cascadeModelConfigData: MODEL_CONFIG_DATA_SCHEMA,
+    };
+    const QUOTA_SUMMARY_RPC_SCHEMA = {
+        response: QUOTA_SUMMARY_SCHEMA,
+        description: SCALAR,
+        groups: { '*': QUOTA_GROUP_SCHEMA },
     };
 
     const STREAM_MAX_BYTES = 4 * 1024 * 1024;
@@ -374,7 +427,7 @@
         return { port, csrf, key: `${port}:${csrf}` };
     }
 
-    function sendRpcOnce(protocol, port, csrf, method, payloadText) {
+    function sendRpcOnce(protocol, port, csrf, method, payloadText, schema = RPC_PROJECTION_SCHEMA) {
         return new Promise((resolve, reject) => {
             const mod = protocol === 'https' ? https : http;
             const req = mod.request(
@@ -393,7 +446,7 @@
                     },
                 },
                 (res) => {
-                    const streamFilter = createRpcJsonFilter();
+                    const streamFilter = createRpcJsonFilter(schema);
                     let settled = false;
                     const fail = (err) => {
                         if (settled) return;
@@ -434,14 +487,14 @@
         });
     }
 
-    async function callLsRpc(endpoint, method, body) {
+    async function callLsRpc(endpoint, method, body, schema = RPC_PROJECTION_SCHEMA) {
         const payloadText = JSON.stringify(body || {});
         const preferred = portProtocols.get(endpoint.port) || 'https';
         const order = preferred === 'https' ? ['https', 'http'] : ['http', 'https'];
         let lastErr = null;
         for (const protocol of order) {
             try {
-                const result = await sendRpcOnce(protocol, endpoint.port, endpoint.csrf, method, payloadText);
+                const result = await sendRpcOnce(protocol, endpoint.port, endpoint.csrf, method, payloadText, schema);
                 portProtocols.set(endpoint.port, protocol);
                 if (portProtocols.size > 16) portProtocols.delete(portProtocols.keys().next().value);
                 return result;
@@ -518,6 +571,27 @@
         return rawName;
     }
 
+    function buildModelCatalogMap(configs) {
+        const nextMap = new Map();
+        if (!Array.isArray(configs)) return nextMap;
+        for (const cfg of configs) {
+            if (!cfg || typeof cfg !== 'object') continue;
+            const label = cleanModelText(cfg.label);
+            if (!label) continue;
+            const refs = [
+                cfg.modelOrAlias && cfg.modelOrAlias.model,
+                cfg.modelOrAlias && cfg.modelOrAlias.alias,
+                cfg.modelId,
+            ];
+            for (const ref of refs) {
+                const key = cleanModelText(ref).toLowerCase();
+                if (!key) continue;
+                if (!nextMap.has(key)) nextMap.set(key, label);
+            }
+        }
+        return nextMap;
+    }
+
     /** 从官方 Language Server GetUserStatus 动态获取客户端当前可用模型显示名称映射 */
     async function getModelCatalog(endpoint) {
         if (modelCatalogCache.endpointKey !== endpoint.key) {
@@ -535,24 +609,7 @@
                 const configs = (res && res.userStatus && res.userStatus.cascadeModelConfigData && res.userStatus.cascadeModelConfigData.clientModelConfigs)
                     || (res && res.cascadeModelConfigData && res.cascadeModelConfigData.clientModelConfigs)
                     || [];
-                const nextMap = new Map();
-                if (Array.isArray(configs)) {
-                    for (const cfg of configs) {
-                        if (!cfg || typeof cfg !== 'object') continue;
-                        const label = cleanModelText(cfg.label);
-                        if (!label) continue;
-                        const refs = [
-                            cfg.modelOrAlias && cfg.modelOrAlias.model,
-                            cfg.modelOrAlias && cfg.modelOrAlias.alias,
-                            cfg.modelId,
-                        ];
-                        for (const ref of refs) {
-                            const key = cleanModelText(ref).toLowerCase();
-                            if (!key) continue;
-                            if (!nextMap.has(key)) nextMap.set(key, label);
-                        }
-                    }
-                }
+                const nextMap = buildModelCatalogMap(configs);
                 modelCatalogCache.map = nextMap;
                 modelCatalogCache.fetchedAt = Date.now();
                 return nextMap;
@@ -1005,6 +1062,181 @@
         return promise;
     });
 
+    const QUOTA_CACHE_TTL_MS = 30 * 1000;
+
+    function parseQuotaFraction(obj) {
+        if (!obj || typeof obj !== 'object') return null;
+        if (typeof obj.remainingFraction === 'number' && Number.isFinite(obj.remainingFraction)) {
+            return Math.min(1, Math.max(0, obj.remainingFraction));
+        }
+        if (typeof obj.remainingFraction === 'string' && obj.remainingFraction.trim() !== '') {
+            const parsed = Number(obj.remainingFraction);
+            if (Number.isFinite(parsed)) return Math.min(1, Math.max(0, parsed));
+        }
+        if (obj.resetTime) {
+            return 0;
+        }
+        return null;
+    }
+
+    function parseFiniteNumber(value) {
+        if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+        if (typeof value === 'string' && value.trim() !== '') {
+            const parsed = Number(value);
+            return Number.isFinite(parsed) ? parsed : null;
+        }
+        return null;
+    }
+
+    function extractCreditsInfo(userTier) {
+        const list = userTier && Array.isArray(userTier.availableCredits) ? userTier.availableCredits : [];
+        if (list.length === 0) return null;
+        const primary = list.find((c) => c && (c.creditType === 1 || c.creditType === '1' || /GOOGLE_ONE_AI/i.test(String(c.creditType || ''))))
+            || list.find((c) => c && parseFiniteNumber(c.creditAmount) !== null);
+        if (!primary) return null;
+        const amount = parseFiniteNumber(primary.creditAmount);
+        if (amount === null) return null;
+        return {
+            amount,
+            minimum: parseFiniteNumber(primary.minimumCreditAmountForUsage) ?? 0,
+        };
+    }
+
+    function buildQuotaPayload(userStatusRes, quotaSummaryRes) {
+        const userStatus = (userStatusRes && userStatusRes.userStatus) || userStatusRes || {};
+        const userTier = userStatus && typeof userStatus.userTier === 'object' ? userStatus.userTier : null;
+        const tierName = userTier ? cleanModelText(userTier.name || userTier.description || userTier.id || '') : '';
+        const credits = extractCreditsInfo(userTier);
+
+        const modelConfigData = (userStatus && userStatus.cascadeModelConfigData) || {};
+        const rawConfigs = Array.isArray(modelConfigData.clientModelConfigs) ? modelConfigData.clientModelConfigs : [];
+        const models = [];
+        for (const cfg of rawConfigs) {
+            if (!cfg || typeof cfg !== 'object' || cfg.disabled) continue;
+            const label = cleanModelText(cfg.label);
+            if (!label) continue;
+            const quotaInfo = cfg.quotaInfo && typeof cfg.quotaInfo === 'object' ? cfg.quotaInfo : null;
+            models.push({
+                label,
+                model: cleanModelText(cfg.modelOrAlias && cfg.modelOrAlias.model) || null,
+                alias: cleanModelText(cfg.modelOrAlias && cfg.modelOrAlias.alias) || null,
+                modelId: cleanModelText(cfg.modelId) || null,
+                remainingFraction: parseQuotaFraction(quotaInfo),
+                resetTime: cleanModelText(quotaInfo && quotaInfo.resetTime) || null,
+            });
+        }
+
+        const summaryBody = (quotaSummaryRes && quotaSummaryRes.response && typeof quotaSummaryRes.response === 'object')
+            ? quotaSummaryRes.response
+            : (quotaSummaryRes && typeof quotaSummaryRes === 'object' ? quotaSummaryRes : {});
+        const rawGroups = Array.isArray(summaryBody.groups) ? summaryBody.groups : [];
+        const groups = [];
+        for (const grp of rawGroups) {
+            if (!grp || typeof grp !== 'object') continue;
+            const buckets = [];
+            const rawBuckets = Array.isArray(grp.buckets) ? grp.buckets : [];
+            for (const b of rawBuckets) {
+                if (!b || typeof b !== 'object' || b.disabled) continue;
+                buckets.push({
+                    bucketId: cleanModelText(b.bucketId) || null,
+                    displayName: cleanModelText(b.displayName) || '',
+                    description: cleanModelText(b.description) || '',
+                    window: cleanModelText(b.window) || '',
+                    remainingFraction: parseQuotaFraction(b),
+                    resetTime: cleanModelText(b.resetTime) || null,
+                });
+            }
+            if (buckets.length === 0 && !grp.displayName) continue;
+            groups.push({
+                displayName: cleanModelText(grp.displayName) || '',
+                description: cleanModelText(grp.description) || '',
+                buckets,
+            });
+        }
+
+        const hasData = models.length > 0 || groups.length > 0 || credits !== null;
+        return {
+            status: hasData ? 'ready' : 'empty',
+            fetchedAt: Date.now(),
+            tierName,
+            credits,
+            models,
+            groups,
+            summaryDescription: cleanModelText(summaryBody.description) || '',
+        };
+    }
+
+    async function queryQuotaSummary(force) {
+        const endpoint = getLsEndpoint();
+        if (!endpoint) {
+            return { status: 'offline', fetchedAt: Date.now(), tierName: '', credits: null, models: [], groups: [], summaryDescription: '' };
+        }
+        if (quotaCache.endpointKey !== endpoint.key) {
+            quotaCache = { endpointKey: endpoint.key, fetchedAt: 0, payload: null, pending: null };
+        }
+        const age = Date.now() - quotaCache.fetchedAt;
+        if (!force && quotaCache.payload && age < QUOTA_CACHE_TTL_MS) {
+            return quotaCache.payload;
+        }
+        if (quotaCache.pending && !force) {
+            return quotaCache.pending;
+        }
+
+        const reqPromise = Promise.allSettled([
+            callLsRpc(endpoint, 'GetUserStatus', {}),
+            callLsRpc(endpoint, 'RetrieveUserQuotaSummary', { forceRefresh: Boolean(force) }, QUOTA_SUMMARY_RPC_SCHEMA),
+        ])
+            .then(([userRes, summaryRes]) => {
+                const userStatusOk = userRes.status === 'fulfilled' ? userRes.value : null;
+                const summaryOk = summaryRes.status === 'fulfilled' ? summaryRes.value : null;
+
+                if (userStatusOk) {
+                    const configs = (userStatusOk.userStatus && userStatusOk.userStatus.cascadeModelConfigData && userStatusOk.userStatus.cascadeModelConfigData.clientModelConfigs)
+                        || (userStatusOk.cascadeModelConfigData && userStatusOk.cascadeModelConfigData.clientModelConfigs)
+                        || [];
+                    const catalogMap = buildModelCatalogMap(configs);
+                    if (catalogMap.size > 0) {
+                        modelCatalogCache.endpointKey = endpoint.key;
+                        modelCatalogCache.map = catalogMap;
+                        modelCatalogCache.fetchedAt = Date.now();
+                    }
+                }
+
+                if (!userStatusOk && !summaryOk) {
+                    return quotaCache.payload || { status: 'error', fetchedAt: Date.now(), tierName: '', credits: null, models: [], groups: [], summaryDescription: '' };
+                }
+
+                const payload = buildQuotaPayload(userStatusOk, summaryOk);
+                quotaCache.payload = payload;
+                quotaCache.fetchedAt = Date.now();
+                return payload;
+            })
+            .finally(() => {
+                if (quotaCache.pending === reqPromise) {
+                    quotaCache.pending = null;
+                }
+            });
+
+        quotaCache.pending = reqPromise;
+        return reqPromise;
+    }
+
+    ipcMain.handle('ag-ctx:quota', async (event, force) => {
+        const senderUrl = event && event.senderFrame ? event.senderFrame.url : '';
+        if (!LOCAL_ORIGIN_RE.test(senderUrl)) {
+            return { status: 'offline', fetchedAt: Date.now(), tierName: '', credits: null, models: [], groups: [], summaryDescription: '' };
+        }
+        return queryQuotaSummary(Boolean(force)).catch(() => ({
+            status: 'error',
+            fetchedAt: Date.now(),
+            tierName: '',
+            credits: null,
+            models: [],
+            groups: [],
+            summaryDescription: '',
+        }));
+    });
+
     // -------------------------------------------------------------------------
     // 4. 渲染层注入脚本（函数体直接序列化注入，避免模板字符串转义陷阱）
     // -------------------------------------------------------------------------
@@ -1016,16 +1248,23 @@
 
         const RING_HOST_CLASS = 'ag-ctx-monitor-host';
         const SPEED_HOST_CLASS = 'ag-ctx-speed-host';
+        const QUOTA_HOST_CLASS = 'ag-ctx-quota-host';
         const CARD_PORTAL_ID = 'ag-ctx-card-portal';
         const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
         const RING_R = 6;
         const RING_C = 2 * Math.PI * RING_R;
         const RING_ARC = RING_C * 0.75;
+        const QUOTA_R = 5;
+        const QUOTA_C = 2 * Math.PI * QUOTA_R;
+        const QUOTA_ARC = QUOTA_C * 0.75;
         const BIG_R = 25;
         const BIG_C = 2 * Math.PI * BIG_R;
         const BIG_ARC = BIG_C * 0.75;
+        const hasQuotaBridge = Boolean(window.__agCtxBridge && typeof window.__agCtxBridge.getQuota === 'function');
 
         const instances = new Map();
+        const quotaState = { payload: null, lastFetchAt: 0, isFetching: false };
+        let quotaViewMode = 'auto';
         let cardPortal = null;
         let cardRoot = null;
         let activeInst = null;
@@ -1137,6 +1376,145 @@
             };
         }
 
+        function readSelectedModelText(modelBtn) {
+            if (!modelBtn || !modelBtn.isConnected) return '';
+            const span = modelBtn.querySelector(':scope > span');
+            let raw = span ? (span.textContent || '') : '';
+            if (!raw) {
+                const aria = modelBtn.getAttribute('aria-label') || '';
+                raw = aria.replace(/^Select model,\s*current:\s*/i, '');
+            }
+            return raw.replace(/\s*·\s*[\d.]+\s*[KMB]?\s*$/i, '').replace(/\s+/g, ' ').trim();
+        }
+
+        function normalizeModelKey(text, mode) {
+            if (!text) return '';
+            let s = String(text)
+                .toLowerCase()
+                .replace(/\((low|medium|high|xhigh|extra|max)(?:\s+thinking)?\)/gi, (_, lvl) => ` ${lvl}`)
+                .replace(/\((thinking)\)/gi, ' thinking')
+                .replace(/\bxhigh\b/g, 'extra')
+                .replace(/\s+/g, ' ')
+                .trim();
+            if (mode === 'no-thinking') {
+                s = s.replace(/\bthinking\b/g, '').replace(/\s+/g, ' ').trim();
+            } else if (mode === 'base') {
+                s = s.replace(/\s+(?:low|medium|high|extra|max|thinking)\b/g, '').replace(/\s+/g, ' ').trim();
+            }
+            return s;
+        }
+
+        function matchSelectedModel(inst, quotaPayload) {
+            const models = quotaPayload && Array.isArray(quotaPayload.models) ? quotaPayload.models : [];
+            if (!models.length) return null;
+            const btnText = readSelectedModelText(inst && inst.comp && inst.comp.modelBtn);
+            const fallbackName = inst && inst.latestPayload && inst.latestPayload.context && inst.latestPayload.context.model;
+            const candidates = [btnText, fallbackName].filter(Boolean);
+
+            for (const cand of candidates) {
+                if (/^\d+\s+models?\s+selected$/i.test(cand) || /^no model selected$/i.test(cand)) continue;
+                for (const mode of ['exact', 'no-thinking', 'base']) {
+                    const targetKey = normalizeModelKey(cand, mode);
+                    if (!targetKey) continue;
+                    const hit = models.find((m) => normalizeModelKey(m.label, mode) === targetKey);
+                    if (hit) return hit;
+                }
+            }
+            return null;
+        }
+
+        function getQuotaLevel(fraction) {
+            if (typeof fraction !== 'number' || !Number.isFinite(fraction)) return 'idle';
+            if (fraction < 0.1) return 'danger';
+            if (fraction < 0.3) return 'warn';
+            return 'ok';
+        }
+
+        function getQuotaLevelLabel(level, status) {
+            if (status === 'offline') return '等待服务';
+            if (level === 'danger') return '即将耗尽';
+            if (level === 'warn') return '额度偏低';
+            if (level === 'ok') return '充足';
+            return '未知';
+        }
+
+        function formatQuotaPct(fraction) {
+            if (typeof fraction !== 'number' || !Number.isFinite(fraction)) return '--';
+            return `${Math.round(Math.min(1, Math.max(0, fraction)) * 100)}%`;
+        }
+
+        function formatResetCountdown(resetTime) {
+            if (!resetTime) return '';
+            const ts = Date.parse(resetTime);
+            if (!Number.isFinite(ts)) return '';
+            const diffMs = ts - Date.now();
+            const d = new Date(ts);
+            const hh = String(d.getHours()).padStart(2, '0');
+            const mm = String(d.getMinutes()).padStart(2, '0');
+            const clockStr = diffMs > 20 * 3600 * 1000
+                ? `${d.getMonth() + 1}/${d.getDate()} ${hh}:${mm}`
+                : `${hh}:${mm}`;
+            if (diffMs <= 0) return `即将重置 · ${clockStr}`;
+            const totalMins = Math.ceil(diffMs / 60000);
+            const days = Math.floor(totalMins / 1440);
+            const hours = Math.floor((totalMins % 1440) / 60);
+            const mins = totalMins % 60;
+            let spanText = '';
+            if (days > 0) {
+                spanText = hours > 0 ? `${days}天${hours}小时` : `${days}天`;
+            } else if (hours > 0) {
+                spanText = mins > 0 ? `${hours}小时${mins}分` : `${hours}小时`;
+            } else {
+                spanText = totalMins <= 1 ? '1分钟内' : `${mins}分钟`;
+            }
+            return `${spanText}后重置 · ${clockStr}`;
+        }
+
+        function formatBucketWindow(bucket) {
+            const win = String((bucket && bucket.window) || '').trim().toLowerCase();
+            if (win === 'daily') return '每日额度';
+            if (win === 'weekly') return '每周额度';
+            if (/^\d+[smhd]$/.test(win)) {
+                return `${win.replace(/d$/, '天').replace(/h$/, '小时').replace(/m$/, '分钟').replace(/s$/, '秒')}额度`;
+            }
+            return (bucket && (bucket.displayName || bucket.description)) || '可用额度';
+        }
+
+        function formatClockHMS(ts) {
+            if (!ts) return '—';
+            const d = new Date(ts);
+            return [d.getHours(), d.getMinutes(), d.getSeconds()]
+                .map((n) => String(n).padStart(2, '0'))
+                .join(':');
+        }
+
+        function dedupeModelsForDisplay(models) {
+            if (!Array.isArray(models) || !models.length) return [];
+            const groups = new Map();
+            for (const m of models) {
+                const base = m.label.replace(/\s*\((?:low|medium|high|xhigh|extra|max)(?:\s+thinking)?\)\s*$/i, '').trim() || m.label;
+                if (!groups.has(base)) groups.set(base, []);
+                groups.get(base).push(m);
+            }
+            const out = [];
+            for (const [base, list] of groups.entries()) {
+                if (list.length === 1) {
+                    out.push(list[0]);
+                    continue;
+                }
+                const first = list[0];
+                const allSame = list.every((item) =>
+                    item.remainingFraction === first.remainingFraction && item.resetTime === first.resetTime
+                );
+                if (allSame) {
+                    out.push({ ...first, label: base });
+                } else {
+                    for (const item of list) out.push(item);
+                }
+            }
+            return out;
+        }
+
         function detectDarkTheme(targetBox) {
             const html = document.documentElement;
             if (html.classList.contains('dark')) return true;
@@ -1158,10 +1536,27 @@
             if (!modelBtn || !isVisible(modelBtn)) {
                 return { speedParent: null, speedAfter: null };
             }
-            const p = modelBtn.parentElement;
-            if (p && p.children.length === 1 && p.parentElement && container.contains(p.parentElement)) {
-                return { speedParent: p.parentElement, speedAfter: p };
+            const isOwnChild = (el) => Boolean(
+                el && el.classList && (el.classList.contains(SPEED_HOST_CLASS) || el.classList.contains(QUOTA_HOST_CLASS))
+            );
+            let anchor = modelBtn;
+            let p = anchor.parentElement;
+            for (let depth = 0; depth < 8 && p && p !== container && container.contains(p); depth++) {
+                const cs = getComputedStyle(p);
+                const isRowFlex = (cs.display === 'flex' || cs.display === 'inline-flex')
+                    && !(cs.flexDirection && cs.flexDirection.startsWith('column'));
+                if (isRowFlex) {
+                    return { speedParent: p, speedAfter: anchor };
+                }
+                const nativeChildren = Array.from(p.children).filter((ch) => !isOwnChild(ch));
+                if (nativeChildren.length === 1 && p.parentElement && container.contains(p.parentElement)) {
+                    anchor = p;
+                    p = p.parentElement;
+                } else {
+                    break;
+                }
             }
+            p = modelBtn.parentElement;
             if (p && container.contains(p)) {
                 return { speedParent: p, speedAfter: modelBtn };
             }
@@ -1605,6 +2000,223 @@
                         white-space: nowrap;
                         max-width: 196px;
                     }
+                    .quota-card {
+                        width: 312px;
+                        --q-ok: #34d399;
+                        --q-warn: #f59e0b;
+                        --q-danger: #ef4444;
+                        --q-idle: var(--ctx-idle);
+                    }
+                    :host([data-theme="light"]) .quota-card {
+                        --q-ok: #16a34a;
+                        --q-warn: #d97706;
+                        --q-danger: #dc2626;
+                    }
+                    .q-head-right {
+                        display: inline-flex;
+                        align-items: center;
+                        gap: 6px;
+                        flex: none;
+                    }
+                    .q-credits {
+                        font-size: 10.5px;
+                        font-weight: 550;
+                        padding: 2px 7px;
+                        border-radius: 999px;
+                        background: var(--ctx-badge-bg);
+                        color: var(--ctx-fg);
+                        font-variant-numeric: tabular-nums;
+                    }
+                    .q-credits[hidden] { display: none; }
+                    .q-refresh {
+                        appearance: none;
+                        border: 0;
+                        margin: 0;
+                        width: 22px;
+                        height: 22px;
+                        padding: 0;
+                        border-radius: 6px;
+                        background: transparent;
+                        color: var(--ctx-muted);
+                        display: inline-flex;
+                        align-items: center;
+                        justify-content: center;
+                        cursor: pointer;
+                        transition: background-color 140ms ease, color 140ms ease;
+                    }
+                    .q-refresh:hover {
+                        background: var(--ctx-pill-hover);
+                        color: var(--ctx-fg);
+                    }
+                    .q-refresh:focus-visible {
+                        outline: 1.5px solid var(--ctx-accent);
+                        outline-offset: 1px;
+                    }
+                    .q-refresh svg {
+                        width: 13px;
+                        height: 13px;
+                        display: block;
+                    }
+                    .q-refresh[data-loading="true"] svg {
+                        animation: agQuotaSpin 0.85s linear infinite;
+                    }
+                    @keyframes agQuotaSpin {
+                        from { transform: rotate(0deg); }
+                        to { transform: rotate(360deg); }
+                    }
+                    .q-current {
+                        padding: 8px 10px;
+                        border-radius: 10px;
+                        background: var(--ctx-badge-bg);
+                        border: 1px solid var(--ctx-divider);
+                        margin-bottom: 10px;
+                        display: flex;
+                        flex-direction: column;
+                        gap: 5px;
+                    }
+                    .q-current[hidden] { display: none; }
+                    .q-row-top {
+                        display: flex;
+                        align-items: baseline;
+                        justify-content: space-between;
+                        gap: 8px;
+                    }
+                    .q-name {
+                        font-size: 11.5px;
+                        font-weight: 550;
+                        color: var(--ctx-fg);
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        white-space: nowrap;
+                        min-width: 0;
+                        display: inline-flex;
+                        align-items: center;
+                        gap: 5px;
+                    }
+                    .q-cur-dot {
+                        width: 6px;
+                        height: 6px;
+                        border-radius: 50%;
+                        flex: none;
+                        background: var(--ctx-accent);
+                    }
+                    .q-pct {
+                        font-size: 11.5px;
+                        font-weight: 600;
+                        font-variant-numeric: tabular-nums;
+                        flex: none;
+                    }
+                    .q-pct[data-qlevel="ok"] { color: var(--q-ok); }
+                    .q-pct[data-qlevel="warn"] { color: var(--q-warn); }
+                    .q-pct[data-qlevel="danger"] { color: var(--q-danger); }
+                    .q-pct[data-qlevel="idle"] { color: var(--ctx-muted); }
+                    .q-track {
+                        width: 100%;
+                        height: 5px;
+                        border-radius: 999px;
+                        background: var(--ctx-track);
+                        overflow: hidden;
+                    }
+                    .q-fill {
+                        height: 100%;
+                        border-radius: 999px;
+                        transition: width 220ms cubic-bezier(0.22, 1, 0.36, 1), background-color 180ms ease;
+                    }
+                    .q-fill[data-qlevel="ok"] { background: var(--q-ok); }
+                    .q-fill[data-qlevel="warn"] { background: var(--q-warn); }
+                    .q-fill[data-qlevel="danger"] { background: var(--q-danger); }
+                    .q-fill[data-qlevel="idle"] { background: var(--q-idle); }
+                    .q-sub {
+                        font-size: 10.5px;
+                        color: var(--ctx-muted);
+                        font-variant-numeric: tabular-nums;
+                        display: flex;
+                        align-items: center;
+                        justify-content: space-between;
+                        gap: 8px;
+                    }
+                    .q-section-bar {
+                        display: flex;
+                        align-items: center;
+                        justify-content: space-between;
+                        gap: 8px;
+                        margin-bottom: 7px;
+                    }
+                    .q-section-title {
+                        font-size: 10.5px;
+                        font-weight: 550;
+                        color: var(--ctx-muted);
+                    }
+                    .q-mode-switch {
+                        display: inline-flex;
+                        align-items: center;
+                        gap: 2px;
+                        padding: 2px;
+                        border-radius: 7px;
+                        background: var(--ctx-badge-bg);
+                    }
+                    .q-mode-switch[hidden] { display: none; }
+                    .q-mode-btn {
+                        appearance: none;
+                        border: 0;
+                        margin: 0;
+                        padding: 2px 7px;
+                        border-radius: 5px;
+                        background: transparent;
+                        color: var(--ctx-muted);
+                        font: inherit;
+                        font-size: 10px;
+                        font-weight: 500;
+                        cursor: pointer;
+                        transition: background-color 140ms ease, color 140ms ease;
+                    }
+                    .q-mode-btn:hover { color: var(--ctx-fg); }
+                    .q-mode-btn[aria-pressed="true"] {
+                        background: var(--ctx-pill-active);
+                        color: var(--ctx-fg);
+                    }
+                    .q-list {
+                        max-height: 224px;
+                        overflow-y: auto;
+                        display: flex;
+                        flex-direction: column;
+                        gap: 9px;
+                        padding-right: 2px;
+                        scrollbar-width: thin;
+                    }
+                    .q-group-title {
+                        font-size: 10.5px;
+                        font-weight: 600;
+                        color: var(--ctx-muted);
+                        margin-bottom: 3px;
+                    }
+                    .q-item {
+                        display: flex;
+                        flex-direction: column;
+                        gap: 4px;
+                    }
+                    .q-item .q-name {
+                        font-size: 11px;
+                        font-weight: 500;
+                    }
+                    .q-empty {
+                        font-size: 11px;
+                        color: var(--ctx-muted);
+                        padding: 8px 0;
+                        text-align: center;
+                    }
+                    .q-foot {
+                        margin-top: 10px;
+                        padding-top: 8px;
+                        border-top: 1px solid var(--ctx-divider);
+                        display: flex;
+                        align-items: center;
+                        justify-content: space-between;
+                        gap: 8px;
+                        font-size: 10.5px;
+                        color: var(--ctx-muted);
+                        font-variant-numeric: tabular-nums;
+                    }
                 `;
 
                 const card = h(
@@ -1703,7 +2315,84 @@
                     )
                 );
 
-                const wrap = h('div', { class: 'ctx-portal-wrap', 'data-ag-localization-skip': 'true' }, card);
+                const quotaCard = h(
+                    'section',
+                    { class: 'card quota-card', id: 'quota-card', role: 'dialog', 'aria-label': '模型额度详情', hidden: '' },
+                    h(
+                        'div',
+                        { class: 'card-head' },
+                        h(
+                            'div',
+                            { class: 'card-head-left' },
+                            h('span', { class: 'card-title' }, '模型额度'),
+                            h('span', { class: 'state-badge', id: 'q-tier-badge', hidden: '' }, '')
+                        ),
+                        h(
+                            'div',
+                            { class: 'q-head-right' },
+                            h('span', { class: 'q-credits', id: 'q-credits', hidden: '' }, ''),
+                            h(
+                                'button',
+                                {
+                                    type: 'button',
+                                    class: 'q-refresh',
+                                    id: 'q-refresh-btn',
+                                    'aria-label': '刷新模型额度',
+                                    title: '立即刷新模型额度',
+                                },
+                                svgEl(
+                                    'svg',
+                                    { viewBox: '0 0 16 16', 'aria-hidden': 'true' },
+                                    svgEl('path', {
+                                        d: 'M13.5 8a5.5 5.5 0 1 1-1.35-3.6M13.5 2.75v2.9h-2.9',
+                                        fill: 'none',
+                                        stroke: 'currentColor',
+                                        'stroke-width': '1.5',
+                                        'stroke-linecap': 'round',
+                                        'stroke-linejoin': 'round',
+                                    })
+                                )
+                            )
+                        )
+                    ),
+                    h(
+                        'div',
+                        { class: 'q-current', id: 'q-current-box', hidden: '' },
+                        h(
+                            'div',
+                            { class: 'q-row-top' },
+                            h('span', { class: 'q-name' }, h('span', { class: 'q-cur-dot', 'aria-hidden': 'true' }), h('span', { id: 'q-cur-name' }, '')),
+                            h('span', { class: 'q-pct', id: 'q-cur-pct', 'data-qlevel': 'idle' }, '--')
+                        ),
+                        h('div', { class: 'q-track' }, h('div', { class: 'q-fill', id: 'q-cur-fill', 'data-qlevel': 'idle', style: 'width:0%' })),
+                        h(
+                            'div',
+                            { class: 'q-sub' },
+                            h('span', null, '当前选中模型'),
+                            h('span', { id: 'q-cur-reset' }, '')
+                        )
+                    ),
+                    h(
+                        'div',
+                        { class: 'q-section-bar' },
+                        h('span', { class: 'q-section-title', id: 'q-list-title' }, '配额概览'),
+                        h(
+                            'div',
+                            { class: 'q-mode-switch', id: 'q-mode-switch', hidden: '' },
+                            h('button', { type: 'button', class: 'q-mode-btn', id: 'q-mode-groups', 'aria-pressed': 'true' }, '分组'),
+                            h('button', { type: 'button', class: 'q-mode-btn', id: 'q-mode-models', 'aria-pressed': 'false' }, '模型')
+                        )
+                    ),
+                    h('div', { class: 'q-list', id: 'q-list' }),
+                    h(
+                        'div',
+                        { class: 'q-foot' },
+                        h('span', { id: 'q-foot-status' }, '—'),
+                        h('span', { id: 'q-foot-time' }, '')
+                    )
+                );
+
+                const wrap = h('div', { class: 'ctx-portal-wrap', 'data-ag-localization-skip': 'true' }, card, quotaCard);
                 cardRoot.appendChild(styleEl);
                 cardRoot.appendChild(wrap);
 
@@ -1714,12 +2403,34 @@
                     updateCardVisibility();
                 });
 
-                card.addEventListener('pointerenter', () => {
-                    clearTimeout(closeTimer);
+                cardRoot.getElementById('q-refresh-btn').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    pinnedOpen = true;
+                    void refreshQuota(true);
                 });
-                card.addEventListener('pointerleave', () => {
-                    scheduleHoverClose();
+
+                cardRoot.getElementById('q-mode-groups').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    quotaViewMode = 'groups';
+                    if (activeInst) renderQuotaCard(activeInst);
+                    positionCard();
                 });
+
+                cardRoot.getElementById('q-mode-models').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    quotaViewMode = 'models';
+                    if (activeInst) renderQuotaCard(activeInst);
+                    positionCard();
+                });
+
+                for (const cardEl of [card, quotaCard]) {
+                    cardEl.addEventListener('pointerenter', () => {
+                        clearTimeout(closeTimer);
+                    });
+                    cardEl.addEventListener('pointerleave', () => {
+                        scheduleHoverClose();
+                    });
+                }
                 cardRoot.addEventListener('pointerdown', (e) => e.stopPropagation());
                 cardRoot.addEventListener('click', (e) => e.stopPropagation());
             }
@@ -1887,7 +2598,7 @@
                     height: 22px;
                     padding: 0 6px;
                     border-radius: 6px;
-                    cursor: pointer;
+                    cursor: default;
                     font: inherit;
                     font-size: 11px;
                     font-weight: 500;
@@ -1896,8 +2607,7 @@
                     white-space: nowrap;
                     transition: background-color 140ms ease, color 140ms ease;
                 }
-                .speed-pill:hover,
-                .speed-pill[aria-expanded="true"] {
+                .speed-pill:hover {
                     background: var(--sp-hover);
                     color: var(--sp-ink);
                 }
@@ -1944,6 +2654,148 @@
             speedRoot.appendChild(speedStyle);
             speedRoot.appendChild(speedWrap);
 
+            const quotaHost = document.createElement('div');
+            quotaHost.className = QUOTA_HOST_CLASS;
+            quotaHost.setAttribute('data-ag-ctx-role', 'quota');
+            quotaHost.setAttribute('data-ag-localization-skip', 'true');
+            quotaHost.setAttribute('data-theme', detectDarkTheme(comp.box) ? 'dark' : 'light');
+            quotaHost.setAttribute('data-qlevel', 'idle');
+
+            const quotaRoot = quotaHost.attachShadow({ mode: 'open' });
+            const quotaStyle = document.createElement('style');
+            quotaStyle.textContent = `
+                :host {
+                    display: inline-flex;
+                    align-items: center;
+                    flex: 0 0 auto;
+                    margin: 0 2px 0 2px;
+                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+                    --qt-ink: rgba(235, 238, 245, 0.90);
+                    --qt-muted: rgba(229, 231, 235, 0.62);
+                    --qt-hover: rgba(255, 255, 255, 0.08);
+                    --qt-active: rgba(255, 255, 255, 0.13);
+                    --qt-track: rgba(255, 255, 255, 0.15);
+                    --qt-ok: #34d399;
+                    --qt-warn: #f59e0b;
+                    --qt-danger: #ef4444;
+                    --qt-idle: rgba(229, 231, 235, 0.34);
+                    --qt-tone: var(--qt-idle);
+                }
+                :host([data-theme="light"]) {
+                    --qt-ink: rgba(23, 27, 36, 0.90);
+                    --qt-muted: rgba(31, 41, 55, 0.60);
+                    --qt-hover: rgba(15, 23, 42, 0.06);
+                    --qt-active: rgba(15, 23, 42, 0.10);
+                    --qt-track: rgba(15, 23, 42, 0.14);
+                    --qt-ok: #16a34a;
+                    --qt-warn: #d97706;
+                    --qt-danger: #dc2626;
+                    --qt-idle: rgba(31, 41, 55, 0.28);
+                }
+                :host([data-qlevel="ok"]) { --qt-tone: var(--qt-ok); }
+                :host([data-qlevel="warn"]) { --qt-tone: var(--qt-warn); }
+                :host([data-qlevel="danger"]) { --qt-tone: var(--qt-danger); }
+                :host([data-qlevel="idle"]) { --qt-tone: var(--qt-idle); }
+                :host([data-compact="hidden"]) { display: none !important; }
+                :host([data-compact="brief"]) .quota-label { display: none; }
+                .ctx-quota-wrap { display: inline-flex; align-items: center; }
+                .quota-pill {
+                    appearance: none;
+                    border: none;
+                    margin: 0;
+                    background: transparent;
+                    color: var(--qt-muted);
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 4px;
+                    height: 22px;
+                    padding: 0 6px;
+                    border-radius: 6px;
+                    cursor: pointer;
+                    font: inherit;
+                    font-size: 11px;
+                    font-weight: 500;
+                    line-height: 1;
+                    font-variant-numeric: tabular-nums;
+                    white-space: nowrap;
+                    transition: background-color 140ms ease, color 140ms ease;
+                }
+                .quota-pill:hover,
+                .quota-pill[aria-expanded="true"] {
+                    background: var(--qt-hover);
+                    color: var(--qt-ink);
+                }
+                .quota-pill:active { background: var(--qt-active); }
+                .quota-pill:focus-visible {
+                    outline: 1.5px solid var(--qt-ok);
+                    outline-offset: 1px;
+                }
+                :host([data-qlevel="warn"]) .quota-pct { color: var(--qt-warn); }
+                :host([data-qlevel="danger"]) .quota-pct { color: var(--qt-danger); }
+                .quota-gauge {
+                    width: 14px;
+                    height: 14px;
+                    flex: none;
+                    display: block;
+                }
+                .quota-track {
+                    fill: none;
+                    stroke: var(--qt-track);
+                    stroke-width: 1.8;
+                    stroke-linecap: round;
+                }
+                .quota-arc {
+                    fill: none;
+                    stroke: var(--qt-tone);
+                    stroke-width: 1.8;
+                    stroke-linecap: round;
+                    transition: stroke-dasharray 240ms cubic-bezier(0.22, 1, 0.36, 1), stroke 180ms ease;
+                }
+                .quota-core {
+                    fill: var(--qt-tone);
+                    transition: fill 180ms ease, opacity 180ms ease;
+                }
+                :host([data-qlevel="idle"]) .quota-core { opacity: 0.45; }
+            `;
+
+            const quotaTrigger = h(
+                'button',
+                {
+                    type: 'button',
+                    class: 'quota-pill',
+                    id: 'quota-trigger',
+                    'aria-label': '模型额度',
+                    'aria-expanded': 'false',
+                },
+                svgEl(
+                    'svg',
+                    { class: 'quota-gauge', viewBox: '0 0 16 16', 'aria-hidden': 'true' },
+                    svgEl('circle', {
+                        class: 'quota-track',
+                        cx: '8',
+                        cy: '8',
+                        r: String(QUOTA_R),
+                        'stroke-dasharray': `${QUOTA_ARC.toFixed(2)} ${QUOTA_C.toFixed(2)}`,
+                        transform: 'rotate(135 8 8)',
+                    }),
+                    svgEl('circle', {
+                        class: 'quota-arc',
+                        id: 'quota-arc',
+                        cx: '8',
+                        cy: '8',
+                        r: String(QUOTA_R),
+                        'stroke-dasharray': `0 ${QUOTA_C.toFixed(2)}`,
+                        transform: 'rotate(135 8 8)',
+                    }),
+                    svgEl('circle', { class: 'quota-core', cx: '8', cy: '8', r: '1.75' })
+                ),
+                h('span', { class: 'quota-label' }, '额度'),
+                h('span', { class: 'quota-pct', id: 'quota-pct' }, '--')
+            );
+            const quotaWrap = h('div', { class: 'ctx-quota-wrap', 'data-ag-localization-skip': 'true' }, quotaTrigger);
+            quotaRoot.appendChild(quotaStyle);
+            quotaRoot.appendChild(quotaWrap);
+
             const inst = {
                 box: comp.box,
                 comp,
@@ -1951,8 +2803,11 @@
                 root,
                 speedHost,
                 speedRoot,
+                quotaHost,
+                quotaRoot,
                 conversationId: null,
                 latestPayload: null,
+                lastModelText: '',
                 lastFetchAt: 0,
                 lastToolbarWidth: -1,
                 isFetching: false,
@@ -1964,16 +2819,16 @@
             root.addEventListener('pointerdown', (e) => e.stopPropagation());
             root.addEventListener('click', (e) => e.stopPropagation());
 
-            bindCardTrigger(inst, speedTrigger, 'speed');
-            speedRoot.addEventListener('pointerdown', (e) => e.stopPropagation());
-            speedRoot.addEventListener('click', (e) => e.stopPropagation());
+            bindCardTrigger(inst, quotaTrigger, 'quota');
+            quotaRoot.addEventListener('pointerdown', (e) => e.stopPropagation());
+            quotaRoot.addEventListener('click', (e) => e.stopPropagation());
 
             return inst;
         }
 
         function ensureInstanceUi(inst, comp) {
             inst.comp = comp;
-            const { host, speedHost } = inst;
+            const { host, speedHost, quotaHost } = inst;
 
             let speedMoved = false;
             if (comp.speedParent && comp.speedParent.isConnected && comp.speedAfter && comp.speedAfter.parentElement === comp.speedParent) {
@@ -1986,13 +2841,30 @@
                 speedMoved = true;
             }
 
+            let quotaMoved = false;
+            if (hasQuotaBridge && comp.speedParent && comp.speedParent.isConnected && comp.speedAfter && comp.speedAfter.parentElement === comp.speedParent) {
+                const quotaAfter = speedHost.parentElement === comp.speedParent ? speedHost : comp.speedAfter;
+                if (quotaHost.parentElement !== comp.speedParent || quotaHost.previousElementSibling !== quotaAfter) {
+                    comp.speedParent.insertBefore(quotaHost, quotaAfter.nextSibling);
+                    quotaMoved = true;
+                }
+            } else if (quotaHost.isConnected) {
+                quotaHost.remove();
+                quotaMoved = true;
+            }
+
             let ringMoved = false;
             const parent = comp.mountParent;
             const targetBefore = comp.beforeNode && comp.beforeNode.parentElement === parent ? comp.beforeNode : null;
             const rawAfter = comp.afterNode && comp.afterNode.parentElement === parent ? comp.afterNode : null;
-            const targetAfter = rawAfter && speedHost && speedHost.parentElement === parent && rawAfter === comp.speedAfter
-                ? speedHost
-                : rawAfter;
+            let targetAfter = rawAfter;
+            if (rawAfter && rawAfter === comp.speedAfter) {
+                if (quotaHost && quotaHost.parentElement === parent) {
+                    targetAfter = quotaHost;
+                } else if (speedHost && speedHost.parentElement === parent) {
+                    targetAfter = speedHost;
+                }
+            }
             if (targetAfter) {
                 if (host.parentElement !== parent || host.previousElementSibling !== targetAfter) {
                     parent.insertBefore(host, targetAfter.nextSibling);
@@ -2007,10 +2879,10 @@
                 parent.appendChild(host);
                 ringMoved = true;
             }
-            if (speedMoved || ringMoved || !inst.resizeObserver) {
+            if (speedMoved || quotaMoved || ringMoved || !inst.resizeObserver) {
                 observeToolbar(inst, comp);
             }
-            return Boolean(speedMoved || ringMoved);
+            return Boolean(speedMoved || quotaMoved || ringMoved);
         }
 
         function bindCardTrigger(inst, btn, anchorName) {
@@ -2021,7 +2893,12 @@
                     activeInst = inst;
                     activeAnchor = anchorName;
                     hoverOpen = true;
-                    renderPortalCard(inst);
+                    if (anchorName === 'quota') {
+                        renderQuotaCard(inst);
+                        if (!quotaState.payload && !quotaState.isFetching) void refreshQuota(false);
+                    } else {
+                        renderPortalCard(inst);
+                    }
                     updateCardVisibility();
                 }, 220);
             });
@@ -2040,7 +2917,12 @@
                     activeInst = inst;
                     activeAnchor = anchorName;
                     pinnedOpen = true;
-                    renderPortalCard(inst);
+                    if (anchorName === 'quota') {
+                        renderQuotaCard(inst);
+                        if (!quotaState.payload && !quotaState.isFetching) void refreshQuota(false);
+                    } else {
+                        renderPortalCard(inst);
+                    }
                 }
                 updateCardVisibility();
             });
@@ -2062,41 +2944,52 @@
 
         function getActiveAnchorTrigger() {
             if (!activeInst) return { mode: 'ring', el: null };
-            const useSpeed = Boolean(
-                activeAnchor === 'speed' &&
-                activeInst.speedHost &&
-                activeInst.speedHost.isConnected &&
-                activeInst.speedHost.getAttribute('data-compact') !== 'hidden'
+            const useQuota = Boolean(
+                activeAnchor === 'quota' &&
+                activeInst.quotaHost &&
+                activeInst.quotaHost.isConnected &&
+                activeInst.quotaHost.getAttribute('data-compact') !== 'hidden'
             );
+            if (useQuota) {
+                return {
+                    mode: 'quota',
+                    el: activeInst.quotaRoot.getElementById('quota-trigger'),
+                };
+            }
             return {
-                mode: useSpeed ? 'speed' : 'ring',
-                el: useSpeed
-                    ? activeInst.speedRoot.getElementById('speed-trigger')
-                    : activeInst.root.getElementById('ctx-trigger'),
+                mode: 'ring',
+                el: activeInst.root.getElementById('ctx-trigger'),
             };
         }
 
         function updateCardVisibility(skipFetch = false) {
             ensureCardPortal();
-            const card = cardRoot ? cardRoot.getElementById('ctx-card') : null;
-            if (!card) return;
+            const ctxCard = cardRoot ? cardRoot.getElementById('ctx-card') : null;
+            const quotaCard = cardRoot ? cardRoot.getElementById('quota-card') : null;
+            if (!ctxCard || !quotaCard) return;
             const anchor = getActiveAnchorTrigger();
             const canShow = Boolean(
                 activeInst &&
                 activeInst.host.isConnected &&
                 anchor.el &&
-                (anchor.mode === 'speed' || activeInst.host.getAttribute('data-compact') !== 'hidden')
+                (anchor.mode === 'quota' || activeInst.host.getAttribute('data-compact') !== 'hidden')
             );
             const open = Boolean((pinnedOpen || hoverOpen) && canShow);
 
             for (const inst of instances.values()) {
                 const isThisInst = open && inst === activeInst;
                 inst.root.getElementById('ctx-trigger').setAttribute('aria-expanded', String(isThisInst && anchor.mode === 'ring'));
-                inst.speedRoot.getElementById('speed-trigger').setAttribute('aria-expanded', String(isThisInst && anchor.mode === 'speed'));
+                inst.quotaRoot.getElementById('quota-trigger').setAttribute('aria-expanded', String(isThisInst && anchor.mode === 'quota'));
             }
 
-            card.hidden = !open;
-            if (open) {
+            const showQuota = open && anchor.mode === 'quota';
+            const showCtx = open && anchor.mode !== 'quota';
+            ctxCard.hidden = !showCtx;
+            quotaCard.hidden = !showQuota;
+            if (showQuota) {
+                renderQuotaCard(activeInst);
+                positionCard();
+            } else if (showCtx) {
                 renderPortalCard(activeInst);
                 positionCard();
             }
@@ -2104,15 +2997,17 @@
 
         function positionCard() {
             if (!cardRoot) return;
-            const card = cardRoot.getElementById('ctx-card');
-            if (!card || card.hidden) return;
+            const ctxCard = cardRoot.getElementById('ctx-card');
+            const quotaCard = cardRoot.getElementById('quota-card');
+            const card = quotaCard && !quotaCard.hidden ? quotaCard : (ctxCard && !ctxCard.hidden ? ctxCard : null);
+            if (!card) return;
             const anchor = getActiveAnchorTrigger();
             if (!anchor.el || !anchor.el.isConnected) {
                 card.hidden = true;
                 return;
             }
             const tr = anchor.el.getBoundingClientRect();
-            const cw = card.offsetWidth || 292;
+            const cw = card.offsetWidth || (card.id === 'quota-card' ? 312 : 292);
             const ch = card.offsetHeight || 205;
             const idealLeft = anchor.mode === 'ring' ? (tr.right - cw) : tr.left;
             const left = Math.min(Math.max(8, idealLeft), Math.max(8, window.innerWidth - cw - 8));
@@ -2142,11 +3037,12 @@
         }
 
         function fitInstanceLayout(inst) {
-            const { host, speedHost, comp } = inst;
+            const { host, speedHost, quotaHost, comp } = inst;
             if (!host || !comp || !comp.toolbar || !comp.toolbar.isConnected) return;
             const dark = detectDarkTheme(comp.box);
             const prevHostCompact = host.getAttribute('data-compact') || '';
             const prevSpeedCompact = speedHost && speedHost.isConnected ? (speedHost.getAttribute('data-compact') || '') : '';
+            const prevQuotaCompact = quotaHost && quotaHost.isConnected ? (quotaHost.getAttribute('data-compact') || '') : '';
             host.setAttribute('data-theme', dark ? 'dark' : 'light');
             host.removeAttribute('data-compact');
 
@@ -2162,6 +3058,16 @@
             };
             const leftOverflow = () => Boolean(lg && lg.isConnected && lg.scrollWidth > lg.clientWidth + 2);
 
+            let nextQuotaCompact = '';
+            if (quotaHost && quotaHost.isConnected) {
+                quotaHost.setAttribute('data-theme', dark ? 'dark' : 'light');
+                quotaHost.removeAttribute('data-compact');
+                if ((tbWidth > 0 && tbWidth < 460) || isWrappedBelowModel(quotaHost) || leftOverflow()) {
+                    nextQuotaCompact = 'brief';
+                    quotaHost.setAttribute('data-compact', 'brief');
+                }
+            }
+
             let nextSpeedCompact = '';
             if (speedHost && speedHost.isConnected) {
                 speedHost.setAttribute('data-theme', dark ? 'dark' : 'light');
@@ -2169,10 +3075,20 @@
                 if ((tbWidth > 0 && tbWidth < 380) || isWrappedBelowModel(speedHost) || leftOverflow()) {
                     nextSpeedCompact = 'brief';
                     speedHost.setAttribute('data-compact', 'brief');
-                    if ((tbWidth > 0 && tbWidth < 250) || isWrappedBelowModel(speedHost) || leftOverflow()) {
-                        nextSpeedCompact = 'hidden';
-                        speedHost.setAttribute('data-compact', 'hidden');
-                    }
+                }
+            }
+
+            if (quotaHost && quotaHost.isConnected) {
+                if ((tbWidth > 0 && tbWidth < 290) || isWrappedBelowModel(quotaHost) || leftOverflow()) {
+                    nextQuotaCompact = 'hidden';
+                    quotaHost.setAttribute('data-compact', 'hidden');
+                }
+            }
+
+            if (speedHost && speedHost.isConnected) {
+                if ((tbWidth > 0 && tbWidth < 250) || isWrappedBelowModel(speedHost) || leftOverflow()) {
+                    nextSpeedCompact = 'hidden';
+                    speedHost.setAttribute('data-compact', 'hidden');
                 }
             }
 
@@ -2190,7 +3106,7 @@
             }
 
             if (inst === activeInst && (pinnedOpen || hoverOpen)) {
-                if (prevHostCompact !== nextHostCompact || prevSpeedCompact !== nextSpeedCompact) {
+                if (prevHostCompact !== nextHostCompact || prevSpeedCompact !== nextSpeedCompact || prevQuotaCompact !== nextQuotaCompact) {
                     updateCardVisibility(true);
                 } else {
                     positionCard();
@@ -2361,6 +3277,203 @@
             renderBreakdownSection(inst);
         }
 
+        function buildQuotaItemRow(title, fraction, resetTime, subNote) {
+            const hasFrac = typeof fraction === 'number' && Number.isFinite(fraction);
+            const clamped = hasFrac ? Math.min(1, Math.max(0, fraction)) : 0;
+            const qLevel = getQuotaLevel(hasFrac ? clamped : null);
+            const pctStr = formatQuotaPct(hasFrac ? clamped : null);
+            const resetStr = formatResetCountdown(resetTime);
+            const metaParts = [subNote, resetStr].filter(Boolean);
+            return h(
+                'div',
+                { class: 'q-item' },
+                h(
+                    'div',
+                    { class: 'q-row-top' },
+                    h('span', { class: 'q-name', title }, title),
+                    h('span', { class: 'q-pct', 'data-qlevel': qLevel }, pctStr)
+                ),
+                h(
+                    'div',
+                    { class: 'q-track' },
+                    h('div', { class: 'q-fill', 'data-qlevel': qLevel, style: `width:${(clamped * 100).toFixed(1)}%` })
+                ),
+                metaParts.length > 0
+                    ? h('div', { class: 'q-sub' }, h('span', null, metaParts.join(' · ')))
+                    : null
+            );
+        }
+
+        function renderQuotaCard(inst) {
+            ensureCardPortal();
+            if (!cardPortal || !cardRoot || !inst) return;
+            const dark = detectDarkTheme(inst.box);
+            cardPortal.setAttribute('data-theme', dark ? 'dark' : 'light');
+            cardPortal.setAttribute('data-level', 'normal');
+
+            const data = quotaState.payload;
+            const currentModel = matchSelectedModel(inst, data);
+
+            const tierBadge = cardRoot.getElementById('q-tier-badge');
+            const creditsEl = cardRoot.getElementById('q-credits');
+            const refreshBtn = cardRoot.getElementById('q-refresh-btn');
+            const curBox = cardRoot.getElementById('q-current-box');
+            const curName = cardRoot.getElementById('q-cur-name');
+            const curPct = cardRoot.getElementById('q-cur-pct');
+            const curFill = cardRoot.getElementById('q-cur-fill');
+            const curReset = cardRoot.getElementById('q-cur-reset');
+            const modeSwitch = cardRoot.getElementById('q-mode-switch');
+            const modeGroupsBtn = cardRoot.getElementById('q-mode-groups');
+            const modeModelsBtn = cardRoot.getElementById('q-mode-models');
+            const listTitle = cardRoot.getElementById('q-list-title');
+            const listEl = cardRoot.getElementById('q-list');
+            const footStatus = cardRoot.getElementById('q-foot-status');
+            const footTime = cardRoot.getElementById('q-foot-time');
+
+            if (refreshBtn) {
+                refreshBtn.setAttribute('data-loading', String(Boolean(quotaState.isFetching)));
+            }
+
+            if (data && data.tierName) {
+                tierBadge.hidden = false;
+                tierBadge.textContent = data.tierName;
+            } else {
+                tierBadge.hidden = true;
+                tierBadge.textContent = '';
+            }
+
+            if (data && data.credits && typeof data.credits.amount === 'number') {
+                creditsEl.hidden = false;
+                creditsEl.textContent = `AI 额度 ${formatExactTokens(data.credits.amount)}`;
+                creditsEl.title = data.credits.minimum > 0
+                    ? `可用 AI 额度 ${formatExactTokens(data.credits.amount)}（最低消耗门槛 ${data.credits.minimum}）`
+                    : `可用 AI 额度 ${formatExactTokens(data.credits.amount)}`;
+            } else {
+                creditsEl.hidden = true;
+                creditsEl.textContent = '';
+            }
+
+            if (currentModel) {
+                const hasFrac = typeof currentModel.remainingFraction === 'number' && Number.isFinite(currentModel.remainingFraction);
+                const clamped = hasFrac ? Math.min(1, Math.max(0, currentModel.remainingFraction)) : 0;
+                const qLevel = getQuotaLevel(hasFrac ? clamped : null);
+                curBox.hidden = false;
+                curName.textContent = currentModel.label;
+                curName.title = currentModel.label;
+                curPct.textContent = formatQuotaPct(hasFrac ? clamped : null);
+                curPct.setAttribute('data-qlevel', qLevel);
+                curFill.setAttribute('data-qlevel', qLevel);
+                curFill.style.width = `${(clamped * 100).toFixed(1)}%`;
+                curReset.textContent = formatResetCountdown(currentModel.resetTime) || (hasFrac && clamped >= 1 ? '满额可用' : '暂无重置时间');
+            } else {
+                curBox.hidden = true;
+            }
+
+            const groups = data && Array.isArray(data.groups) ? data.groups : [];
+            const models = data && Array.isArray(data.models) ? dedupeModelsForDisplay(data.models) : [];
+            const hasGroups = groups.length > 0;
+            const hasModels = models.length > 0;
+
+            let activeMode = quotaViewMode;
+            if (activeMode === 'auto') {
+                activeMode = hasGroups ? 'groups' : 'models';
+            } else if (activeMode === 'groups' && !hasGroups && hasModels) {
+                activeMode = 'models';
+            } else if (activeMode === 'models' && !hasModels && hasGroups) {
+                activeMode = 'groups';
+            }
+
+            modeSwitch.hidden = !(hasGroups && hasModels);
+            modeGroupsBtn.setAttribute('aria-pressed', String(activeMode === 'groups'));
+            modeModelsBtn.setAttribute('aria-pressed', String(activeMode === 'models'));
+            listTitle.textContent = activeMode === 'groups' ? '配额分组' : '全部模型';
+
+            const nodes = [];
+            if (!data && quotaState.isFetching) {
+                nodes.push(h('div', { class: 'q-empty' }, '正在获取模型额度...'));
+            } else if (data && data.status === 'offline') {
+                nodes.push(h('div', { class: 'q-empty' }, '等待 Language Server 连接...'));
+            } else if (activeMode === 'groups' && hasGroups) {
+                for (const grp of groups) {
+                    const buckets = Array.isArray(grp.buckets) ? grp.buckets : [];
+                    if (buckets.length === 1) {
+                        const b = buckets[0];
+                        const rowTitle = grp.displayName || formatBucketWindow(b);
+                        const sub = grp.displayName ? formatBucketWindow(b) : '';
+                        nodes.push(buildQuotaItemRow(rowTitle, b.remainingFraction, b.resetTime, sub));
+                    } else if (buckets.length > 1) {
+                        if (grp.displayName) {
+                            nodes.push(h('div', { class: 'q-group-title' }, grp.displayName));
+                        }
+                        for (const b of buckets) {
+                            nodes.push(buildQuotaItemRow(formatBucketWindow(b), b.remainingFraction, b.resetTime, ''));
+                        }
+                    } else if (grp.displayName || grp.description) {
+                        nodes.push(h('div', { class: 'q-sub' }, grp.displayName || grp.description));
+                    }
+                }
+            } else if (hasModels) {
+                for (const m of models) {
+                    nodes.push(buildQuotaItemRow(m.label, m.remainingFraction, m.resetTime, ''));
+                }
+            }
+
+            if (nodes.length === 0) {
+                nodes.push(h('div', { class: 'q-empty' }, '暂无可用配额信息'));
+            }
+            replaceChildrenSafe(listEl, nodes);
+
+            const curLevel = currentModel ? getQuotaLevel(currentModel.remainingFraction) : 'idle';
+            const statusText = data && data.status === 'offline'
+                ? '等待服务'
+                : (currentModel
+                    ? `当前状态: ${getQuotaLevelLabel(curLevel, data && data.status)}`
+                    : (data && data.summaryDescription ? data.summaryDescription : '已同步账号配额'));
+            footStatus.textContent = statusText;
+            footTime.textContent = data && data.fetchedAt ? `更新于 ${formatClockHMS(data.fetchedAt)}` : '';
+        }
+
+        function renderQuotaPill(inst) {
+            const { quotaHost, quotaRoot } = inst;
+            if (!quotaHost || !quotaRoot) return;
+            const dark = detectDarkTheme(inst.box);
+            quotaHost.setAttribute('data-theme', dark ? 'dark' : 'light');
+
+            const data = quotaState.payload;
+            const currentModel = matchSelectedModel(inst, data);
+            const hasFrac = Boolean(
+                currentModel &&
+                typeof currentModel.remainingFraction === 'number' &&
+                Number.isFinite(currentModel.remainingFraction)
+            );
+            const clamped = hasFrac ? Math.min(1, Math.max(0, currentModel.remainingFraction)) : 0;
+            const qLevel = getQuotaLevel(hasFrac ? clamped : null);
+            const pctStr = formatQuotaPct(hasFrac ? clamped : null);
+
+            quotaHost.setAttribute('data-qlevel', qLevel);
+            quotaRoot.getElementById('quota-arc').setAttribute(
+                'stroke-dasharray',
+                `${(QUOTA_ARC * clamped).toFixed(2)} ${QUOTA_C.toFixed(2)}`
+            );
+            quotaRoot.getElementById('quota-pct').textContent = pctStr;
+
+            const btn = quotaRoot.getElementById('quota-trigger');
+            const titleParts = [];
+            if (currentModel) {
+                titleParts.push(currentModel.label);
+                titleParts.push(hasFrac ? `剩余额度 ${pctStr}` : '额度未知');
+                const resetStr = formatResetCountdown(currentModel.resetTime);
+                if (resetStr) titleParts.push(resetStr);
+            } else if (data && data.credits && typeof data.credits.amount === 'number') {
+                titleParts.push(`模型额度 · AI 额度 ${formatExactTokens(data.credits.amount)}`);
+            } else {
+                titleParts.push('点击或悬停查看模型额度');
+            }
+            const titleText = titleParts.join(' · ');
+            btn.title = titleText;
+            btn.setAttribute('aria-label', titleText);
+        }
+
         function renderInstance(inst) {
             const { host, root, speedHost, speedRoot } = inst;
             const dark = detectDarkTheme(inst.box);
@@ -2397,10 +3510,42 @@
             speedBtnEl.title = speedView.pillTitle;
             speedBtnEl.setAttribute('aria-label', speedView.pillTitle);
 
+            renderQuotaPill(inst);
             fitInstanceLayout(inst);
             if (inst === activeInst && (pinnedOpen || hoverOpen)) {
-                renderPortalCard(inst);
+                if (activeAnchor === 'quota') {
+                    renderQuotaCard(inst);
+                } else {
+                    renderPortalCard(inst);
+                }
                 positionCard();
+            }
+        }
+
+        async function refreshQuota(force = false) {
+            if (!hasQuotaBridge || quotaState.isFetching) return;
+            quotaState.isFetching = true;
+            quotaState.lastFetchAt = Date.now();
+            if (activeInst && activeAnchor === 'quota' && (pinnedOpen || hoverOpen)) {
+                renderQuotaCard(activeInst);
+            }
+            try {
+                const res = await window.__agCtxBridge.getQuota(Boolean(force));
+                if (res && typeof res === 'object') {
+                    quotaState.payload = res;
+                }
+            } catch {
+                // 保持已有配额数据，等待下一轮重试
+            } finally {
+                quotaState.isFetching = false;
+                for (const inst of instances.values()) {
+                    renderQuotaPill(inst);
+                    fitInstanceLayout(inst);
+                }
+                if (activeInst && activeAnchor === 'quota' && (pinnedOpen || hoverOpen)) {
+                    renderQuotaCard(activeInst);
+                    positionCard();
+                }
             }
         }
 
@@ -2410,6 +3555,7 @@
             }
             const convId = inst.conversationId;
             const myEpoch = inst.fetchEpoch;
+            const wasRunning = Boolean(inst.latestPayload && inst.latestPayload.running);
             if (!convId) {
                 inst.lastFetchAt = Date.now();
                 const alreadyNew = inst.latestPayload && inst.latestPayload.status === 'new' && inst.latestPayload.conversationId === null;
@@ -2426,6 +3572,10 @@
                 if (myEpoch !== inst.fetchEpoch || convId !== inst.conversationId) return;
                 inst.latestPayload = res || { status: 'error', running: false, conversationId: convId, context: null, cache: null, speed: null, breakdown: null };
                 renderInstance(inst);
+                const nowRunning = Boolean(inst.latestPayload && inst.latestPayload.running);
+                if (wasRunning && !nowRunning && hasQuotaBridge) {
+                    setTimeout(() => { void refreshQuota(true); }, 800);
+                }
             } catch {
                 // 保持已有显示，待下一轮自动重连
             } finally {
@@ -2444,6 +3594,7 @@
                 if (inst.resizeObserver) inst.resizeObserver.disconnect();
                 if (inst.host.isConnected) inst.host.remove();
                 if (inst.speedHost.isConnected) inst.speedHost.remove();
+                if (inst.quotaHost && inst.quotaHost.isConnected) inst.quotaHost.remove();
                 instances.delete(box);
                 if (activeInst === inst) {
                     activeInst = null;
@@ -2453,6 +3604,9 @@
 
             if (!comps.length) return;
             ensureCardPortal();
+            if (hasQuotaBridge && !quotaState.payload && !quotaState.isFetching && quotaState.lastFetchAt === 0) {
+                void refreshQuota(false);
+            }
 
             for (const comp of comps) {
                 let inst = instances.get(comp.box);
@@ -2463,6 +3617,9 @@
                 }
                 const moved = ensureInstanceUi(inst, comp);
                 const nextId = resolveConversationId(comp);
+                const nextModelText = readSelectedModelText(comp.modelBtn);
+                const modelChanged = nextModelText !== inst.lastModelText;
+                inst.lastModelText = nextModelText;
                 if (isNew || nextId !== inst.conversationId) {
                     inst.conversationId = nextId;
                     inst.fetchEpoch++;
@@ -2472,6 +3629,13 @@
                     inst.isFetching = false;
                     renderInstance(inst);
                     void refreshInstance(inst, true);
+                } else if (modelChanged) {
+                    renderQuotaPill(inst);
+                    fitInstanceLayout(inst);
+                    if (inst === activeInst && activeAnchor === 'quota' && (pinnedOpen || hoverOpen)) {
+                        renderQuotaCard(inst);
+                        positionCard();
+                    }
                 } else if (moved || (comp.toolbar && comp.toolbar.clientWidth !== inst.lastToolbarWidth)) {
                     fitInstanceLayout(inst);
                 }
@@ -2492,6 +3656,7 @@
             for (const inst of instances.values()) {
                 if (target === inst.host || inst.host.contains(target)) return true;
                 if (target === inst.speedHost || inst.speedHost.contains(target)) return true;
+                if (inst.quotaHost && (target === inst.quotaHost || inst.quotaHost.contains(target))) return true;
             }
             return false;
         }
@@ -2529,6 +3694,12 @@
                 const interval = document.hidden ? 10000 : (inst.latestPayload && inst.latestPayload.running ? 1100 : 2200);
                 if (now - inst.lastFetchAt >= interval) {
                     void refreshInstance(inst, false);
+                }
+            }
+            if (hasQuotaBridge) {
+                const quotaInterval = document.hidden ? 60000 : 30000;
+                if (now - quotaState.lastFetchAt >= quotaInterval) {
+                    void refreshQuota(false);
                 }
             }
         }, 1000);

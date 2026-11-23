@@ -8330,7 +8330,7 @@ ${translationJs}
             }
             if (typeof filePatches["dist/preload.js"] === "string") {
                 const preloadBase = removeMarkedBlocks(filePatches["dist/preload.js"], "'__AG_CTX_BRIDGE_START__';", "'__AG_CTX_BRIDGE_END__';");
-                filePatches["dist/preload.js"] = preloadBase + "\n'__AG_CTX_BRIDGE_START__';\ntry{electron_1.contextBridge.exposeInMainWorld('__agCtxBridge',{getMetrics:(id,force,details)=>electron_1.ipcRenderer.invoke('ag-ctx:metrics',id,Boolean(force),Boolean(details))});}catch(_e){}\n'__AG_CTX_BRIDGE_END__';\n";
+                filePatches["dist/preload.js"] = preloadBase + "\n'__AG_CTX_BRIDGE_START__';\ntry{electron_1.contextBridge.exposeInMainWorld('__agCtxBridge',{getMetrics:(id,force,details)=>electron_1.ipcRenderer.invoke('ag-ctx:metrics',id,Boolean(force),Boolean(details)),getQuota:(force)=>electron_1.ipcRenderer.invoke('ag-ctx:quota',Boolean(force))});}catch(_e){}\n'__AG_CTX_BRIDGE_END__';\n";
             }
             console.log(`[修改] 上下文监控模块注入成功！`);
         } catch (ctxErr) {
