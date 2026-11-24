@@ -2182,6 +2182,10 @@ function generateJs() {
             source: 'swarm_pane',
             display: "蜂群面板",
             descriptions: [
+                "ONLY for the coordinator of an active /swarm session. What the coordinator writes so the Swarm UI's Overview can show the swarm's goal, its groups of work and a screenshot timeline; load it before you brief and add the first workers. Outside /swarm, do not load this.",
+                "ONLY for the coordinator of an active /swarm session.",
+                "仅限活跃 /swarm 会话的协调者使用. 协调者用于编写蜂群界面概览所需的内容，以便展示蜂群目标、工作分组与截图时间线; 请在向蜂群下达任务简报并添加首批工作节点前加载此技能. 在 /swarm 之外，请勿加载此技能.",
+                "仅限活跃 /swarm 会话的协调者使用.",
                 "What the coordinator writes so the Swarm UI's Overview can show the swarm's goal, its groups of work and a screenshot timeline. Load it before you brief and add the first workers to a swarm.",
                 "What the coordinator writes so the Swarm UI's Overview can show the swarm's goal, its groups of work and a screenshot timeline.",
                 "协调者用于编写蜂群界面概览所需的内容，以便展示蜂群目标、工作分组与截图时间线. 请在向蜂群下达任务简报并添加首批工作节点前加载此技能.",
@@ -2965,6 +2969,31 @@ function getDynamicProductUiTranslation(value, node = null) {
                 return limitLabel + "，" + parts.join(" ") + "后" + actionLabel + suffixDot;
             }
             return limitLabel + "，" + rest + " 后" + actionLabel + suffixDot;
+        }
+
+        if (!node || !isContentBodyContainer(node)) {
+            match = normalized.match(/^(?:(.+?)\\s+)?Leaving\\s+on\\s+(January|Jan|February|Feb|March|Mar|April|Apr|May|June|Jun|July|Jul|August|Aug|September|Sep|Sept|October|Oct|November|Nov|December|Dec)\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:,\\s*(\\d{4}))?(\\.?)$/i);
+            if (match && (!match[1] || match[1].length <= 240)) {
+                const leavingMonthMap = {
+                    january: 1, jan: 1, february: 2, feb: 2, march: 3, mar: 3,
+                    april: 4, apr: 4, may: 5, june: 6, jun: 6, july: 7, jul: 7,
+                    august: 8, aug: 8, september: 9, sep: 9, sept: 9,
+                    october: 10, oct: 10, november: 11, nov: 11, december: 12, dec: 12
+                };
+                const monthNum = leavingMonthMap[match[2].toLowerCase()];
+                const yearPart = match[4] ? match[4] + "年" : "";
+                const endDot = match[5] || "";
+                const leavingZh = "将于 " + yearPart + monthNum + "月" + match[3] + "日下线" + endDot;
+                if (!match[1]) return leavingZh;
+                const rawPrefix = norm(match[1]);
+                const noDotPrefix = rawPrefix.replace(/\\.$/, "");
+                let translatedPrefix = map.get(rawPrefix) || lowerMap.get(rawPrefix.toLowerCase());
+                if (!translatedPrefix && noDotPrefix !== rawPrefix) {
+                    const baseTrans = map.get(noDotPrefix) || lowerMap.get(noDotPrefix.toLowerCase());
+                    if (baseTrans) translatedPrefix = baseTrans + ".";
+                }
+                return (translatedPrefix || rawPrefix) + " " + leavingZh;
+            }
         }
 
         match = normalized.match(/^Back\\s+to\\s+(.+)$/i);

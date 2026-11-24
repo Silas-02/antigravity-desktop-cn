@@ -1090,14 +1090,12 @@
         function formatSpeedView(speed, running) {
             const hasLatestTps = Boolean(speed && typeof speed.latestTps === 'number' && Number.isFinite(speed.latestTps));
             const hasSessionTps = Boolean(speed && typeof speed.sessionTps === 'number' && Number.isFinite(speed.sessionTps));
-            const hasTtft = Boolean(speed && typeof speed.ttftSeconds === 'number' && Number.isFinite(speed.ttftSeconds));
             const thinkingTokens = speed && typeof speed.thinkingTokens === 'number' ? speed.thinkingTokens : 0;
 
             const primaryTps = hasLatestTps ? speed.latestTps : (hasSessionTps ? speed.sessionTps : null);
             const mainText = primaryTps !== null
                 ? formatTps(primaryTps)
                 : (running ? '思考中' : '-- t/s');
-            const subText = hasTtft ? formatDuration(speed.ttftSeconds) : '';
 
             const tpsText = hasLatestTps
                 ? (hasSessionTps ? `${formatTps(speed.latestTps)} · 均 ${Math.round(speed.sessionTps)}` : formatTps(speed.latestTps))
@@ -1114,9 +1112,6 @@
             if (primaryTps !== null) {
                 pillTitleParts.push(`${hasLatestTps ? '生成速率' : '会话均速'} ${formatTps(primaryTps)}`);
             }
-            if (hasTtft) {
-                pillTitleParts.push(`首字耗时(含读取与思考) ${formatDuration(speed.ttftSeconds)}`);
-            }
             if (thinkingTokens > 0) {
                 pillTitleParts.push(`思考 ${formatCompactTokens(thinkingTokens)} tok`);
             }
@@ -1124,13 +1119,12 @@
                 pillTitleParts.push('正在运行');
             }
             if (!pillTitleParts.length) {
-                pillTitleParts.push('模型生成速率与首字耗时');
+                pillTitleParts.push('模型生成速率');
             }
 
             return {
                 mainText,
-                subText,
-                hasMetrics: primaryTps !== null || hasTtft || thinkingTokens > 0,
+                hasMetrics: primaryTps !== null || thinkingTokens > 0,
                 pillTitle: pillTitleParts.join(' · '),
                 tpsText,
                 tpsTitle: tpsTitleParts.join(' / '),
@@ -1158,10 +1152,28 @@
             if (!modelBtn || !isVisible(modelBtn)) {
                 return { speedParent: null, speedAfter: null };
             }
-            const p = modelBtn.parentElement;
-            if (p && p.children.length === 1 && p.parentElement && container.contains(p.parentElement)) {
-                return { speedParent: p.parentElement, speedAfter: p };
+            const isOwnChild = (el) => Boolean(
+                el && el.classList && (el.classList.contains(SPEED_HOST_CLASS) || el.classList.contains(RING_HOST_CLASS))
+            );
+            let anchor = modelBtn;
+            let p = anchor.parentElement;
+            for (let depth = 0; depth < 8 && p && container.contains(p); depth++) {
+                const cs = getComputedStyle(p);
+                const isRowFlex = (cs.display === 'flex' || cs.display === 'inline-flex')
+                    && !(cs.flexDirection && cs.flexDirection.startsWith('column'));
+                if (isRowFlex) {
+                    return { speedParent: p, speedAfter: anchor };
+                }
+                if (p === container) break;
+                const nativeChildren = Array.from(p.children).filter((ch) => !isOwnChild(ch));
+                if (nativeChildren.length === 1 && p.parentElement && container.contains(p.parentElement)) {
+                    anchor = p;
+                    p = p.parentElement;
+                } else {
+                    break;
+                }
             }
+            p = modelBtn.parentElement;
             if (p && container.contains(p)) {
                 return { speedParent: p, speedAfter: modelBtn };
             }
@@ -1872,8 +1884,6 @@
                     --sp-run-ink: #0369a1;
                 }
                 :host([data-compact="hidden"]) { display: none; }
-                :host([data-compact="brief"]) .speed-sep,
-                :host([data-compact="brief"]) .speed-sub { display: none; }
                 .ctx-speed-wrap { display: inline-flex; align-items: center; }
                 .speed-pill {
                     appearance: none;
@@ -1919,7 +1929,6 @@
                     background: var(--sp-dot-run);
                     animation: agCtxPulse 1.3s ease-in-out infinite;
                 }
-                .speed-sep { opacity: 0.55; }
                 @keyframes agCtxPulse {
                     0%, 100% { opacity: 1; transform: scale(1); }
                     50% { opacity: 0.4; transform: scale(0.82); }
@@ -1932,13 +1941,11 @@
                     type: 'button',
                     class: 'speed-pill',
                     id: 'speed-trigger',
-                    'aria-label': '模型生成速率与首字耗时',
+                    'aria-label': '模型生成速率',
                     'aria-expanded': 'false',
                 },
                 h('span', { class: 'speed-dot', 'aria-hidden': 'true' }),
-                h('span', { class: 'speed-main', id: 'speed-main' }, '-- t/s'),
-                h('span', { class: 'speed-sep', id: 'speed-sep', hidden: '' }, '·'),
-                h('span', { class: 'speed-sub', id: 'speed-sub', hidden: '' }, '')
+                h('span', { class: 'speed-main', id: 'speed-main' }, '-- t/s')
             );
             const speedWrap = h('div', { class: 'ctx-speed-wrap', 'data-ag-localization-skip': 'true' }, speedTrigger);
             speedRoot.appendChild(speedStyle);
@@ -2166,13 +2173,9 @@
             if (speedHost && speedHost.isConnected) {
                 speedHost.setAttribute('data-theme', dark ? 'dark' : 'light');
                 speedHost.removeAttribute('data-compact');
-                if ((tbWidth > 0 && tbWidth < 380) || isWrappedBelowModel(speedHost) || leftOverflow()) {
-                    nextSpeedCompact = 'brief';
-                    speedHost.setAttribute('data-compact', 'brief');
-                    if ((tbWidth > 0 && tbWidth < 250) || isWrappedBelowModel(speedHost) || leftOverflow()) {
-                        nextSpeedCompact = 'hidden';
-                        speedHost.setAttribute('data-compact', 'hidden');
-                    }
+                if ((tbWidth > 0 && tbWidth < 250) || isWrappedBelowModel(speedHost) || leftOverflow()) {
+                    nextSpeedCompact = 'hidden';
+                    speedHost.setAttribute('data-compact', 'hidden');
                 }
             }
 
@@ -2387,13 +2390,8 @@
             speedHost.setAttribute('data-running', String(isRunning));
             speedHost.setAttribute('data-has-speed', String(speedView.hasMetrics));
             const speedMainEl = speedRoot.getElementById('speed-main');
-            const speedSepEl = speedRoot.getElementById('speed-sep');
-            const speedSubEl = speedRoot.getElementById('speed-sub');
             const speedBtnEl = speedRoot.getElementById('speed-trigger');
             speedMainEl.textContent = speedView.mainText;
-            speedSubEl.textContent = speedView.subText;
-            speedSepEl.hidden = !speedView.subText;
-            speedSubEl.hidden = !speedView.subText;
             speedBtnEl.title = speedView.pillTitle;
             speedBtnEl.setAttribute('aria-label', speedView.pillTitle);
 
