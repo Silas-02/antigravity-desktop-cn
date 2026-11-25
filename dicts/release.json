@@ -1244,5 +1244,12 @@
   "ONLY for the coordinator of an active /swarm session. What the coordinator writes so the Swarm UI's Overview can show the swarm's goal, its groups of work and a screenshot timeline; load it before you brief and add the first workers. Outside /swarm, do not load this.": "仅限活跃 /swarm 会话的协调者使用. 协调者用于编写蜂群界面概览所需的内容，以便展示蜂群目标、工作分组与截图时间线; 请在向蜂群下达任务简报并添加首批工作节点前加载此技能. 在 /swarm 之外，请勿加载此技能.",
   "Context Providers": "上下文提供器",
   "Allowed by you": "由您允许",
-  "Nothing is always allowed. You'll be asked before this plugin makes changes.": "暂无始终允许的操作. 此插件在做出更改前会向您询问确认."
+  "Nothing is always allowed. You'll be asked before this plugin makes changes.": "暂无始终允许的操作. 此插件在做出更改前会向您询问确认.",
+  "All runs": "所有运行",
+  "Download image": "下载图片",
+  "Zoom in (+)": "放大 (+)",
+  "Zoom out (-)": "缩小 (-)",
+  "Orchestrator": "编排器",
+  "Interrupt Agent": "中断智能体",
+  "Manage local Antigravity conversations programmatically over HTTP+JSON: create a new conversation (with an optional initial prompt), list conversations, read conversation metadata and run state, rename, archive, pin, star, tag, or group conversations, and delete conversations. Use when the user asks to list, rename, pin, star, archive, delete, or start conversations, including the current one, or when a script, plugin, or automation needs to manage conversations outside of subagent tool calls.": "通过 HTTP+JSON 以编程方式管理本地 Antigravity 会话: 创建新会话(可选附带初始提示词)、列出会话、读取会话元数据与运行状态、重命名、归档、置顶、星标、打标签或分组会话，以及删除会话. 当用户要求列出、重命名、置顶、星标、归档、删除或启动会话(包括当前会话)，或当脚本、插件或自动化需要在子智能体工具调用之外管理会话时使用."
 }

@@ -103,9 +103,51 @@ function loadDictionary() {
 function generateJs() {
     const fullDict = loadDictionary();
     const longEntries = Object.entries(fullDict).filter(([k]) => k.length > 20).sort((a, b) => b[0].length - a[0].length);
+    const longEntryWordIndexObj = Object.create(null);
+    const longEntryFallbackArr = [];
+    {
+        const wordFreq = new Map();
+        const entryWords = new Array(longEntries.length);
+        for (let i = 0; i < longEntries.length; i++) {
+            const words = longEntries[i][0].match(/[A-Za-z]{4,}/g);
+            if (!words) {
+                entryWords[i] = null;
+                continue;
+            }
+            const uniq = new Set();
+            for (let j = 0; j < words.length; j++) {
+                const w = words[j].toLowerCase();
+                if (!uniq.has(w)) {
+                    uniq.add(w);
+                    wordFreq.set(w, (wordFreq.get(w) || 0) + 1);
+                }
+            }
+            entryWords[i] = uniq;
+        }
+        for (let i = 0; i < longEntries.length; i++) {
+            const uniq = entryWords[i];
+            if (!uniq || uniq.size === 0) {
+                longEntryFallbackArr.push(i);
+                continue;
+            }
+            let bestWord = null;
+            let bestFreq = Infinity;
+            for (const w of uniq) {
+                const f = wordFreq.get(w);
+                if (f < bestFreq) {
+                    bestFreq = f;
+                    bestWord = w;
+                }
+            }
+            if (!longEntryWordIndexObj[bestWord]) longEntryWordIndexObj[bestWord] = [];
+            longEntryWordIndexObj[bestWord].push(i);
+        }
+    }
 
-    const dictJson = JSON.stringify(fullDict, null, 4);
+    const dictJson = JSON.stringify(fullDict);
     const entriesJson = JSON.stringify(longEntries);
+    const wordIndexJson = JSON.stringify(longEntryWordIndexObj);
+    const fallbackJson = JSON.stringify(longEntryFallbackArr);
 
     const jsSource = `${SIGNATURE_START}
 (() => {
@@ -131,7 +173,10 @@ function generateJs() {
     for (const [k, v] of map.entries()) lowerMap.set(k.toLowerCase(), v);
 
     const longEntries = REPLACEMENT_ENTRIES_PLACEHOLDER;
+    const longEntryWordIndex = new Map(Object.entries(WORD_INDEX_PLACEHOLDER));
+    const longEntryFallback = FALLBACK_INDEX_PLACEHOLDER;
     const translatedValues = new WeakMap();
+    const translatedAttrs = new WeakMap();
     const longScannedValues = new WeakMap();
     const unmatchedLongStrings = new Set();
     let blockedCacheVersion = 2;
@@ -146,8 +191,11 @@ function generateJs() {
     const BLOCKED_TEST_IDS = new Set(['user-input-step']);
     const SKIP_TRANSLATION_ATTR = 'data-ag-localization-skip';
 
+    const NORM_DIRTY_RE = /^\\s|\\s$|\\s{2}|[\\r\\n\\t\\u2018\\u2019\\u201c\\u201d]/;
+
     function norm(s) {
         if (!s) return '';
+        if (!NORM_DIRTY_RE.test(s)) return s;
         return s.replace(/\\s+/g, ' ').replace(/[‘’]/g, "'").replace(/[“”]/g, '"').trim();
     }
 
@@ -384,35 +432,44 @@ function generateJs() {
         return prefix ? prefix + " " + timestamp : timestamp;
     }
 
+    const AUTOMATION_WEEKDAY_MAP = {
+        monday: "星期一", mon: "星期一", mondays: "星期一",
+        tuesday: "星期二", tue: "星期二", tues: "星期二", tuesdays: "星期二",
+        wednesday: "星期三", wed: "星期三", wednesdays: "星期三",
+        thursday: "星期四", thu: "星期四", thur: "星期四", thurs: "星期四", thursdays: "星期四",
+        friday: "星期五", fri: "星期五", fridays: "星期五",
+        saturday: "星期六", sat: "星期六", saturdays: "星期六",
+        sunday: "星期日", sun: "星期日", sundays: "星期日"
+    };
+    const AUTOMATION_MONTH_MAP = {
+        january: 1, jan: 1,
+        february: 2, feb: 2,
+        march: 3, mar: 3,
+        april: 4, apr: 4,
+        may: 5,
+        june: 6, jun: 6,
+        july: 7, jul: 7,
+        august: 8, aug: 8,
+        september: 9, sep: 9, sept: 9,
+        october: 10, oct: 10,
+        november: 11, nov: 11,
+        december: 12, dec: 12
+    };
+    const AUTOMATION_MONTH_PATTERN = "January|Jan|February|Feb|March|Mar|April|Apr|May|June|Jun|July|Jul|August|Aug|September|Sep|Sept|October|Oct|November|Nov|December|Dec";
+    const AUTOMATION_MONTH_TIME_RE = new RegExp("^(" + AUTOMATION_MONTH_PATTERN + ")\\\\.?\\\\s+(\\\\d{1,2})(?:st|nd|rd|th)?,?\\\\s+(\\\\d{1,2}:\\\\d{2}\\\\s*(?:AM|PM))$", "i");
+    const AUTOMATION_MONTH_DAY_RE = new RegExp("^(" + AUTOMATION_MONTH_PATTERN + ")\\\\.?\\\\s+(\\\\d{1,2})(?:st|nd|rd|th)?$", "i");
+    const AUTOMATION_NEXT_MONTH_RE = new RegExp("^(?:Next\\\\s+run|下次运行[：:])\\\\s*(?:on\\\\s+)?(" + AUTOMATION_MONTH_PATTERN + ")\\\\.?\\\\s+(\\\\d{1,2})(?:st|nd|rd|th)?(?:,\\\\s*\\\\d{4})?\\\\s+(?:around|at|在)\\\\s+(.+)$", "i");
+    const AUTOMATION_LAST_MONTH_RE = new RegExp("^(?:Last\\\\s+run|上次运行[：:])\\\\s*(?:on\\\\s+)?(" + AUTOMATION_MONTH_PATTERN + ")\\\\.?\\\\s+(\\\\d{1,2})(?:st|nd|rd|th)?(?:,\\\\s*\\\\d{4})?\\\\s+(?:around|at|在)\\\\s+(.+)$", "i");
+    const AUTOMATION_SCHEDULE_GATE_RE = /^(?:Next|Last|Today|Tomorrow|Yesterday|Every|Daily|Weekly|Monthly|Weekdays|Weekends|Mon|Tue|Wed|Thu|Fri|Sat|Sun|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|下次|上次|每|星期)/i;
+
     function getAutomationScheduleTranslation(value, node = null) {
         const normalized = norm(value);
+        if (!normalized || !AUTOMATION_SCHEDULE_GATE_RE.test(normalized)) return null;
         if (/^Next\\s+run$/i.test(normalized)) return "下次运行";
         if (/^Last\\s+run$/i.test(normalized)) return "上次运行";
 
-        const weekdayMap = {
-            monday: "星期一", mon: "星期一", mondays: "星期一",
-            tuesday: "星期二", tue: "星期二", tues: "星期二", tuesdays: "星期二",
-            wednesday: "星期三", wed: "星期三", wednesdays: "星期三",
-            thursday: "星期四", thu: "星期四", thur: "星期四", thurs: "星期四", thursdays: "星期四",
-            friday: "星期五", fri: "星期五", fridays: "星期五",
-            saturday: "星期六", sat: "星期六", saturdays: "星期六",
-            sunday: "星期日", sun: "星期日", sundays: "星期日"
-        };
-        const monthMap = {
-            january: 1, jan: 1,
-            february: 2, feb: 2,
-            march: 3, mar: 3,
-            april: 4, apr: 4,
-            may: 5,
-            june: 6, jun: 6,
-            july: 7, jul: 7,
-            august: 8, aug: 8,
-            september: 9, sep: 9, sept: 9,
-            october: 10, oct: 10,
-            november: 11, nov: 11,
-            december: 12, dec: 12
-        };
-        const monthNamePattern = "January|Jan|February|Feb|March|Mar|April|Apr|May|June|Jun|July|Jul|August|Aug|September|Sep|Sept|October|Oct|November|Nov|December|Dec";
+        const weekdayMap = AUTOMATION_WEEKDAY_MAP;
+        const monthMap = AUTOMATION_MONTH_MAP;
 
         let match = normalized.match(/^(Today|Tomorrow|Yesterday)\\s+(\\d{1,2}:\\d{2}\\s*(?:AM|PM)(?:\\s+(?:GMT|UTC)[+-]?\\d{0,2}(?::\\d{2})?)?)$/i);
         if (match) {
@@ -423,12 +480,12 @@ function generateJs() {
         if (match) {
             return weekdayMap[match[1].toLowerCase()] + " " + match[2];
         }
-        match = normalized.match(new RegExp("^(" + monthNamePattern + ")\\\\.?\\\\s+(\\\\d{1,2})(?:st|nd|rd|th)?,?\\\\s+(\\\\d{1,2}:\\\\d{2}\\\\s*(?:AM|PM))$", "i"));
+        match = normalized.match(AUTOMATION_MONTH_TIME_RE);
         if (match) {
             return monthMap[match[1].toLowerCase()] + "月" + match[2] + "日 " + match[3];
         }
         if (!node || !isContentBodyContainer(node)) {
-            match = normalized.match(new RegExp("^(" + monthNamePattern + ")\\\\.?\\\\s+(\\\\d{1,2})(?:st|nd|rd|th)?$", "i"));
+            match = normalized.match(AUTOMATION_MONTH_DAY_RE);
             if (match) {
                 return monthMap[match[1].toLowerCase()] + "月" + match[2] + "日";
             }
@@ -440,7 +497,7 @@ function generateJs() {
         if (match) return "下次运行：明天约 " + match[1];
         match = normalized.match(/^(?:Next\\s+run|下次运行[：:])\\s*(?:on\\s+)?(Monday|Mon|Tuesday|Tue|Tues|Wednesday|Wed|Thursday|Thu|Thur|Thurs|Friday|Fri|Saturday|Sat|Sunday|Sun)\\.?\\s+(?:around|at|在)\\s+(.+)$/i);
         if (match) return "下次运行：" + weekdayMap[match[1].toLowerCase()] + "约 " + match[2];
-        match = normalized.match(new RegExp("^(?:Next\\\\s+run|下次运行[：:])\\\\s*(?:on\\\\s+)?(" + monthNamePattern + ")\\\\.?\\\\s+(\\\\d{1,2})(?:st|nd|rd|th)?(?:,\\\\s*\\\\d{4})?\\\\s+(?:around|at|在)\\\\s+(.+)$", "i"));
+        match = normalized.match(AUTOMATION_NEXT_MONTH_RE);
         if (match) {
             return "下次运行：" + monthMap[match[1].toLowerCase()] + "月" + match[2] + "日约 " + match[3];
         }
@@ -453,7 +510,7 @@ function generateJs() {
         if (match) return "上次运行：今天约 " + match[1];
         match = normalized.match(/^(?:Last\\s+run|上次运行[：:])\\s*(?:on\\s+)?(Monday|Mon|Tuesday|Tue|Tues|Wednesday|Wed|Thursday|Thu|Thur|Thurs|Friday|Fri|Saturday|Sat|Sunday|Sun)\\.?\\s+(?:around|at|在)\\s+(.+)$/i);
         if (match) return "上次运行：" + weekdayMap[match[1].toLowerCase()] + "约 " + match[2];
-        match = normalized.match(new RegExp("^(?:Last\\\\s+run|上次运行[：:])\\\\s*(?:on\\\\s+)?(" + monthNamePattern + ")\\\\.?\\\\s+(\\\\d{1,2})(?:st|nd|rd|th)?(?:,\\\\s*\\\\d{4})?\\\\s+(?:around|at|在)\\\\s+(.+)$", "i"));
+        match = normalized.match(AUTOMATION_LAST_MONTH_RE);
         if (match) {
             return "上次运行：" + monthMap[match[1].toLowerCase()] + "月" + match[2] + "日约 " + match[3];
         }
@@ -730,6 +787,12 @@ function generateJs() {
 
     function getBoundedTextContent(element, maxNodes = 32, maxLen = 1600) {
         if (!element) return null;
+        const rootChildren = element.childNodes;
+        if (!rootChildren || rootChildren.length === 0) return '';
+        if (rootChildren.length === 1 && rootChildren[0].nodeType === Node.TEXT_NODE) {
+            const v = rootChildren[0].nodeValue || '';
+            return v.length <= maxLen ? v : null;
+        }
         let out = '';
         let count = 0;
         const visit = (n) => {
@@ -766,10 +829,10 @@ function generateJs() {
         return result;
     }
 
-    function isInSkillItemContext(node) {
+    function isInSkillItemContext(node, preNorm) {
         if (!node || node.nodeType !== Node.TEXT_NODE) return false;
-        const val = norm(node.nodeValue);
-        if (!val || val.length > 40 || /[,.?!:，。？！：]/.test(val)) return false;
+        const val = preNorm !== undefined ? preNorm : norm(node.nodeValue);
+        if (!val || val.length > 40 || !/[a-zA-Z]/.test(val) || /[,.?!:，。？！：]/.test(val)) return false;
         let current = node.parentElement;
         for (let depth = 0; current && depth < 4; depth++) {
             if (current === document.body || current === document.documentElement) break;
@@ -782,9 +845,35 @@ function generateJs() {
         return false;
     }
 
+    function markSkipElement(el) {
+        if (!el || el.nodeType !== Node.ELEMENT_NODE) return false;
+        const wasCachedUnblocked = blockedZoneCache.has(el) && blockedZoneCache.get(el) !== -1;
+        if (!el.hasAttribute(SKIP_TRANSLATION_ATTR)) {
+            el.setAttribute(SKIP_TRANSLATION_ATTR, 'true');
+        }
+        blockedZoneCache.set(el, -1);
+        return Boolean(wasCachedUnblocked && el.firstElementChild);
+    }
+
+    function markHeaderAndCheckSibling(headerEl) {
+        if (!headerEl || headerEl.nodeType !== Node.ELEMENT_NODE) return false;
+        let needBump = false;
+        if (!headerEl.hasAttribute('data-ag-thought-header')) {
+            headerEl.setAttribute('data-ag-thought-header', 'true');
+            const next = headerEl.nextElementSibling;
+            if (next && headerEl.parentElement && headerEl.parentElement.children.length === 2) {
+                const wasCachedUnblocked = blockedZoneCache.has(next) && blockedZoneCache.get(next) !== -1;
+                blockedZoneCache.set(next, -1);
+                if (wasCachedUnblocked && next.firstElementChild) needBump = true;
+            }
+        }
+        return needBump;
+    }
+
     function markThoughtContentSibling(node) {
         if (!node) return;
         try {
+            let needVersionBump = false;
             let curr = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
             for (let depth = 0; depth < 3 && curr; depth++) {
                 if (curr === document.body || curr === document.documentElement) break;
@@ -792,38 +881,49 @@ function generateJs() {
                 if (tag === 'DETAILS') {
                     for (const child of curr.children) {
                         if (child.tagName !== 'SUMMARY') {
-                            child.setAttribute(SKIP_TRANSLATION_ATTR, 'true');
+                            if (markSkipElement(child)) needVersionBump = true;
                         }
                     }
-                    blockedCacheVersion++;
+                    if (needVersionBump) blockedCacheVersion++;
                     return;
                 }
                 if (depth === 0 || tag === 'SPAN' || tag === 'BUTTON' || tag === 'SUMMARY') {
-                    curr.setAttribute('data-ag-thought-header', 'true');
-                    blockedCacheVersion++;
+                    if (markHeaderAndCheckSibling(curr)) needVersionBump = true;
                 }
                 const next = curr.nextElementSibling;
                 const prev = curr.previousElementSibling;
                 if ((next && next.tagName && next.tagName.toUpperCase() === 'SVG') ||
                     (prev && prev.tagName && prev.tagName.toUpperCase() === 'SVG')) {
                     if (curr.parentElement && curr.parentElement !== document.body) {
-                        curr.parentElement.setAttribute('data-ag-thought-header', 'true');
-                        blockedCacheVersion++;
+                        if (markHeaderAndCheckSibling(curr.parentElement)) needVersionBump = true;
                     }
                 }
                 const parent = curr.parentElement;
                 if (next && parent && parent.children.length === 2 && curr === parent.firstElementChild) {
                     const nextTag = next.tagName ? next.tagName.toUpperCase() : '';
                     if (nextTag === 'DIV' || nextTag === 'SECTION') {
-                        curr.setAttribute('data-ag-thought-header', 'true');
-                        next.setAttribute(SKIP_TRANSLATION_ATTR, 'true');
-                        blockedCacheVersion++;
+                        if (!curr.hasAttribute('data-ag-thought-header')) {
+                            curr.setAttribute('data-ag-thought-header', 'true');
+                        }
+                        if (markSkipElement(next)) needVersionBump = true;
+                        if (needVersionBump) blockedCacheVersion++;
                         return;
                     }
                 }
                 curr = parent;
             }
+            if (needVersionBump) blockedCacheVersion++;
         } catch (e) {}
+    }
+
+    function isAgentBubbleMarkdownRoot(el) {
+        if (!el || !el.hasAttribute || !el.hasAttribute('data-markdown-root')) return false;
+        let p = el.parentElement;
+        for (let d = 0; p && d < 6; d++) {
+            if (p.getAttribute && p.getAttribute('data-bubble-side') === 'agent') return true;
+            p = p.parentElement;
+        }
+        return false;
     }
 
     function isIsolatedUiControlLabel(node, word, originalVal) {
@@ -836,6 +936,7 @@ function generateJs() {
             for (let depth = 0; curr && depth < 4; depth++) {
                 const testId = curr.getAttribute ? curr.getAttribute('data-testid') : null;
                 if (testId === 'user-input-step' || testId === 'agent-message' || testId === 'agent-response') return false;
+                if (curr.hasAttribute?.('data-markdown-root') || curr.getAttribute?.('data-bubble-side') === 'agent') return false;
                 const cls = curr.className;
                 if (typeof cls === 'string' && /(?:prose|markdown)/i.test(cls)) return false;
                 const tag = curr.tagName ? curr.tagName.toUpperCase() : '';
@@ -848,6 +949,9 @@ function generateJs() {
         for (let depth = 0; curr && depth < 4; depth++) {
             const testId = curr.getAttribute ? curr.getAttribute('data-testid') : null;
             if (testId === 'user-input-step' || testId === 'agent-message' || testId === 'agent-response') {
+                return false;
+            }
+            if (curr.hasAttribute?.('data-markdown-root') || curr.getAttribute?.('data-bubble-side') === 'agent') {
                 return false;
             }
             const cls = curr.className;
@@ -883,6 +987,9 @@ function generateJs() {
         let curr = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
         for (let depth = 0; curr && depth < 6; depth++) {
             if (curr === document.body || curr === document.documentElement) break;
+            if (curr.hasAttribute?.('data-markdown-root') || curr.getAttribute?.('data-bubble-side') === 'agent') {
+                return true;
+            }
             const cls = curr.className;
             if (typeof cls === 'string' && /(?:prose|markdown)/i.test(cls)) {
                 return true;
@@ -905,6 +1012,9 @@ function generateJs() {
         let curr = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
         for (let depth = 0; curr && depth < 6; depth++) {
             if (curr === document.body || curr === document.documentElement) break;
+            if (curr.hasAttribute?.('data-markdown-root') || curr.getAttribute?.('data-bubble-side') === 'agent') {
+                return true;
+            }
             const cls = curr.className;
             if (typeof cls === 'string' && /(?:prose|markdown)/i.test(cls)) {
                 return true;
@@ -981,7 +1091,7 @@ function generateJs() {
 
         const testId = el.getAttribute('data-testid');
         const prevTestId = prev ? prev.getAttribute?.('data-testid') : null;
-        if (testId === 'file-title-name' || testId === 'code-gutter' || prevTestId === 'file-title-name' || prevTestId === 'file-tree-node-icon' || el.hasAttribute('data-line-tokens')) {
+        if (testId === 'file-title-name' || testId === 'code-gutter' || prevTestId === 'file-title-name' || prevTestId === 'file-tree-node-icon' || el.hasAttribute('data-line-tokens') || isAgentBubbleMarkdownRoot(el)) {
             blockedZoneCache.set(el, -1);
             return 2;
         }
@@ -1164,7 +1274,9 @@ function generateJs() {
     const MESSAGE_ACTION_TIMESTAMP_REGEX = /^(?:now|just\\s+now|\\d+\\s*(?:s|m|h|d|w|mo|yr|y)\\s+ago|\\d+\\s*(?:secs?|seconds?|mins?|minutes?|hrs?|hours?|days?|wks?|weeks?|mos?|months?|yrs?|years?)\\s+ago)$/i;
     function isMessageActionTimestamp(node) {
         if (!node) return false;
-        const text = norm(node.nodeType === Node.TEXT_NODE ? node.nodeValue : node.textContent);
+        const rawNodeText = node.nodeType === Node.TEXT_NODE ? node.nodeValue : getBoundedTextContent(node, 4, 48);
+        if (!rawNodeText) return false;
+        const text = norm(rawNodeText);
         if (!MESSAGE_ACTION_TIMESTAMP_REGEX.test(text)) return false;
         let curr = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
         for (let depth = 0; curr && depth < 4; depth++) {
@@ -1324,6 +1436,10 @@ function generateJs() {
             }
         }
 
+        if (normalized.length > 160 || !/^(?:[+\\dVAvaSsLlEe·•Nn\\.]|…|正在搜索)/.test(normalized)) {
+            return null;
+        }
+
         const linesMatch = normalized.match(/^(\\+)?\\s*(\\d+)\\s+more\\s+lines?$/i);
         if (linesMatch) {
             let current = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
@@ -1481,8 +1597,10 @@ function generateJs() {
         let current = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
         for (let depth = 0; current && depth < 10; depth++) {
             if (current === document.body || current === document.documentElement) break;
-            const text = norm(current.textContent);
-            if (text.length <= 6000 && /(?:Comments?|评论)\\s*[（(]\\s*\\d+\\s*[)）]/i.test(text)) return true;
+            const raw = getBoundedTextContent(current, 160, 6000);
+            if (raw === null) break;
+            const text = norm(raw);
+            if (/(?:Comments?|评论)\\s*[（(]\\s*\\d+\\s*[)）]/i.test(text)) return true;
             if (text.length <= 2000 && /(?:Save Comment|保存评论|Submit comment|提交评论|Add Comment|添加评论)/i.test(text)) return true;
             current = current.parentElement || (current.getRootNode?.().host ?? null);
         }
@@ -1499,6 +1617,9 @@ function generateJs() {
             if (testId === 'user-input-step' || testId === 'agent-message' || testId === 'agent-response' || testId === 'agent-turn') {
                 return false;
             }
+            if (current.hasAttribute?.('data-markdown-root') || current.getAttribute?.('data-bubble-side') === 'agent') {
+                return false;
+            }
             const cls = typeof current.className === 'string' ? current.className : '';
             if (/(?:prose|markdown)/i.test(cls)) return false;
 
@@ -1511,8 +1632,9 @@ function generateJs() {
             ].filter(valuePart => typeof valuePart === 'string').join(' ');
             if (/(?:^|[-_\\s])(?:conversation-list|conversations-list|conversation-history|history-list)(?:[-_\\s]|$)/i.test(metadata)) return true;
 
-            const text = norm(current.textContent);
-            if (text.length <= 20000) {
+            const raw = getBoundedTextContent(current, 450, 20000);
+            if (raw !== null) {
+                const text = norm(raw);
                 const hasConversationSections =
                     /(?:Other Conversations|其他会话)/i.test(text) &&
                     /(?:Current|当前|Search all conversations|搜索所有会话)/i.test(text);
@@ -1536,7 +1658,9 @@ function generateJs() {
         let explicitTimestamp = false;
         let timestampElement = null;
         let compactRow = null;
-        for (let depth = 0; current && depth < 3 && norm(current.textContent) === normalized; depth++) {
+        for (let depth = 0; current && depth < 3; depth++) {
+            const curBounded = getBoundedTextContent(current, 6, 32);
+            if (curBounded === null || norm(curBounded) !== normalized) break;
             const tag = current.tagName?.toUpperCase();
             const metadata = [
                 current.className,
@@ -1557,7 +1681,9 @@ function generateJs() {
 
         current = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
         for (let depth = 0; current && depth < 5; depth++) {
-            const text = norm(current.textContent);
+            const raw = getBoundedTextContent(current, 24, 260);
+            if (raw === null) break;
+            const text = norm(raw);
             if (text !== normalized) {
                 if (text.length <= 240) compactRow = current;
                 break;
@@ -1584,10 +1710,12 @@ function generateJs() {
         let current = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
         for (let depth = 0; current && depth < 10; depth++) {
             if (current === document.body || current === document.documentElement) break;
-            const text = norm(current.textContent);
+            const raw = getBoundedTextContent(current, 80, 1600);
+            if (raw === null) break;
+            const text = norm(raw);
             const hasTitle = /(?:Delete Task|删除任务)/i.test(text);
             const hasConfirmation = /Are you sure you want to delete|This action cannot be undone|您确定要删除(?:计划)?任务|此操作无法撤销/i.test(text);
-            if (text.length <= 1600 && hasTitle && hasConfirmation) return true;
+            if (hasTitle && hasConfirmation) return true;
             current = current.parentElement || (current.getRootNode?.().host ?? null);
         }
         return false;
@@ -1694,7 +1822,9 @@ function generateJs() {
     function isCollapsibleActivityHeader(str) {
         if (!str || typeof str !== 'string') return false;
         const trimmed = str.trim();
-        if (trimmed.length > 160) return false;
+        if (!trimmed || trimmed.length > 160) return false;
+        const c0 = trimmed.charCodeAt(0);
+        if (c0 !== 84 && c0 !== 116 && c0 !== 69 && c0 !== 101 && c0 !== 82 && c0 !== 114) return false;
         if (!/^(?:Thought|Thinking|Explored|Exploring|Ran|Running|Edited|Editing)\\b/i.test(trimmed)) return false;
 
         if (/^(?:Thought for|Thinking for)\\s+[\\d\\w\\s,.<]+?(?:\\s*[>v›❯〉→∨˅⌄▼▽⋁↓])?\\s*$/i.test(trimmed)) {
@@ -1840,9 +1970,11 @@ function generateJs() {
         return true;
     }
 
-    function translateCommitSummaryTextNode(node, value) {
-        const normalized = norm(value);
-        if (!/^(?:Commit|提交|to|changes?|更改|files?|个文件|\\d+)$/i.test(normalized)) return false;
+    const COMMIT_SUMMARY_TOKEN_RE = /^(?:Commit|提交|to|changes?|更改|files?|个文件|\\d+)$/i;
+
+    function translateCommitSummaryTextNode(node, value, preNorm) {
+        const normalized = preNorm !== undefined ? preNorm : norm(value);
+        if (!COMMIT_SUMMARY_TOKEN_RE.test(normalized)) return false;
 
         if (/^\\d+$/.test(normalized)) {
             let countContext = node.parentElement;
@@ -1850,9 +1982,10 @@ function generateJs() {
             for (let depth = 0; countContext && depth < 5; depth++) {
                 if (countContext === document.body || countContext === document.documentElement) break;
                 if ((countContext.childNodes?.length || 0) > 24) break;
-                const contextText = norm(countContext.textContent);
-                if (contextText.length <= 240 &&
-                    /^(?:Commit|提交|将\\s*\\d+\\s*个文件的更改提交到)/i.test(contextText) &&
+                const rawCtx = getBoundedTextContent(countContext, 24, 240);
+                if (rawCtx === null) break;
+                const contextText = norm(rawCtx);
+                if (/^(?:Commit|提交|将\\s*\\d+\\s*个文件的更改提交到)/i.test(contextText) &&
                     /(?:files?\\s*changes?|个文件.*更改)/i.test(contextText)) {
                     hasCommitContext = true;
                     break;
@@ -2191,6 +2324,16 @@ function generateJs() {
                 "协调者用于编写蜂群界面概览所需的内容，以便展示蜂群目标、工作分组与截图时间线. 请在向蜂群下达任务简报并添加首批工作节点前加载此技能.",
                 "协调者用于编写蜂群界面概览所需的内容，以便展示蜂群目标、工作分组与截图时间线."
             ]
+        },
+        {
+            source: 'conversations',
+            display: "会话管理",
+            descriptions: [
+                "Manage local Antigravity conversations programmatically over HTTP+JSON: create a new conversation (with an optional initial prompt), list conversations, read conversation metadata and run state, rename, archive, pin, star, tag, or group conversations, and delete conversations. Use when the user asks to list, rename, pin, star, archive, delete, or start conversations, including the current one, or when a script, plugin, or automation needs to manage conversations outside of subagent tool calls.",
+                "Manage local Antigravity conversations programmatically over HTTP+JSON",
+                "通过 HTTP+JSON 以编程方式管理本地 Antigravity 会话: 创建新会话(可选附带初始提示词)、列出会话、读取会话元数据与运行状态、重命名、归档、置顶、星标、打标签或分组会话，以及删除会话. 当用户要求列出、重命名、置顶、星标、归档、删除或启动会话(包括当前会话)，或当脚本、插件或自动化需要在子智能体工具调用之外管理会话时使用.",
+                "通过 HTTP+JSON 以编程方式管理本地 Antigravity 会话"
+            ]
         }
     ];
 
@@ -2241,9 +2384,14 @@ function generateJs() {
         return changed;
     }
 
-    function translateSkillPickerNameTextNode(node, value) {
-        const normalized = norm(value);
-        if (!SKILL_PICKER_DISPLAY_ENTRIES.some(entry => entry.source === normalized)) return false;
+    const SKILL_PICKER_SOURCE_MAP = new Map();
+    for (let i = 0; i < SKILL_PICKER_DISPLAY_ENTRIES.length; i++) {
+        SKILL_PICKER_SOURCE_MAP.set(SKILL_PICKER_DISPLAY_ENTRIES[i].source, SKILL_PICKER_DISPLAY_ENTRIES[i]);
+    }
+
+    function translateSkillPickerNameTextNode(node, value, preNorm) {
+        const normalized = preNorm !== undefined ? preNorm : norm(value);
+        if (!SKILL_PICKER_SOURCE_MAP.has(normalized)) return false;
 
         // React can replace only the skill-name text node after the row was
         // translated. The exact-name prefilter keeps this ancestor walk narrow.
@@ -2255,16 +2403,17 @@ function generateJs() {
         return false;
     }
 
-    function translateUsedSkillNameTextNode(node, value) {
-        const normalized = norm(value);
-        const entry = SKILL_PICKER_DISPLAY_ENTRIES.find(entry => entry.source === normalized);
+    function translateUsedSkillNameTextNode(node, value, preNorm) {
+        const normalized = preNorm !== undefined ? preNorm : norm(value);
+        const entry = SKILL_PICKER_SOURCE_MAP.get(normalized);
         if (!entry) return false;
 
         let current = node.parentElement;
         for (let depth = 0; current && depth < 6; depth++) {
             if (current === document.body || current === document.documentElement) break;
-            const text = current.textContent || '';
-            if (text.length <= 2500 && /(?:Skills?\\s+Used|已使用的技能)/i.test(text)) {
+            const text = getBoundedTextContent(current, 96, 2500);
+            if (text === null) break;
+            if (/(?:Skills?\\s+Used|已使用的技能)/i.test(text)) {
                 return replaceTextNode(node, entry.display);
             }
             current = current.parentElement || (current.getRootNode?.().host ?? null);
@@ -2904,74 +3053,80 @@ function getModelUnavailableRetryTranslation(value) {
         return res;
     }
 
-function getDynamicProductUiTranslation(value, node = null) {
+    const DYNAMIC_PRODUCT_EXACT_MAP = Object.assign(Object.create(null), {
+        "no automations yet": "暂无自动化任务",
+        "no runs yet": "暂无运行记录",
+        "runs": "运行记录",
+        "next run": "下次运行",
+        "last run": "上次运行",
+        "stop editing": "停止编辑",
+        "reset to default": "重置为默认值",
+        "reset to defaults": "重置为默认值",
+        "reset all to default": "全部重置为默认值",
+        "reset all to defaults": "全部重置为默认值",
+        "open in": "打开方式",
+        "change...": "更改...",
+        "change…": "更改...",
+        "press keys...": "按下按键...",
+        "press keys…": "按下按键...",
+        "search projects...": "搜索项目...",
+        "search projects…": "搜索项目...",
+        "search or enter a url": "搜索或输入网址",
+        "search or enter a url...": "搜索或输入网址...",
+        "search or enter a url…": "搜索或输入网址...",
+        "voice chat": "语音会话",
+        "voice transcript": "语音逐字稿",
+        "voice speed": "语速",
+        "listening. ask anything.": "正在聆听. 请随时提问.",
+        "ask anything": "提问任何问题",
+        "uses your local clone": "使用您的本地克隆，",
+        "uses your local clone,": "使用您的本地克隆，",
+        "clones this repo in a cloud environment": "在云环境中克隆此仓库",
+        "clones this repo in a cloud environment.": "在云环境中克隆此仓库",
+        "loading branches...": "正在加载分支...",
+        "loading branches…": "正在加载分支...",
+        "your use is subject to the": ". 您对本服务的使用受 ",
+        ". your use is subject to the": ". 您对本服务的使用受 ",
+        "。 your use is subject to the": ". 您对本服务的使用受 "
+    });
+
+    function getDynamicProductUiTranslation(value, node = null) {
         const normalized = norm(value);
-        const sideOriginAttrTrans = translateSideQuestionOriginAttr(normalized, node);
-        if (sideOriginAttrTrans) return sideOriginAttrTrans;
-        const sideOriginTextTrans = getSideQuestionOriginTextNodeTranslation(node, normalized);
-        if (sideOriginTextTrans) return sideOriginTextTrans;
-        const retryTrans = getModelUnavailableRetryTranslation(normalized);
-        if (retryTrans) return retryTrans;
-
-        let match = normalized.match(/^(.+?)\\s+needs?\\s+the\\s+terminal\\s+sandbox,\\s*which\\s+isn't\\s+available\\s+on\\s+this\\s+host\\.$/i);
-        if (match && match[1].length <= 80) {
-            const modeMap = {
-                "request review": "请求审查",
-                "default": "默认",
-                "auto": "自动",
-                "turbo": "极速"
-            };
-            const parts = match[1].split(/\\s+and\\s+/i).map(p => modeMap[p.trim().toLowerCase()] || p.trim());
-            return parts.join(" 和 ") + " 需要终端沙箱，但此主机上不可用.";
+        if (!normalized) return null;
+        if (node && node.nodeType === Node.ELEMENT_NODE && node.getAttribute?.('data-testid') === 'side-question-origin') {
+            const sideOriginAttrTrans = translateSideQuestionOriginAttr(normalized, node);
+            if (sideOriginAttrTrans) return sideOriginAttrTrans;
+        }
+        if (node && node.parentElement && node.parentElement.tagName?.toUpperCase() === 'SPAN' &&
+            node.parentElement.parentElement?.getAttribute?.('data-testid') === 'side-question-origin') {
+            const sideOriginTextTrans = getSideQuestionOriginTextNodeTranslation(node, normalized);
+            if (sideOriginTextTrans) return sideOriginTextTrans;
+        }
+        if (normalized.length <= 96 && (normalized[0] === 'M' || normalized[0] === 'm') && normalized.includes('retrying')) {
+            const retryTrans = getModelUnavailableRetryTranslation(normalized);
+            if (retryTrans) return retryTrans;
         }
 
-        match = normalized.match(/^Sign-ins\\s+to\\s+(.+?)\\s+are\\s+kept\\s+in\\s+the\\s+cloud\\s+with\\s+your\\s+account\\.$/i);
-        if (match && match[1].length <= 160) {
-            return "登录到 " + match[1] + " 的凭据将随您的账号保存在云端.";
-        }
+        const lowerNorm = normalized.toLowerCase();
+        const exactMatch = DYNAMIC_PRODUCT_EXACT_MAP[lowerNorm];
+        if (exactMatch !== undefined) return exactMatch;
 
-        match = normalized.match(/^Hi\\s+(.+?),\\s+what can we get done today\\?$/i);
-        if (match) return "嗨 " + match[1] + "，今天我们可以完成些什么？";
-
-        match = normalized.match(/^Your\\s+Plan:\\s*(.+)$/i);
-        if (match && match[1].length <= 80) return "您的计划: " + match[1];
-
-        match = normalized.match(/^Your\\s+(.+?)\\s+setting$/i);
-        if (match && match[1].length <= 60 && !/[.,?!]/.test(match[1]) && (!node || !isContentBodyContainer(node))) {
-            const rawScope = norm(match[1]);
-            const dictScope = map.get(rawScope) || lowerMap.get(rawScope.toLowerCase());
-            if (dictScope || /^[A-Z0-9]/.test(rawScope)) {
-                const scopeTrans = dictScope || rawScope;
-                if (/^[\\u4e00-\\u9fff]/.test(scopeTrans) && /[\\u4e00-\\u9fff]$/.test(scopeTrans)) {
-                    return "您的" + scopeTrans + "设置";
-                }
-                return "您的 " + scopeTrans + " 设置";
+        let match;
+        if (lowerNorm.includes('terminal sandbox')) {
+            match = normalized.match(/^(.+?)\\s+needs?\\s+the\\s+terminal\\s+sandbox,\\s*which\\s+isn't\\s+available\\s+on\\s+this\\s+host\\.$/i);
+            if (match && match[1].length <= 80) {
+                const modeMap = {
+                    "request review": "请求审查",
+                    "default": "默认",
+                    "auto": "自动",
+                    "turbo": "极速"
+                };
+                const parts = match[1].split(/\\s+and\\s+/i).map(p => modeMap[p.trim().toLowerCase()] || p.trim());
+                return parts.join(" 和 ") + " 需要终端沙箱，但此主机上不可用.";
             }
         }
 
-        match = normalized.match(/^(Weekly|5-hour|Five Hour|5h)\\s+limit,\\s*(resets|refreshes)\\s+in\\s+(.+?)(?:(\\.))?$/i);
-        if (match) {
-            const isWeekly = /^weekly$/i.test(match[1]);
-            const limitLabel = isWeekly ? "每周配额限制" : "5 小时配额限制";
-            const actionLabel = /^refreshes$/i.test(match[2]) ? "刷新" : "重置";
-            const rest = norm(match[3]);
-            const suffixDot = match[4] ? "." : "";
-            if (/^<\\s*1\\s*m(?:in(?:ute)?)?$/i.test(rest) || /^less\\s+than\\s+(?:a|1)\\s+minute$/i.test(rest)) {
-                return limitLabel + "，不足 1 分钟后" + actionLabel + suffixDot;
-            }
-            const durMatch = rest.match(/^(?:(\\d+)\\s*(?:d|days?))?\\s*,?\\s*(?:(\\d+)\\s*(?:h|hours?))?\\s*,?\\s*(?:(\\d+)\\s*(?:m|mins?|minutes?))?\\s*,?\\s*(?:(\\d+)\\s*(?:s|secs?|seconds?))?$/i);
-            if (durMatch && (durMatch[1] || durMatch[2] || durMatch[3] || durMatch[4])) {
-                const parts = [];
-                if (durMatch[1]) parts.push(durMatch[1] + " 天");
-                if (durMatch[2]) parts.push(durMatch[2] + " 小时");
-                if (durMatch[3]) parts.push(durMatch[3] + " 分钟");
-                if (durMatch[4]) parts.push(durMatch[4] + " 秒");
-                return limitLabel + "，" + parts.join(" ") + "后" + actionLabel + suffixDot;
-            }
-            return limitLabel + "，" + rest + " 后" + actionLabel + suffixDot;
-        }
-
-        if (!node || !isContentBodyContainer(node)) {
+        if (lowerNorm.includes('leaving on ') && (!node || !isContentBodyContainer(node))) {
             match = normalized.match(/^(?:(.+?)\\s+)?Leaving\\s+on\\s+(January|Jan|February|Feb|March|Mar|April|Apr|May|June|Jun|July|Jul|August|Aug|September|Sep|Sept|October|Oct|November|Nov|December|Dec)\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:,\\s*(\\d{4}))?(\\.?)$/i);
             if (match && (!match[1] || match[1].length <= 240)) {
                 const leavingMonthMap = {
@@ -2996,378 +3151,436 @@ function getDynamicProductUiTranslation(value, node = null) {
             }
         }
 
-        match = normalized.match(/^Back\\s+to\\s+(.+)$/i);
-        if (match && (!node || !isContentBodyContainer(node))) {
-            const rawTarget = norm(match[1]);
-            if (rawTarget && rawTarget.length <= 120) {
-                const targetTrans = map.get(rawTarget) || lowerMap.get(rawTarget.toLowerCase()) || rawTarget;
-                if (/^(?:Automations|History|Chat|Settings|Home)$/i.test(rawTarget) && /^[\\u4e00-\\u9fff]+$/.test(targetTrans)) {
-                    return "返回" + targetTrans;
+        if (lowerNorm.includes('limit')) {
+            match = normalized.match(/^(Weekly|5-hour|Five Hour|5h)\\s+limit,\\s*(resets|refreshes)\\s+in\\s+(.+?)(?:(\\.))?$/i);
+            if (match) {
+                const isWeekly = /^weekly$/i.test(match[1]);
+                const limitLabel = isWeekly ? "每周配额限制" : "5 小时配额限制";
+                const actionLabel = /^refreshes$/i.test(match[2]) ? "刷新" : "重置";
+                const rest = norm(match[3]);
+                const suffixDot = match[4] ? "." : "";
+                if (/^<\\s*1\\s*m(?:in(?:ute)?)?$/i.test(rest) || /^less\\s+than\\s+(?:a|1)\\s+minute$/i.test(rest)) {
+                    return limitLabel + "，不足 1 分钟后" + actionLabel + suffixDot;
                 }
-                return "返回 " + targetTrans;
+                const durMatch = rest.match(/^(?:(\\d+)\\s*(?:d|days?))?\\s*,?\\s*(?:(\\d+)\\s*(?:h|hours?))?\\s*,?\\s*(?:(\\d+)\\s*(?:m|mins?|minutes?))?\\s*,?\\s*(?:(\\d+)\\s*(?:s|secs?|seconds?))?$/i);
+                if (durMatch && (durMatch[1] || durMatch[2] || durMatch[3] || durMatch[4])) {
+                    const parts = [];
+                    if (durMatch[1]) parts.push(durMatch[1] + " 天");
+                    if (durMatch[2]) parts.push(durMatch[2] + " 小时");
+                    if (durMatch[3]) parts.push(durMatch[3] + " 分钟");
+                    if (durMatch[4]) parts.push(durMatch[4] + " 秒");
+                    return limitLabel + "，" + parts.join(" ") + "后" + actionLabel + suffixDot;
+                }
+                return limitLabel + "，" + rest + " 后" + actionLabel + suffixDot;
+            }
+
+            match = normalized.match(/^(.+?)\\s+Weekly Limit(:?)$/i);
+            if (match) {
+                const prefix = match[1].trim();
+                const isYour = /^your$/i.test(prefix);
+                const colon = match[2] ? ":" : "";
+                return (isYour ? "您的" : prefix + " ") + "每周配额限制" + colon;
+            }
+
+            match = normalized.match(/^(.+?)\\s+Weekly Limit Remaining(:?)$/i);
+            if (match) {
+                const prefix = match[1].trim();
+                const isYour = /^your$/i.test(prefix);
+                const colon = match[2] ? ":" : "";
+                return (isYour ? "您的" : prefix + " ") + "每周配额剩余" + colon;
+            }
+
+            match = normalized.match(/^(.+?)\\s+(?:5-Hour|Five Hour|5h)\\s+Limit(:?)$/i);
+            if (match) {
+                const prefix = match[1].trim();
+                const isYour = /^your$/i.test(prefix);
+                const colon = match[2] ? ":" : "";
+                return (isYour ? "您的" : prefix + " ") + "5 小时配额限制" + colon;
+            }
+
+            match = normalized.match(/^(.+?)\\s+(?:5-Hour|Five Hour|5h)\\s+Limit Remaining(:?)$/i);
+            if (match) {
+                const prefix = match[1].trim();
+                const isYour = /^your$/i.test(prefix);
+                const colon = match[2] ? ":" : "";
+                return (isYour ? "您的" : prefix + " ") + "5 小时配额剩余" + colon;
             }
         }
 
-        match = normalized.match(/^(\\d+)\\s+on for this conversation$/i);
-        if (match) return match[1] + " 个已为此会话开启";
-
-        match = normalized.match(/^(\\d+)\\s+tools?$/i);
-        if (match) return match[1] + " 个工具";
-
-        match = normalized.match(/^(\\d+)\\s+Comments?$/i);
-        if (match) return match[1] + " 条评论";
-
-        if (/^No automations yet$/i.test(normalized)) return "暂无自动化任务";
-        if (/^No runs yet$/i.test(normalized)) return "暂无运行记录";
-        if (/^Runs$/i.test(normalized)) return "运行记录";
-        if (/^Next\\s+run$/i.test(normalized)) return "下次运行";
-        if (/^Last\\s+run$/i.test(normalized)) return "上次运行";
-        if (/^Stop Editing$/i.test(normalized)) return "停止编辑";
-        if (/^Reset\\s+to\\s+Defaults?$/i.test(normalized)) return "重置为默认值";
-        if (/^Reset\\s+All\\s+to\\s+Defaults?$/i.test(normalized)) return "全部重置为默认值";
-        if (/^Open\\s+In$/i.test(normalized)) return "打开方式";
-        if (/^Open\\s+in$/i.test(normalized)) return "打开方式";
-        if (/^Change(?:\.\.\.|…)$/i.test(normalized)) return "更改...";
-        if (/^Press keys(?:\.\.\.|…)$/i.test(normalized)) return "按下按键...";
-        if (/^Search Projects(?:\.\.\.|…)$/i.test(normalized)) return "搜索项目...";
-        if (/^Search or enter a URL(?:\.\.\.|…)?$/i.test(normalized)) {
-            return (normalized.includes("...") || normalized.includes("…")) ? "搜索或输入网址..." : "搜索或输入网址";
+        if (lowerNorm.endsWith('left')) {
+            match = normalized.match(/^(\\d+(?:\\.\\d+)?%)\\s+left$/i);
+            if (match) return match[1] + " 剩余";
         }
 
-        match = normalized.match(/^Use\\s+([A-Z][a-z]+)$/i);
-        if (match) return "使用 " + match[1];
+        if (lowerNorm.includes('always allow') || lowerNorm.includes('save rule') || normalized.includes('始终允许') || normalized.includes('保存规则')) {
+            match = normalized.match(/^(?:(?:\\[\\d+\\]|\\d+[.):]?)\\s+)?(?:Yes, and always allow|是，且始终允许)(?: '(.+)')?\\s+in this project$/i);
+            if (match) return match[1] ? "是，且在此项目中始终允许运行 '" + match[1] + "'" : "是，且在此项目中始终允许";
 
-        match = normalized.match(/^Voice\\s+speed,\\s*([0-9.]+x)$/i);
-        if (match) return "语速，" + match[1];
+            match = normalized.match(/^(?:(?:\\[\\d+\\]|\\d+[.):]?)\\s+)?(?:Yes, and always allow|是，且始终允许)(?: '(.+)')?\\s+when not in a project$/i);
+            if (match) return match[1] ? "是，且在不属于任何项目时始终允许运行 '" + match[1] + "'" : "是，且在不属于任何项目时始终允许";
 
-        match = normalized.match(/^Started\\s+voice\\s+chat\\s*[·•]\\s*(.+)$/i);
-        if (match) return "已开始语音会话 · " + match[1];
+            match = normalized.match(/^(?:(?:\\[\\d+\\]|\\d+[.):]?)\\s+)?(?:Yes, and always allow|是，且始终允许)(?: '(.+)')?\\s+in this workspace$/i);
+            if (match) return match[1] ? "是，且在此工作区中始终允许运行 '" + match[1] + "'" : "是，且在此工作区中始终允许";
 
-        match = normalized.match(/^Stopped\\s+voice\\s+chat\\s*[·•]\\s*(.+)$/i);
-        if (match) {
-            let dur = match[1]
-                .replace(/(\\d+)\\s*h(?:ours?)?/gi, (m, n) => n + " 小时 ")
-                .replace(/(\\d+)\\s*m(?:in(?:ute)?s?)?(?![a-z])/gi, (m, n) => n + " 分钟 ")
-                .replace(/([\\d\\.]+)\\s*s(?:ec(?:ond)?s?)?/gi, (m, n) => n + " 秒")
-                .replace(/\\s+/g, " ")
-                .trim();
-            return "已结束语音会话 · " + dur;
+            match = normalized.match(/^(?:(?:\\[\\d+\\]|\\d+[.):]?)\\s+)?(?:Yes, and always allow|是，且始终允许)(?: '(.+)')?\\s+in this conversation$/i);
+            if (match) return match[1] ? "是，且在此会话中始终允许运行 '" + match[1] + "'" : "是，且在此会话中始终允许";
+
+            match = normalized.match(/^(?:(?:\\[\\d+\\]|\\d+[.):]?)\\s+)?(?:Yes, and always allow|是，且始终允许)\\s*'(.+)'$/i);
+            if (match) return "是，且始终允许运行 '" + match[1] + "'";
+
+            match = normalized.match(/^(?:(?:\\[\\d+\\]|\\d+[.):]?)\\s+)?(?:Yes, save rule|是，保存规则)(?:\\s*(?:for|用于)\\s*'(.+)')?\\s+in this project$/i);
+            if (match) return match[1] ? "是，在此项目中为 '" + match[1] + "' 保存规则" : "是，在此项目中保存规则";
+
+            match = normalized.match(/^(?:(?:\\[\\d+\\]|\\d+[.):]?)\\s+)?(?:Yes, save rule|是，保存规则)(?:\\s*(?:for|用于)\\s*'(.+)')?\\s+when not in a project$/i);
+            if (match) return match[1] ? "是，在不属于任何项目时为 '" + match[1] + "' 保存规则" : "是，在不属于任何项目时保存规则";
+
+            match = normalized.match(/^(?:(?:\\[\\d+\\]|\\d+[.):]?)\\s+)?(?:Yes, save rule|是，保存规则)(?:\\s*(?:for|用于)\\s*'(.+)')?\\s+in this workspace$/i);
+            if (match) return match[1] ? "是，在此工作区中为 '" + match[1] + "' 保存规则" : "是，在此工作区中保存规则";
+
+            match = normalized.match(/^(?:(?:\\[\\d+\\]|\\d+[.):]?)\\s+)?(?:Yes, save rule|是，保存规则)(?:\\s*(?:for|用于)\\s*'(.+)')?\\s+in this conversation$/i);
+            if (match) return match[1] ? "是，在此会话中为 '" + match[1] + "' 保存规则" : "是，在此会话中保存规则";
+
+            match = normalized.match(/^(?:(?:\\[\\d+\\]|\\d+[.):]?)\\s+)?(?:Yes, save rule|是，保存规则)(?:\\s*(?:for|用于)\\s*'(.+)')?\\s+globally$/i);
+            if (match) return match[1] ? "是，全局为 '" + match[1] + "' 保存规则" : "是，全局保存规则";
+
+            match = normalized.match(/^(?:(?:\\[\\d+\\]|\\d+[.):]?)\\s+)?(?:Yes, save rule|是，保存规则)\\s*(?:for|用于)\\s*'(.+)'$/i);
+            if (match) return "是，为 '" + match[1] + "' 保存规则";
         }
 
-        match = normalized.match(/^Voice\\s+chat\\s*[·•]\\s*(.+?)(?:\\s*[·•]\\s*(.+))?$/i);
-        if (match) {
-            const formatDur = (s) => s
-                .replace(/(\\d+)\\s*h(?:ours?)?/gi, (m, n) => n + " 小时 ")
-                .replace(/(\\d+)\\s*m(?:in(?:ute)?s?)?(?![a-z])/gi, (m, n) => n + " 分钟 ")
-                .replace(/([\\d\\.]+)\\s*s(?:ec(?:ond)?s?)?/gi, (m, n) => n + " 秒")
-                .replace(/\\s+/g, " ")
-                .trim();
-            if (match[2]) {
-                return "语音会话 · " + match[1] + " · " + formatDur(match[2]);
+        const firstChar = lowerNorm[0];
+        switch (firstChar) {
+            case 'a': {
+                match = normalized.match(/^All (scheduled tasks|automations) run (?:as|with the)\\s+(.+?)(?:\\s+model)?[.。]?$/i);
+                if (match) {
+                    const entity = match[1].toLowerCase() === "automations" ? "自动化" : "计划任务";
+                    const model = match[2].replace(/[.。]+$/, '').trim();
+                    if (model) return "所有" + entity + "均以 " + model + " 模型运行";
+                }
+                match = normalized.match(/^(?:A|An)\\s+(automation|scheduled task)\\s+with ID\\s+(.+?)\\s+already exists\\.?$/i);
+                if (match) {
+                    const entity = match[1].toLowerCase() === "automation" ? "自动化" : "计划任务";
+                    return "ID 为 " + match[2] + " 的" + entity + "已存在";
+                }
+                match = normalized.match(/^(Automation|Task|Scheduled task)\\s+["“](.+?)["”]\\s+not found\\.?$/i);
+                if (match) {
+                    const entity = match[1].toLowerCase() === "automation" ? "自动化" : "任务";
+                    return "未找到" + entity + "“" + match[2] + "”";
+                }
+                match = normalized.match(/^Agents created by this (automation|scheduled task) run in a dedicated (project|workspace) with its own permissions\\.\\s*You can change the permissions in the \\2 settings page\\.?$/i);
+                if (match) {
+                    const entity = match[1].toLowerCase() === "automation" ? "自动化" : "计划任务";
+                    const scope = match[2].toLowerCase() === "project" ? "项目" : "工作区";
+                    return "由此" + entity + "创建的智能体会在具有独立权限的专用" + scope + "中运行. 您可以在" + scope + "设置页面中更改这些权限.";
+                }
+                if (/^Ask\\s+anything(?:,\\s*|\\s+)@\\s*to\\s+mention(?:,\\s*|\\s+)[\\\\/]\\s*for\\s+actions$/i.test(normalized)) {
+                    return "提问任何问题，使用 @ 提及，/ 执行操作";
+                }
+                if (/^Avoid\\s+uploading\\s+highly\\s+sensitive\\s+data/i.test(normalized)) {
+                    return "请避免上传高度敏感的数据，并核实智能体采取的操作. 请确保您拥有上传的任何内容或文件（包括未成年人内容）的";
+                }
+                match = normalized.match(/^Allow\\s+(.+?)\\??$/i);
+                if (match) {
+                    let act = match[1].toLowerCase();
+                    let actTrans = null;
+                    if (act === 'read access to this path') actTrans = '读取此路径';
+                    else if (act === 'write access to this path') actTrans = '写入此路径';
+                    else if (act === 'reading this url') actTrans = '读取此 URL';
+                    else if (act === 'executing actions on this url') actTrans = '在此 URL 上执行操作';
+                    else if (act === 'running this command') actTrans = '运行此命令';
+                    else if (act === 'running this command outside the sandbox') actTrans = '在沙箱外运行此命令';
+                    else if (act === 'using this mcp tool') actTrans = '使用此 MCP 工具';
+                    else if (act === 'a one-time administrator (uac) elevation') actTrans = '单次管理员 (UAC) 提权';
+                    else if (act === 'access to this resource') actTrans = '访问此资源';
+                    if (actTrans) return "是否允许" + actTrans + "？";
+                }
+                break;
             }
-            if (/\\d+\\s*[hms]/i.test(match[1])) {
-                return "语音会话 · " + formatDur(match[1]);
+            case 'b': {
+                match = normalized.match(/^Back\\s+to\\s+(.+)$/i);
+                if (match && (!node || !isContentBodyContainer(node))) {
+                    const rawTarget = norm(match[1]);
+                    if (rawTarget && rawTarget.length <= 120) {
+                        const targetTrans = map.get(rawTarget) || lowerMap.get(rawTarget.toLowerCase()) || rawTarget;
+                        if (/^(?:Automations|History|Chat|Settings|Home)$/i.test(rawTarget) && /^[\\u4e00-\\u9fff]+$/.test(targetTrans)) {
+                            return "返回" + targetTrans;
+                        }
+                        return "返回 " + targetTrans;
+                    }
+                }
+                match = normalized.match(/^Build with\\s+(.+?)\\s+Plugins$/i);
+                if (match) return "使用 " + match[1] + " 插件构建";
+                break;
             }
-            return "语音会话 · " + match[1];
-        }
-
-        match = normalized.match(/^[·•]\\s*(\\d{1,2}:\\d{2})\\s*[·•]\\s*(.+)$/);
-        if (match) {
-            const dur = match[2]
-                .replace(/(\\d+)\\s*h(?:ours?)?/gi, (m, n) => n + " 小时 ")
-                .replace(/(\\d+)\\s*m(?:in(?:ute)?s?)?(?![a-z])/gi, (m, n) => n + " 分钟 ")
-                .replace(/([\\d\\.]+)\\s*s(?:ec(?:ond)?s?)?/gi, (m, n) => n + " 秒")
-                .replace(/\\s+/g, " ")
-                .trim();
-            return " · " + match[1] + " · " + dur;
-        }
-
-        match = normalized.match(/^[·•]\\s*(.+)$/);
-        if (match && /\\d+\\s*[hms]/i.test(match[1])) {
-            const dur = match[1]
-                .replace(/(\\d+)\\s*h(?:ours?)?/gi, (m, n) => n + " 小时 ")
-                .replace(/(\\d+)\\s*m(?:in(?:ute)?s?)?(?![a-z])/gi, (m, n) => n + " 分钟 ")
-                .replace(/([\\d\\.]+)\\s*s(?:ec(?:ond)?s?)?/gi, (m, n) => n + " 秒")
-                .replace(/\\s+/g, " ")
-                .trim();
-            return " · " + dur;
-        }
-
-        if (/^Voice\\s+chat$/i.test(normalized)) return "语音会话";
-        if (/^Voice\\s+transcript$/i.test(normalized)) return "语音逐字稿";
-        if (/^Voice\\s+speed$/i.test(normalized)) return "语速";
-        if (/^Listening\\.\\s*Ask\\s+anything\\.$/i.test(normalized)) return "正在聆听. 请随时提问.";
-
-        if (/^Ask\\s+anything(?:,\\s*|\\s+)@\\s*to\\s+mention(?:,\\s*|\\s+)[\\\\/]\\s*for\\s+actions$/i.test(normalized)) {
-            return "提问任何问题，使用 @ 提及，/ 执行操作";
-        }
-        if (/^Ask\\s+anything$/i.test(normalized)) {
-            return "提问任何问题";
-        }
-
-        match = normalized.match(/^E\\.g\\.\\s*(locations[\\\\/]global[\\\\/]workforcePools(?:\\.\\.\\.|…)?)$/i);
-        if (match) return "例如 " + match[1];
-
-        match = normalized.match(/^Uses\\s+your\\s+local\\s+clone,\\s*(.+)$/i);
-        if (match) return "使用您的本地克隆，" + match[1];
-        if (/^Uses\\s+your\\s+local\\s+clone,?$/i.test(normalized)) return "使用您的本地克隆，";
-
-        if (/^Your\\s+Antigravity\\s+use\\s+will\\s+be\\s+associated\\s+with\\s+provided\\s+project\\.?\\s*Make\\s+sure\\s+you\\s+trust\\s+the\\s+project\\s+ID\\s+before\\s+proceeding\\.?\\s*Account\\s+activity\\s+and\\s+data\\s+may\\s+be\\s+logged\\s+by\\s+your\\s+organization\\.?$/i.test(normalized)) {
-            return "您对 Antigravity 的使用将与所提供的项目相关联. 在继续之前，请确保您信任该项目 ID. 您的组织可能会记录账号活动和数据.";
-        }
-        if (/^Make\\s+sure\\s+you\\s+trust\\s+the\\s+project\\s+ID\\s+before\\s+proceeding\\.?\\s*Account\\s+activity\\s+and\\s+data\\s+may\\s+be\\s+logged\\s+by\\s+your\\s+organization\\.?$/i.test(normalized)) {
-            return "在继续之前，请确保您信任该项目 ID. 您的组织可能会记录账号活动和数据.";
-        }
-
-        if (/^Clones\\s+this\\s+repo\\s+in\\s+a\\s+cloud\\s+environment\\.?$/i.test(normalized)) {
-            return "在云环境中克隆此仓库";
-        }
-        if (/^Loading\\s+branches(?:\\.\\.\\.|…)?$/i.test(normalized)) {
-            return "正在加载分支...";
-        }
-        match = normalized.match(/^Repo\\s+default(?:\\s*[（(](.+?)[)）])?$/i);
-        if (match) {
-            return match[1] ? "仓库默认 (" + match[1] + ")" : "仓库默认";
-        }
-
-        if (/^Avoid\\s+uploading\\s+highly\\s+sensitive\\s+data/i.test(normalized)) {
-            return "请避免上传高度敏感的数据，并核实智能体采取的操作. 请确保您拥有上传的任何内容或文件（包括未成年人内容）的";
-        }
-        if (/^to\\s+any\\s+content\\s+or\\s+files\\s+that\\s+you\\s+upload/i.test(normalized)) {
-            return ". 请勿生成侵犯他人权利的内容，包括具有欺骗性、骚扰性或有害的内容. 使用 Antigravity 时，您必须遵守 Google 的 ";
-        }
-        if (/^[.。]?\\s*Your\\s+use\\s+is\\s+subject\\s+to\\s+the$/i.test(normalized)) {
-            return ". 您对本服务的使用受 ";
-        }
-
-        match = normalized.match(/^Manage\\s+(project|workspace)\\s+(folders|resources) and settings\\.$/i);
-        if (match) {
-            const scope = match[1].toLowerCase() === "project" ? "项目" : "工作区";
-            const target = match[2].toLowerCase() === "resources" ? "资源" : "文件夹";
-            return "管理" + scope + target + "和设置.";
-        }
-
-        match = normalized.match(/^When toggled on,\\s+(.+?)\\s+collects usage data to help Google enhance performance and features\\.$/i);
-        if (match) return "启用后，" + match[1] + " 会收集使用数据，以帮助 Google 改进性能和功能";
-
-        match = normalized.match(/^Receive product updates, tips, and promotions from Google\\s+(.+?)\\s+via email\\.$/i);
-        if (match) return "通过电子邮件接收 Google " + match[1] + " 的产品更新、使用技巧和推广信息.";
-
-        match = normalized.match(/^When toggled on,\\s+(.+?)\\s+will use your AI credits to fulfill model requests once you're out of model quota\\.\\s+\\1\\s+will always use your model quota first before using AI credits\\.$/i);
-        if (match) return "启用后，当模型配额用尽时，" + match[1] + " 将使用您的 AI 额度处理模型请求. 系统会优先使用模型配额，之后才使用 AI 额度.";
-
-        match = normalized.match(/^(.+?)\\s+Weekly Limit(:?)$/i);
-        if (match) {
-            const prefix = match[1].trim();
-            const isYour = /^your$/i.test(prefix);
-            const colon = match[2] ? ":" : "";
-            return (isYour ? "您的" : prefix + " ") + "每周配额限制" + colon;
-        }
-
-        match = normalized.match(/^(.+?)\\s+Weekly Limit Remaining(:?)$/i);
-        if (match) {
-            const prefix = match[1].trim();
-            const isYour = /^your$/i.test(prefix);
-            const colon = match[2] ? ":" : "";
-            return (isYour ? "您的" : prefix + " ") + "每周配额剩余" + colon;
-        }
-
-        match = normalized.match(/^(\\d+(?:\\.\\d+)?%)\\s+left$/i);
-        if (match) return match[1] + " 剩余";
-
-        match = normalized.match(/^(.+?)\\s+(?:5-Hour|Five Hour|5h)\\s+Limit(:?)$/i);
-        if (match) {
-            const prefix = match[1].trim();
-            const isYour = /^your$/i.test(prefix);
-            const colon = match[2] ? ":" : "";
-            return (isYour ? "您的" : prefix + " ") + "5 小时配额限制" + colon;
-        }
-
-        match = normalized.match(/^(.+?)\\s+(?:5-Hour|Five Hour|5h)\\s+Limit Remaining(:?)$/i);
-        if (match) {
-            const prefix = match[1].trim();
-            const isYour = /^your$/i.test(prefix);
-            const colon = match[2] ? ":" : "";
-            return (isYour ? "您的" : prefix + " ") + "5 小时配额剩余" + colon;
-        }
-
-        match = normalized.match(/^Build with\\s+(.+?)\\s+Plugins$/i);
-        if (match) return "使用 " + match[1] + " 插件构建";
-
-        match = normalized.match(/^Stream\\s+and\\s+control\\s+(.+?)\\s+directly\\s+in\\s+the\\s+side\\s+pane(\\.?)$/i);
-        if (match && match[1].length <= 80 && !/[。，？！?!]|\\.\\s/.test(match[1]) && (!node || !isProseOrAgentMessage(node))) {
-            return "直接在侧边面板中实时查看并控制 " + match[1] + (match[2] ? "." : "");
-        }
-
-        match = normalized.match(/^Plugins are packaged collections of skills and MCPs to help the Agent in\\s+(.+?)\\s+work with Google developer products\\. You can always change your choices in Settings\\.$/i);
-        if (match) return "插件是打包的技能与 MCP 集合，用于帮助 " + match[1] + " 中的智能体使用 Google 开发者产品. 您随时可以在设置中更改选择.";
-
-        match = normalized.match(/^Manage\\s+(project|workspace)\\s+folders, agent settings, and permissions\\.$/i);
-        if (match) {
-            const scope = match[1].toLowerCase() === "project" ? "项目" : "工作区";
-            return "管理" + scope + "文件夹、智能体设置和权限.";
-        }
-
-        match = normalized.match(/^Agent settings and permissions for conversations outside of\\s+(projects|workspaces)\\.$/i);
-        if (match) {
-            const scope = match[1].toLowerCase() === "projects" ? "项目" : "工作区";
-            return "用于不属于任何" + scope + "的会话的智能体设置和权限.";
-        }
-
-        match = normalized.match(/^File exceeds the (\\d+(?:\\.\\d+)?\\s*(?:[KMGTP]?B|bytes?))\\s+display limit(?:\\s*\\(([^)]+)\\))?\\.?$/i);
-        if (match) {
-            return "文件超过 " + match[1] + " 显示限制" + (match[2] ? " (" + match[2] + ")" : "");
-        }
-
-        match = normalized.match(/^Setting up WSL:\\s*(.+)$/i);
-        if (match) return "正在设置 WSL: " + match[1];
-
-        match = normalized.match(/^Deleted\\s+["“](.+?)["”][.。]?$/i);
-        if (match) return "已删除“" + match[1] + "”";
-
-        match = normalized.match(/^Enabled\\s+["“](.+?)["”][.。]?$/i);
-        if (match) return "已启用“" + match[1] + "”";
-
-        match = normalized.match(/^Disabled\\s+["“](.+?)["”][.。]?$/i);
-        if (match) return "已禁用“" + match[1] + "”";
-
-        match = normalized.match(/^Started\\s+["“](.+?)["”][.。]?$/i);
-        if (match) return "已启动“" + match[1] + "”";
-
-        match = normalized.match(/^Failed to start\\s+["“](.+?)["”][.。]?$/i);
-        if (match) return "启动“" + match[1] + "”失败";
-
-        match = normalized.match(/^Restarted\\s+["“](.+?)["”][.。]?$/i);
-        if (match) return "已重启“" + match[1] + "”";
-
-        match = normalized.match(/^Created\\s+(automation|scheduled task)\\s+["“](.+?)["”][.。]?$/i);
-        if (match) {
-            const entity = match[1].toLowerCase() === "automation" ? "自动化" : "计划任务";
-            return "已创建" + entity + "“" + match[2] + "”";
-        }
-
-        match = normalized.match(/^Failed to (update|save|delete)\\s+["“](.+?)["”][.。]?$/i);
-        if (match) {
-            const act = match[1].toLowerCase();
-            const verb = act === "update" ? "更新" : act === "save" ? "保存" : "删除";
-            return verb + "“" + match[2] + "”失败";
-        }
-
-        match = normalized.match(/^(Automation|Task|Scheduled task)\\s+["“](.+?)["”]\\s+not found\\.?$/i);
-        if (match) {
-            const entity = match[1].toLowerCase() === "automation" ? "自动化" : "任务";
-            return "未找到" + entity + "“" + match[2] + "”";
-        }
-
-        match = normalized.match(/^Agents created by this (automation|scheduled task) run in a dedicated (project|workspace) with its own permissions\\.\\s*You can change the permissions in the \\2 settings page\\.?$/i);
-        if (match) {
-            const entity = match[1].toLowerCase() === "automation" ? "自动化" : "计划任务";
-            const scope = match[2].toLowerCase() === "project" ? "项目" : "工作区";
-            return "由此" + entity + "创建的智能体会在具有独立权限的专用" + scope + "中运行. 您可以在" + scope + "设置页面中更改这些权限.";
-        }
-
-        match = normalized.match(/^Marked\\s+(\\d+)\\s+conversations?\\s+as\\s+(read|unread)[.。]?$/i);
-        if (match) {
-            const state = match[2].toLowerCase() === "read" ? "已读" : "未读";
-            return "已将 " + match[1] + " 个会话标记为" + state;
-        }
-
-        match = normalized.match(/^All (scheduled tasks|automations) run (?:as|with the)\\s+(.+?)(?:\\s+model)?[.。]?$/i);
-        if (match) {
-            const entity = match[1].toLowerCase() === "automations" ? "自动化" : "计划任务";
-            const model = match[2].replace(/[.。]+$/, '').trim();
-            if (model) return "所有" + entity + "均以 " + model + " 模型运行";
-        }
-
-        match = normalized.match(/^(?:A|An)\\s+(automation|scheduled task)\\s+with ID\\s+(.+?)\\s+already exists\\.?$/i);
-        if (match) {
-            const entity = match[1].toLowerCase() === "automation" ? "自动化" : "计划任务";
-            return "ID 为 " + match[2] + " 的" + entity + "已存在";
-        }
-
-        match = normalized.match(/^Domains:\\s+(.+)$/i);
-        if (match) return "域名：" + match[1];
-
-        match = normalized.match(/^Scopes:\\s+(.+)$/i);
-        if (match) return "权限范围：" + match[1];
-
-        match = normalized.match(/^Secret for a new\\s+(.+?)\\s+account$/i);
-        if (match) return "用于新 " + match[1] + " 账号的密钥";
-
-        match = normalized.match(/^Secret for\\s+(.+)$/i);
-        if (match) return "用于 " + match[1] + " 的密钥";
-
-        match = normalized.match(/^Managed by the\\s+(.+?)\\s+automation$/i);
-        if (match) return "由 " + match[1] + " 自动化管理";
-
-        // Permission options (both pure English and half-translated recovery)
-        match = normalized.match(/^(?:(?:\\[\\d+\\]|\\d+[.):]?)\\s+)?(?:Yes, and always allow|是，且始终允许)(?: '(.+)')?\\s+in this project$/i);
-        if (match) return match[1] ? "是，且在此项目中始终允许运行 '" + match[1] + "'" : "是，且在此项目中始终允许";
-
-        match = normalized.match(/^(?:(?:\\[\\d+\\]|\\d+[.):]?)\\s+)?(?:Yes, and always allow|是，且始终允许)(?: '(.+)')?\\s+when not in a project$/i);
-        if (match) return match[1] ? "是，且在不属于任何项目时始终允许运行 '" + match[1] + "'" : "是，且在不属于任何项目时始终允许";
-
-        match = normalized.match(/^(?:(?:\\[\\d+\\]|\\d+[.):]?)\\s+)?(?:Yes, and always allow|是，且始终允许)(?: '(.+)')?\\s+in this workspace$/i);
-        if (match) return match[1] ? "是，且在此工作区中始终允许运行 '" + match[1] + "'" : "是，且在此工作区中始终允许";
-
-        match = normalized.match(/^(?:(?:\\[\\d+\\]|\\d+[.):]?)\\s+)?(?:Yes, and always allow|是，且始终允许)(?: '(.+)')?\\s+in this conversation$/i);
-        if (match) return match[1] ? "是，且在此会话中始终允许运行 '" + match[1] + "'" : "是，且在此会话中始终允许";
-
-        match = normalized.match(/^(?:(?:\\[\\d+\\]|\\d+[.):]?)\\s+)?(?:Yes, and always allow|是，且始终允许)\\s*'(.+)'$/i);
-        if (match) return "是，且始终允许运行 '" + match[1] + "'";
-
-        match = normalized.match(/^(?:(?:\\[\\d+\\]|\\d+[.):]?)\\s+)?(?:Yes, save rule|是，保存规则)(?:\\s*(?:for|用于)\\s*'(.+)')?\\s+in this project$/i);
-        if (match) return match[1] ? "是，在此项目中为 '" + match[1] + "' 保存规则" : "是，在此项目中保存规则";
-
-        match = normalized.match(/^(?:(?:\\[\\d+\\]|\\d+[.):]?)\\s+)?(?:Yes, save rule|是，保存规则)(?:\\s*(?:for|用于)\\s*'(.+)')?\\s+when not in a project$/i);
-        if (match) return match[1] ? "是，在不属于任何项目时为 '" + match[1] + "' 保存规则" : "是，在不属于任何项目时保存规则";
-
-        match = normalized.match(/^(?:(?:\\[\\d+\\]|\\d+[.):]?)\\s+)?(?:Yes, save rule|是，保存规则)(?:\\s*(?:for|用于)\\s*'(.+)')?\\s+in this workspace$/i);
-        if (match) return match[1] ? "是，在此工作区中为 '" + match[1] + "' 保存规则" : "是，在此工作区中保存规则";
-
-        match = normalized.match(/^(?:(?:\\[\\d+\\]|\\d+[.):]?)\\s+)?(?:Yes, save rule|是，保存规则)(?:\\s*(?:for|用于)\\s*'(.+)')?\\s+in this conversation$/i);
-        if (match) return match[1] ? "是，在此会话中为 '" + match[1] + "' 保存规则" : "是，在此会话中保存规则";
-
-        match = normalized.match(/^(?:(?:\\[\\d+\\]|\\d+[.):]?)\\s+)?(?:Yes, save rule|是，保存规则)(?:\\s*(?:for|用于)\\s*'(.+)')?\\s+globally$/i);
-        if (match) return match[1] ? "是，全局为 '" + match[1] + "' 保存规则" : "是，全局保存规则";
-
-        match = normalized.match(/^(?:(?:\\[\\d+\\]|\\d+[.):]?)\\s+)?(?:Yes, save rule|是，保存规则)\\s*(?:for|用于)\\s*'(.+)'$/i);
-        if (match) return "是，为 '" + match[1] + "' 保存规则";
-
-        // Permission questions
-        match = normalized.match(/^(?:Save rule to always allow|保存为始终允许规则)\\s+(.+?)\\??$/i);
-        if (match) {
-            let act = match[1].toLowerCase();
-            let actTrans = null;
-            if (act === 'read access to this path') actTrans = '读取此路径';
-            else if (act === 'write access to this path') actTrans = '写入此路径';
-            else if (act === 'reading this url') actTrans = '读取此 URL';
-            else if (act === 'executing actions on this url') actTrans = '在此 URL 上执行操作';
-            else if (act === 'running this command') actTrans = '运行此命令';
-            else if (act === 'running this command outside the sandbox') actTrans = '在沙箱外运行此命令';
-            else if (act === 'using this mcp tool') actTrans = '使用此 MCP 工具';
-            else if (act === 'a one-time administrator (uac) elevation') actTrans = '单次管理员 (UAC) 提权';
-            else if (act === 'access to this resource') actTrans = '访问此资源';
-            if (actTrans) {
-                const separator = /[A-Za-z0-9]$/.test(actTrans) ? " 的规则？" : "的规则？";
-                return "保存为始终允许" + actTrans + separator;
+            case 'c': {
+                match = normalized.match(/^Created\\s+(automation|scheduled task)\\s+["“](.+?)["”][.。]?$/i);
+                if (match) {
+                    const entity = match[1].toLowerCase() === "automation" ? "自动化" : "计划任务";
+                    return "已创建" + entity + "“" + match[2] + "”";
+                }
+                break;
             }
-        }
-
-        match = normalized.match(/^Allow\\s+(.+?)\\??$/i);
-        if (match) {
-            let act = match[1].toLowerCase();
-            let actTrans = null;
-            if (act === 'read access to this path') actTrans = '读取此路径';
-            else if (act === 'write access to this path') actTrans = '写入此路径';
-            else if (act === 'reading this url') actTrans = '读取此 URL';
-            else if (act === 'executing actions on this url') actTrans = '在此 URL 上执行操作';
-            else if (act === 'running this command') actTrans = '运行此命令';
-            else if (act === 'running this command outside the sandbox') actTrans = '在沙箱外运行此命令';
-            else if (act === 'using this mcp tool') actTrans = '使用此 MCP 工具';
-            else if (act === 'a one-time administrator (uac) elevation') actTrans = '单次管理员 (UAC) 提权';
-            else if (act === 'access to this resource') actTrans = '访问此资源';
-            if (actTrans) return "是否允许" + actTrans + "？";
+            case 'd': {
+                match = normalized.match(/^Deleted\\s+["“](.+?)["”][.。]?$/i);
+                if (match) return "已删除“" + match[1] + "”";
+                match = normalized.match(/^Disabled\\s+["“](.+?)["”][.。]?$/i);
+                if (match) return "已禁用“" + match[1] + "”";
+                match = normalized.match(/^Domains:\\s+(.+)$/i);
+                if (match) return "域名：" + match[1];
+                break;
+            }
+            case 'e': {
+                match = normalized.match(/^E\\.g\\.\\s*(locations[\\\\/]global[\\\\/]workforcePools(?:\\.\\.\\.|…)?)$/i);
+                if (match) return "例如 " + match[1];
+                match = normalized.match(/^Enabled\\s+["“](.+?)["”][.。]?$/i);
+                if (match) return "已启用“" + match[1] + "”";
+                break;
+            }
+            case 'f': {
+                match = normalized.match(/^File exceeds the (\\d+(?:\\.\\d+)?\\s*(?:[KMGTP]?B|bytes?))\\s+display limit(?:\\s*\\(([^)]+)\\))?\\.?$/i);
+                if (match) {
+                    return "文件超过 " + match[1] + " 显示限制" + (match[2] ? " (" + match[2] + ")" : "");
+                }
+                match = normalized.match(/^Failed to start\\s+["“](.+?)["”][.。]?$/i);
+                if (match) return "启动“" + match[1] + "”失败";
+                match = normalized.match(/^Failed to (update|save|delete)\\s+["“](.+?)["”][.。]?$/i);
+                if (match) {
+                    const act = match[1].toLowerCase();
+                    const verb = act === "update" ? "更新" : act === "save" ? "保存" : "删除";
+                    return verb + "“" + match[2] + "”失败";
+                }
+                break;
+            }
+            case 'h': {
+                match = normalized.match(/^Hi\\s+(.+?),\\s+what can we get done today\\?$/i);
+                if (match) return "嗨 " + match[1] + "，今天我们可以完成些什么？";
+                break;
+            }
+            case 'l': {
+                if (/^Loading\\s+branches(?:\\.\\.\\.|…)?$/i.test(normalized)) {
+                    return "正在加载分支...";
+                }
+                break;
+            }
+            case 'm': {
+                match = normalized.match(/^Manage\\s+(project|workspace)\\s+(folders|resources) and settings\\.$/i);
+                if (match) {
+                    const scope = match[1].toLowerCase() === "project" ? "项目" : "工作区";
+                    const target = match[2].toLowerCase() === "resources" ? "资源" : "文件夹";
+                    return "管理" + scope + target + "和设置.";
+                }
+                match = normalized.match(/^Manage\\s+(project|workspace)\\s+folders, agent settings, and permissions\\.$/i);
+                if (match) {
+                    const scope = match[1].toLowerCase() === "project" ? "项目" : "工作区";
+                    return "管理" + scope + "文件夹、智能体设置和权限.";
+                }
+                if (/^Make\\s+sure\\s+you\\s+trust\\s+the\\s+project\\s+ID\\s+before\\s+proceeding\\.?\\s*Account\\s+activity\\s+and\\s+data\\s+may\\s+be\\s+logged\\s+by\\s+your\\s+organization\\.?$/i.test(normalized)) {
+                    return "在继续之前，请确保您信任该项目 ID. 您的组织可能会记录账号活动和数据.";
+                }
+                match = normalized.match(/^Marked\\s+(\\d+)\\s+conversations?\\s+as\\s+(read|unread)[.。]?$/i);
+                if (match) {
+                    const state = match[2].toLowerCase() === "read" ? "已读" : "未读";
+                    return "已将 " + match[1] + " 个会话标记为" + state;
+                }
+                match = normalized.match(/^Managed by the\\s+(.+?)\\s+automation$/i);
+                if (match) return "由 " + match[1] + " 自动化管理";
+                break;
+            }
+            case 'p': {
+                if (/^Plugins are packaged/i.test(normalized)) {
+                    match = normalized.match(/^Plugins are packaged collections of skills and MCPs to help the Agent in\\s+(.+?)\\s+work with Google developer products\\. You can always change your choices in Settings\\.$/i);
+                    if (match) return "插件是打包的技能与 MCP 集合，用于帮助 " + match[1] + " 中的智能体使用 Google 开发者产品. 您随时可以在设置中更改选择.";
+                }
+                break;
+            }
+            case 'r': {
+                match = normalized.match(/^Receive product updates, tips, and promotions from Google\\s+(.+?)\\s+via email\\.$/i);
+                if (match) return "通过电子邮件接收 Google " + match[1] + " 的产品更新、使用技巧和推广信息.";
+                match = normalized.match(/^Restarted\\s+["“](.+?)["”][.。]?$/i);
+                if (match) return "已重启“" + match[1] + "”";
+                match = normalized.match(/^Repo\\s+default(?:\\s*[（(](.+?)[)）])?$/i);
+                if (match) {
+                    return match[1] ? "仓库默认 (" + match[1] + ")" : "仓库默认";
+                }
+                break;
+            }
+            case 's': {
+                match = normalized.match(/^Sign-ins\\s+to\\s+(.+?)\\s+are\\s+kept\\s+in\\s+the\\s+cloud\\s+with\\s+your\\s+account\\.$/i);
+                if (match && match[1].length <= 160) {
+                    return "登录到 " + match[1] + " 的凭据将随您的账号保存在云端.";
+                }
+                match = normalized.match(/^Stream\\s+and\\s+control\\s+(.+?)\\s+directly\\s+in\\s+the\\s+side\\s+pane(\\.?)$/i);
+                if (match && match[1].length <= 80 && !/[。，？！?!]|\\.\\s/.test(match[1]) && (!node || !isProseOrAgentMessage(node))) {
+                    return "直接在侧边面板中实时查看并控制 " + match[1] + (match[2] ? "." : "");
+                }
+                match = normalized.match(/^Setting up WSL:\\s*(.+)$/i);
+                if (match) return "正在设置 WSL: " + match[1];
+                match = normalized.match(/^Started\\s+["“](.+?)["”][.。]?$/i);
+                if (match) return "已启动“" + match[1] + "”";
+                match = normalized.match(/^Started\\s+voice\\s+chat\\s*[·•]\\s*(.+)$/i);
+                if (match) return "已开始语音会话 · " + match[1];
+                match = normalized.match(/^Stopped\\s+voice\\s+chat\\s*[·•]\\s*(.+)$/i);
+                if (match) {
+                    let dur = match[1]
+                        .replace(/(\\d+)\\s*h(?:ours?)?/gi, (m, n) => n + " 小时 ")
+                        .replace(/(\\d+)\\s*m(?:in(?:ute)?s?)?(?![a-z])/gi, (m, n) => n + " 分钟 ")
+                        .replace(/([\\d\\.]+)\\s*s(?:ec(?:ond)?s?)?/gi, (m, n) => n + " 秒")
+                        .replace(/\\s+/g, " ")
+                        .trim();
+                    return "已结束语音会话 · " + dur;
+                }
+                match = normalized.match(/^(Automation|Task|Scheduled task)\\s+["“](.+?)["”]\\s+not found\\.?$/i);
+                if (match) {
+                    const entity = match[1].toLowerCase() === "automation" ? "自动化" : "任务";
+                    return "未找到" + entity + "“" + match[2] + "”";
+                }
+                match = normalized.match(/^Scopes:\\s+(.+)$/i);
+                if (match) return "权限范围：" + match[1];
+                match = normalized.match(/^Secret for a new\\s+(.+?)\\s+account$/i);
+                if (match) return "用于新 " + match[1] + " 账号的密钥";
+                match = normalized.match(/^Secret for\\s+(.+)$/i);
+                if (match) return "用于 " + match[1] + " 的密钥";
+                match = normalized.match(/^(?:Save rule to always allow|保存为始终允许规则)\\s+(.+?)\\??$/i);
+                if (match) {
+                    let act = match[1].toLowerCase();
+                    let actTrans = null;
+                    if (act === 'read access to this path') actTrans = '读取此路径';
+                    else if (act === 'write access to this path') actTrans = '写入此路径';
+                    else if (act === 'reading this url') actTrans = '读取此 URL';
+                    else if (act === 'executing actions on this url') actTrans = '在此 URL 上执行操作';
+                    else if (act === 'running this command') actTrans = '运行此命令';
+                    else if (act === 'running this command outside the sandbox') actTrans = '在沙箱外运行此命令';
+                    else if (act === 'using this mcp tool') actTrans = '使用此 MCP 工具';
+                    else if (act === 'a one-time administrator (uac) elevation') actTrans = '单次管理员 (UAC) 提权';
+                    else if (act === 'access to this resource') actTrans = '访问此资源';
+                    if (actTrans) {
+                        const separator = /[A-Za-z0-9]$/.test(actTrans) ? " 的规则？" : "的规则？";
+                        return "保存为始终允许" + actTrans + separator;
+                    }
+                }
+                break;
+            }
+            case 't': {
+                if (/^to\\s+any\\s+content\\s+or\\s+files\\s+that\\s+you\\s+upload/i.test(normalized)) {
+                    return ". 请勿生成侵犯他人权利的内容，包括具有欺骗性、骚扰性或有害的内容. 使用 Antigravity 时，您必须遵守 Google 的 ";
+                }
+                match = normalized.match(/^(Automation|Task|Scheduled task)\\s+["“](.+?)["”]\\s+not found\\.?$/i);
+                if (match) {
+                    const entity = match[1].toLowerCase() === "automation" ? "自动化" : "任务";
+                    return "未找到" + entity + "“" + match[2] + "”";
+                }
+                break;
+            }
+            case 'u': {
+                match = normalized.match(/^Use\\s+([A-Z][a-z]+)$/);
+                if (match) return "使用 " + match[1];
+                match = normalized.match(/^Uses\\s+your\\s+local\\s+clone,\\s*(.+)$/i);
+                if (match) return "使用您的本地克隆，" + match[1];
+                break;
+            }
+            case 'v': {
+                match = normalized.match(/^Voice\\s+speed,\\s*([0-9.]+x)$/i);
+                if (match) return "语速，" + match[1];
+                match = normalized.match(/^Voice\\s+chat\\s*[·•]\\s*(.+?)(?:\\s*[·•]\\s*(.+))?$/i);
+                if (match) {
+                    const formatDur = (s) => s
+                        .replace(/(\\d+)\\s*h(?:ours?)?/gi, (m, n) => n + " 小时 ")
+                        .replace(/(\\d+)\\s*m(?:in(?:ute)?s?)?(?![a-z])/gi, (m, n) => n + " 分钟 ")
+                        .replace(/([\\d\\.]+)\\s*s(?:ec(?:ond)?s?)?/gi, (m, n) => n + " 秒")
+                        .replace(/\\s+/g, " ")
+                        .trim();
+                    if (match[2]) {
+                        return "语音会话 · " + match[1] + " · " + formatDur(match[2]);
+                    }
+                    if (/\\d+\\s*[hms]/i.test(match[1])) {
+                        return "语音会话 · " + formatDur(match[1]);
+                    }
+                    return "语音会话 · " + match[1];
+                }
+                break;
+            }
+            case 'w': {
+                match = normalized.match(/^When toggled on,\\s+(.+?)\\s+collects usage data to help Google enhance performance and features\\.$/i);
+                if (match) return "启用后，" + match[1] + " 会收集使用数据，以帮助 Google 改进性能和功能";
+                match = normalized.match(/^When toggled on,\\s+(.+?)\\s+will use your AI credits to fulfill model requests once you're out of model quota\\.\\s+\\1\\s+will always use your model quota first before using AI credits\\.$/i);
+                if (match) return "启用后，当模型配额用尽时，" + match[1] + " 将使用您的 AI 额度处理模型请求. 系统会优先使用模型配额，之后才使用 AI 额度.";
+                break;
+            }
+            case 'y': {
+                match = normalized.match(/^Your\\s+Plan:\\s*(.+)$/i);
+                if (match && match[1].length <= 80) return "您的计划: " + match[1];
+                match = normalized.match(/^Your\\s+(.+?)\\s+setting$/i);
+                if (match && match[1].length <= 60 && !/[.,?!]/.test(match[1]) && (!node || !isContentBodyContainer(node))) {
+                    const rawScope = norm(match[1]);
+                    const dictScope = map.get(rawScope) || lowerMap.get(rawScope.toLowerCase());
+                    if (dictScope || /^[A-Z0-9]/.test(rawScope)) {
+                        const scopeTrans = dictScope || rawScope;
+                        if (/^[\\u4e00-\\u9fff]/.test(scopeTrans) && /[\\u4e00-\\u9fff]$/.test(scopeTrans)) {
+                            return "您的" + scopeTrans + "设置";
+                        }
+                        return "您的 " + scopeTrans + " 设置";
+                    }
+                }
+                if (/^Your\\s+Antigravity\\s+use\\s+will\\s+be\\s+associated\\s+with\\s+provided\\s+project\\.?\\s*Make\\s+sure\\s+you\\s+trust\\s+the\\s+project\\s+ID\\s+before\\s+proceeding\\.?\\s*Account\\s+activity\\s+and\\s+data\\s+may\\s+be\\s+logged\\s+by\\s+your\\s+organization\\.?$/i.test(normalized)) {
+                    return "您对 Antigravity 的使用将与所提供的项目相关联. 在继续之前，请确保您信任该项目 ID. 您的组织可能会记录账号活动和数据.";
+                }
+                break;
+            }
+            case '保': {
+                match = normalized.match(/^(?:Save rule to always allow|保存为始终允许规则)\\s+(.+?)\\??$/i);
+                if (match) {
+                    let act = match[1].toLowerCase();
+                    let actTrans = null;
+                    if (act === 'read access to this path') actTrans = '读取此路径';
+                    else if (act === 'write access to this path') actTrans = '写入此路径';
+                    else if (act === 'reading this url') actTrans = '读取此 URL';
+                    else if (act === 'executing actions on this url') actTrans = '在此 URL 上执行操作';
+                    else if (act === 'running this command') actTrans = '运行此命令';
+                    else if (act === 'running this command outside the sandbox') actTrans = '在沙箱外运行此命令';
+                    else if (act === 'using this mcp tool') actTrans = '使用此 MCP 工具';
+                    else if (act === 'a one-time administrator (uac) elevation') actTrans = '单次管理员 (UAC) 提权';
+                    else if (act === 'access to this resource') actTrans = '访问此资源';
+                    if (actTrans) {
+                        const separator = /[A-Za-z0-9]$/.test(actTrans) ? " 的规则？" : "的规则？";
+                        return "保存为始终允许" + actTrans + separator;
+                    }
+                }
+                break;
+            }
+            case '·':
+            case '•': {
+                match = normalized.match(/^[·•]\\s*(\\d{1,2}:\\d{2})\\s*[·•]\\s*(.+)$/);
+                if (match) {
+                    const dur = match[2]
+                        .replace(/(\\d+)\\s*h(?:ours?)?/gi, (m, n) => n + " 小时 ")
+                        .replace(/(\\d+)\\s*m(?:in(?:ute)?s?)?(?![a-z])/gi, (m, n) => n + " 分钟 ")
+                        .replace(/([\\d\\.]+)\\s*s(?:ec(?:ond)?s?)?/gi, (m, n) => n + " 秒")
+                        .replace(/\\s+/g, " ")
+                        .trim();
+                    return " · " + match[1] + " · " + dur;
+                }
+                match = normalized.match(/^[·•]\\s*(.+)$/);
+                if (match && /\\d+\\s*[hms]/i.test(match[1])) {
+                    const dur = match[1]
+                        .replace(/(\\d+)\\s*h(?:ours?)?/gi, (m, n) => n + " 小时 ")
+                        .replace(/(\\d+)\\s*m(?:in(?:ute)?s?)?(?![a-z])/gi, (m, n) => n + " 分钟 ")
+                        .replace(/([\\d\\.]+)\\s*s(?:ec(?:ond)?s?)?/gi, (m, n) => n + " 秒")
+                        .replace(/\\s+/g, " ")
+                        .trim();
+                    return " · " + dur;
+                }
+                break;
+            }
+            default: {
+                if (firstChar >= '0' && firstChar <= '9') {
+                    match = normalized.match(/^(\\d+)\\s+on for this conversation$/i);
+                    if (match) return match[1] + " 个已为此会话开启";
+                    match = normalized.match(/^(\\d+)\\s+tools?$/i);
+                    if (match) return match[1] + " 个工具";
+                    match = normalized.match(/^(\\d+)\\s+Comments?$/i);
+                    if (match) return match[1] + " 条评论";
+                }
+                break;
+            }
         }
 
         return null;
@@ -4374,7 +4587,7 @@ function getDynamicProductUiTranslation(value, node = null) {
     }
 
     function translateAutomationCustomScheduleUnit(node, valNorm) {
-        if (!node) return null;
+        if (!node || !valNorm || valNorm.length > 10 || !/^(?:hours?|days?|weeks?|months?|(?:[1-9]|[12]\\d|3[01])(?:st|nd|rd|th)|last(?:\\s+day)?)$/i.test(valNorm)) return null;
         let isOption = false;
         let curr = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
         for (let depth = 0; curr && depth < 4; depth++) {
@@ -4643,15 +4856,27 @@ function getDynamicProductUiTranslation(value, node = null) {
         return 'skip_children';
     }
 
+    let _swarmProtocolChecked = false;
+    let _isPluginProtocol = false;
+    let _swarmBoardConfirmed = false;
+
     function isSwarmBoardDocument() {
+        if (_swarmBoardConfirmed) return true;
+        if (_swarmProtocolChecked && !_isPluginProtocol) return false;
         try {
-            if (globalThis.location?.protocol !== 'plugin:') return false;
-            return Boolean(
+            if (!_swarmProtocolChecked) {
+                _swarmProtocolChecked = true;
+                _isPluginProtocol = globalThis.location?.protocol === 'plugin:';
+            }
+            if (!_isPluginProtocol) return false;
+            const hit = Boolean(
                 document.getElementById('board')?.getAttribute('data-testid') === 'swarm-board' ||
                 document.getElementById('empty')?.getAttribute('data-testid') === 'swarm-empty-state' ||
                 document.getElementById('loading')?.getAttribute('data-testid') === 'swarm-loading' ||
                 (document.getElementById('tabbtn-feed') && document.getElementById('f-agent'))
             );
+            if (hit) _swarmBoardConfirmed = true;
+            return hit;
         } catch (e) {
             return false;
         }
@@ -5296,7 +5521,7 @@ function getDynamicProductUiTranslation(value, node = null) {
         return false;
     }
 
-    function translateSpecialContainers(element) {
+    function translateSpecialContainers(element, knownBlockedState = -1) {
         if (!element || element.nodeType !== Node.ELEMENT_NODE) return false;
         if (!element.childNodes || element.childNodes.length === 0) return false;
         if (element.children && element.children.length > 8) return false;
@@ -5305,7 +5530,8 @@ function getDynamicProductUiTranslation(value, node = null) {
             const firstChild = element.firstChild;
             if (!firstChild || firstChild.nodeType !== Node.TEXT_NODE) return false;
             const singleVal = firstChild.nodeValue || '';
-            if (singleVal.length <= 160 && isCollapsibleActivityHeader(singleVal)) {
+            if (translatedValues.get(firstChild) === singleVal) return false;
+            if (singleVal.length <= 160 && /[a-zA-Z]/.test(singleVal) && isCollapsibleActivityHeader(singleVal)) {
                 markThoughtContentSibling(element);
                 return 'skip_children';
             }
@@ -5313,21 +5539,22 @@ function getDynamicProductUiTranslation(value, node = null) {
                 return translateCompactCountLabelContainer(element);
             }
             if (singleVal.length <= 8 && element.tagName?.toUpperCase() === 'SPAN' && /^OR$/i.test(singleVal.trim())) {
-                if (isInBlockedZone(element)) return false;
+                if (knownBlockedState !== 0 && isInBlockedZone(element)) return false;
                 return translateBusinessSsoOrDivider(element);
             }
             if (element.getAttribute?.('data-testid') === 'agent-loading') {
-                if (isInBlockedZone(element)) return false;
+                if (knownBlockedState !== 0 && isInBlockedZone(element)) return false;
                 return translateAgentLoadingStatus(element);
             }
-            if (singleVal.length <= 1600 && /(?:baseline quota|基础配额)/i.test(singleVal)) {
-                if (isInBlockedZone(element)) return false;
+            if (singleVal.length <= 1600 && (singleVal.includes('baseline quota') || singleVal.includes('基础配额')) && /(?:baseline quota|基础配额)/i.test(singleVal)) {
+                if (knownBlockedState !== 0 && isInBlockedZone(element)) return false;
                 return translateBaselineQuotaNotice(element);
             }
             return false;
         }
 
-        if (element.getAttribute?.("data-testid") === "side-question-origin") {
+        const testIdAttr = element.getAttribute?.("data-testid");
+        if (testIdAttr === "side-question-origin") {
             for (const attr of ["title", "aria-label"]) {
                 const v = element.getAttribute(attr);
                 if (!v) continue;
@@ -5356,109 +5583,114 @@ function getDynamicProductUiTranslation(value, node = null) {
         const textLength = rawText.length;
         if (textLength === 0) return false;
         const isFoldButton = textLength <= 40 && /^(\\+)?\\s*\\d+\\s+more\\s+lines?$/i.test(rawText);
-        if (isInBlockedZone(element) && !isFoldButton) return false;
+        if (knownBlockedState !== 0 && isInBlockedZone(element) && !isFoldButton) return false;
 
-        if (textLength <= 160 && isCollapsibleActivityHeader(rawText)) {
+        const hasAlpha = /[a-zA-Z]/.test(rawText);
+        const hasDigit = /\\d/.test(rawText);
+        const hasMultiChildren = element.childNodes.length > 1 || (element.children && element.children.length > 0);
+
+        if (hasAlpha && textLength <= 160 && isCollapsibleActivityHeader(rawText)) {
             markThoughtContentSibling(element);
             return 'skip_children';
         }
-        if (textLength <= 320 && (element.getAttribute?.('data-testid') === 'swarm-empty-body' || element.id === 'empty-body' || /(?:Swarms\\s+started\\s+in\\s+this\\s+conversation|Open\\s+this\\s+pane\\s+from\\s+a\\s+conversation)/i.test(rawText))) {
+        if (textLength <= 320 && (testIdAttr === 'swarm-empty-body' || element.id === 'empty-body' || (hasAlpha && /(?:Swarms\\s+started\\s+in\\s+this\\s+conversation|Open\\s+this\\s+pane\\s+from\\s+a\\s+conversation)/i.test(rawText)))) {
             const swarmEmptyRes = translateSwarmBoardEmptyBody(element);
             if (swarmEmptyRes) return swarmEmptyRes;
         }
-        if (textLength <= 180 && /Stream\\s+and\\s+control\\s+.+?\\s+directly\\s+in\\s+the\\s+side\\s+pane/i.test(rawText)) {
+        if (hasAlpha && textLength <= 180 && rawText.includes('side pane') && /Stream\\s+and\\s+control\\s+.+?\\s+directly\\s+in\\s+the\\s+side\\s+pane/i.test(rawText)) {
             const sidePaneRes = translateSidePaneControlBanner(element);
             if (sidePaneRes) return sidePaneRes;
         }
         let translated = false;
         const isSpan = element.tagName?.toUpperCase() === 'SPAN';
 
-        if (textLength <= 160 && /(?:(?:Also\\s+modified|Modified)\\s+in|修改于|也修改于)/i.test(rawText)) {
+        if (textLength <= 160 && (rawText.includes('odified') || rawText.includes('修改于')) && /(?:(?:Also\\s+modified|Modified)\\s+in|修改于|也修改于)/i.test(rawText)) {
             translated = translateSettingOverrides(element) || translated;
         }
-        if (isSpan && textLength <= 360 && /(?:Also includes|when working in this|在此(?:项目|工作区)中工作时还包括)/i.test(rawText)) {
+        if (isSpan && textLength <= 360 && (rawText.includes('includes') || rawText.includes('在此')) && /(?:Also includes|when working in this|在此(?:项目|工作区)中工作时还包括)/i.test(rawText)) {
             translated = translateProjectPermissionsSubtitle(element) || translated;
         }
-        if (isSpan && textLength <= 320 && /(?:is managed by the|can only be deleted by deleting that automation|自动化管理，只能通过删除该自动化来将其删除)/i.test(rawText)) {
+        if (isSpan && textLength <= 320 && (rawText.includes('managed') || rawText.includes('自动化')) && /(?:is managed by the|can only be deleted by deleting that automation|自动化管理，只能通过删除该自动化来将其删除)/i.test(rawText)) {
             translated = translateManagedByAutomationNotice(element) || translated;
         }
-        if (textLength <= 120 && /(?:Daily|Weekly|Monthly|每[天周月]|Mondays?|Tuesdays?|Wednesdays?|Thursdays?|Fridays?|Saturdays?|Sundays?|Weekdays|Weekends)(?:\\s+on)?(?:\\s+(?:[A-Za-z]+|星期[一二三四五六日]))?\\s*(?:around|at|在)/i.test(rawText)) {
+        if (textLength <= 120 && (rawText.includes('at') || rawText.includes('around') || rawText.includes('在')) && /(?:Daily|Weekly|Monthly|每[天周月]|Mondays?|Tuesdays?|Wednesdays?|Thursdays?|Fridays?|Saturdays?|Sundays?|Weekdays|Weekends)(?:\\s+on)?(?:\\s+(?:[A-Za-z]+|星期[一二三四五六日]))?\\s*(?:around|at|在)/i.test(rawText)) {
             translated = translateAutomationScheduleContainer(element) || translated;
         }
-        if (textLength <= 260 && /(?:Search conversations with|View archived in the sidebar|使用左上角的|中查看已归档会话)/i.test(rawText)) {
+        if (textLength <= 260 && (rawText.includes('conversations') || rawText.includes('archived') || rawText.includes('已归档')) && /(?:Search conversations with|View archived in the sidebar|使用左上角的|中查看已归档会话)/i.test(rawText)) {
             translated = translateSearchAndArchivedGuideNotice(element) || translated;
         }
-        if (textLength <= 120 && /(?:Learn more about|了解更多关于)\\s+(?:Default|Full machine|Turbo mode|Custom|Inherit Global|默认|全机访问|极速模式|自定义|继承全局)/i.test(rawText)) {
+        if (textLength <= 120 && (rawText.includes('Learn more') || rawText.includes('了解更多')) && /(?:Learn more about|了解更多关于)\\s+(?:Default|Full machine|Turbo mode|Custom|Inherit Global|默认|全机访问|极速模式|自定义|继承全局)/i.test(rawText)) {
             translated = translateLearnMoreAboutPresetContainer(element) || translated;
         }
 
-        if (textLength <= 300 && /(?:archived conversations?|已归档.*(?:会话|对话)|^(?:History|历史记录)[.。]?$)/i.test(rawText.trim())) {
+        if (textLength <= 300 && (rawText.includes('archived') || rawText.includes('History') || rawText.includes('已归档') || rawText.includes('历史记录')) && /(?:archived conversations?|已归档.*(?:会话|对话)|^(?:History|历史记录)[.。]?$)/i.test(rawText.trim())) {
             translated = translateArchivedConversationNotice(element) || translated;
         }
-        if (textLength <= 320 && /(?:Input disabled because|输入已禁用[，,]因为|does not exist|Create the folder in this)/i.test(rawText)) {
+        if (textLength <= 320 && (rawText.includes('disabled') || rawText.includes('exist') || rawText.includes('输入已禁用')) && /(?:Input disabled because|输入已禁用[，,]因为|does not exist|Create the folder in this)/i.test(rawText)) {
             translated = translateInputDisabledNotice(element) || translated;
         }
-        if (textLength <= 120 && /(?:with the same folders? exists|A similar.*exists|已存在包含相同文件夹|已存在类似)/i.test(rawText)) {
+        if (textLength <= 120 && (rawText.includes('exists') || rawText.includes('已存在')) && /(?:with the same folders? exists|A similar.*exists|已存在包含相同文件夹|已存在类似)/i.test(rawText)) {
             translated = translateDuplicateProjectInlineWarning(element) || translated;
         }
-        if (textLength <= 260 && /(?:already exists for this (?:folder|combination of folders)|已存在于此文件夹中|已存在于这些文件夹组合中)/i.test(rawText) &&
+        if (textLength <= 260 && (rawText.includes('already exists') || rawText.includes('已存在')) && /(?:already exists for this (?:folder|combination of folders)|已存在于此文件夹中|已存在于这些文件夹组合中)/i.test(rawText) &&
             /(?:Would you like to continue using it or make a new one\\?|您是否希望继续使用该项目)/i.test(rawText)) {
             translated = translateDuplicateProjectModalNotice(element) || translated;
         }
-        if (textLength <= 80 && /(?:Show\\s+\\d+\\s+more|显示另外\\s+\\d+\\s+个)/i.test(rawText)) {
+        if (hasDigit && textLength <= 80 && (rawText.includes('more') || rawText.includes('另外')) && /(?:Show\\s+\\d+\\s+more|显示另外\\s+\\d+\\s+个)/i.test(rawText)) {
             translated = translateShowMoreStatus(element) || translated;
         }
-        if (textLength <= 1600 && /(?:baseline quota|基础配额)/i.test(rawText)) {
+        if (textLength <= 1600 && (rawText.includes('baseline quota') || rawText.includes('基础配额')) && /(?:baseline quota|基础配额)/i.test(rawText)) {
             translated = translateBaselineQuotaNotice(element) || translated;
         }
-        if (textLength <= 800 && /(?:weekly limit|每周配额)/i.test(rawText)) {
+        if (textLength <= 800 && (rawText.includes('weekly limit') || rawText.includes('每周配额')) && /(?:weekly limit|每周配额)/i.test(rawText)) {
             translated = translateQuotaNoticeContainer(element) || translated;
         }
-        if (textLength >= 25 && textLength <= 1400 && SKILL_PICKER_CONTAINER_REGEX.test(rawText)) {
+        if (hasMultiChildren && textLength >= 25 && textLength <= 1400 && SKILL_PICKER_CONTAINER_REGEX.test(rawText)) {
             translated = translateSkillPickerEntry(element) || translated;
         }
-        if (textLength <= 240 &&
+        if (textLength <= 240 && (rawText.includes('Commit') || rawText.includes('提交')) &&
             /(?:\\bCommit\\b|提交)/i.test(rawText) &&
             /(?:files?\\s*changes?|个文件.*更改)/i.test(rawText) &&
             /(?:\\bto\\b|提交到)/i.test(rawText)) {
             translated = (translateCommitSummaryContainer(element) === true) || translated;
         }
-        if (textLength <= 80 && /(?:Working|处理中|工作中)/i.test(rawText)) {
+        if (textLength <= 80 && (rawText.includes('Working') || rawText.includes('working') || rawText.includes('处理中') || rawText.includes('工作中')) && /(?:Working|处理中|工作中)/i.test(rawText)) {
             translated = translateAgentLoadingStatus(element) || translated;
             translated = translateWorkingStatusContainer(element) || translated;
         }
-        if (textLength <= 60 && /^(?:No\\s+automations\\s+yet|No\\s+runs\\s+yet)$/i.test(rawText.trim())) {
+        if (textLength <= 60 && (rawText[0] === 'N' || rawText[0] === 'n') && /^(?:No\\s+automations\\s+yet|No\\s+runs\\s+yet)$/i.test(rawText.trim())) {
             translated = translateEmptyStateStatus(element) || translated;
         }
-        if (textLength <= 140 && /(?:Repeat every|每隔)/i.test(rawText) && /(?:hour|day|week|month|小时|天|周|月)/i.test(rawText) && /(?:on the|at|\\b(?:1st|2nd|3rd|[4-9]th|[12]\\dth|3[01]st)\\b)/i.test(rawText)) {
+        if (textLength <= 140 && (rawText.includes('Repeat') || rawText.includes('每隔')) && /(?:Repeat every|每隔)/i.test(rawText) && /(?:hour|day|week|month|小时|天|周|月)/i.test(rawText) && /(?:on the|at|\\b(?:1st|2nd|3rd|[4-9]th|[12]\\dth|3[01]st)\\b)/i.test(rawText)) {
             translated = translateAutomationScheduleBuilderContainer(element) || translated;
         }
-        if (textLength <= 120 && (/\\d/.test(rawText) || /(?:See all|显示全部|Show\\s+(?:submitted|more)|显示(?:已提交|更多))/i.test(rawText)) && /(?:\\bresults?\\b|个结果|(?:Comments?|评论)\\s*[（(]\\s*\\d+|\\btools?\\b|\\bComments?\\b|on for this conversation|(?:\\d+\\s+)?(?:Side Questions?|侧边提问)(?:\\s*[（(]\\s*\\d+|\\b)|Listed|列出了|[（(]\\s*\\d+\\s*(?:subagents?|个?\\s*子智能体)|\\baccounts\\b|个账号|See all|显示全部|See\\s+\\d+\\s+more|查看另外|Show\\s+(?:submitted|more)|显示(?:已提交|更多)|\\bmore\\s+lines?\\b|行代码)/i.test(rawText)) {
+        if (textLength <= 120 && (hasDigit || rawText.includes('See') || rawText.includes('Show') || rawText.includes('显示') || rawText.includes('查看') || rawText.includes('Side') || rawText.includes('侧边') || rawText.includes('Listed') || rawText.includes('列出')) &&
+            (hasDigit || /(?:See all|显示全部|Show\\s+(?:submitted|more)|显示(?:已提交|更多))/i.test(rawText)) &&
+            /(?:\\bresults?\\b|个结果|(?:Comments?|评论)\\s*[（(]\\s*\\d+|\\btools?\\b|\\bComments?\\b|on for this conversation|(?:\\d+\\s+)?(?:Side Questions?|侧边提问)(?:\\s*[（(]\\s*\\d+|\\b)|Listed|列出了|[（(]\\s*\\d+\\s*(?:subagents?|个?\\s*子智能体)|\\baccounts\\b|个账号|See all|显示全部|See\\s+\\d+\\s+more|查看另外|Show\\s+(?:submitted|more)|显示(?:已提交|更多)|\\bmore\\s+lines?\\b|行代码)/i.test(rawText)) {
             translated = translateCompactCountLabelContainer(element) || translated;
         }
-        if (textLength <= 240 &&
+        if (textLength <= 240 && (hasDigit || /^(?:Found|Killed|已中止|Message|Error|Side)/i.test(rawText.trim())) &&
             /^(?:\\d+\\s+|Found\\s+|Killed\\s+|已中止\\s+|Messaged?\\s+|Error\\s+from\\s+|Timed\\s+\\d+|Goals?\\s+\\d+|View\\s+\\d+|Questions?\\s+\\d+|Side\\s+question\\s+|Asked\\s+\\d+)/i.test(rawText.trim())) {
             translated = translateDynamicSubagentStatusContainer(element) || translated;
         }
-        if (textLength <= 600 &&
-            /(?:Permanently delete|\\bincluding\\b|\\bactive conversations?\\b|\\barchived conversations?\\b|永久删除|，包含)/i.test(rawText)) {
-            translated = translateProjectDeleteSummary(element) || translated;
+        if (textLength <= 600 && (rawText.includes('delete') || rawText.includes('Delete') || rawText.includes('archive') || rawText.includes('Archive') || rawText.includes('删除') || rawText.includes('归档') || rawText.includes('within it'))) {
+            if (/(?:Permanently delete|\\bincluding\\b|\\bactive conversations?\\b|\\barchived conversations?\\b|永久删除|，包含)/i.test(rawText)) {
+                translated = translateProjectDeleteSummary(element) || translated;
+            }
+            if (/(?:This will permanently delete|这将永久删除|within it)/i.test(rawText) &&
+                /(?:active (?:conversations?|chats?)|archived (?:conversations?|chats?)|个活跃会话|个已归档会话|within it)/i.test(rawText)) {
+                translated = translatePermanentlyDeleteNotice(element) || translated;
+            }
+            if (/(?:This will archive|这将归档)/i.test(rawText) &&
+                /(?:conversations?|chats?|会话|within it)/i.test(rawText)) {
+                translated = translateArchiveNotice(element) || translated;
+            }
         }
-        if (textLength <= 600 &&
-            /(?:This will permanently delete|这将永久删除|within it)/i.test(rawText) &&
-            /(?:active (?:conversations?|chats?)|archived (?:conversations?|chats?)|个活跃会话|个已归档会话|within it)/i.test(rawText)) {
-            translated = translatePermanentlyDeleteNotice(element) || translated;
-        }
-        if (textLength <= 600 &&
-            /(?:This will archive|这将归档)/i.test(rawText) &&
-            /(?:conversations?|chats?|会话|within it)/i.test(rawText)) {
-            translated = translateArchiveNotice(element) || translated;
-        }
-        if (element.getAttribute?.('data-testid') === 'plan-command-fyi-alert' ||
-            (textLength <= 250 && /(?:Type|类型|键入)\\s*\\/\\s*(?:and\\s+select|并选择)\\s*plan/i.test(rawText))) {
+        if (testIdAttr === 'plan-command-fyi-alert' ||
+            (textLength <= 250 && rawText.includes('plan') && /(?:Type|类型|键入)\\s*\\/\\s*(?:and\\s+select|并选择)\\s*plan/i.test(rawText))) {
             translated = translatePlanCommandAlert(element) || translated;
         }
-        if (textLength <= 300 &&
+        if (textLength <= 300 && (rawText.includes('Legal Help') || rawText.includes('法律帮助')) &&
             /(?:Visit|访问)\\s*(?:Legal Help|法律帮助)/i.test(rawText) &&
             /(?:to ask for content changes for legal reasons|出于法律原因)/i.test(rawText)) {
             translated = translateLegalHelpNotice(element) || translated;
@@ -5607,14 +5839,19 @@ function getDynamicProductUiTranslation(value, node = null) {
     }
 
     function translateQuestionnaireOptionLabel(node, value) {
+        if (!value || value.length < 4) return null;
         const normalized = norm(value);
+        const lastCh = normalized[normalized.length - 1];
+        if (lastCh !== ')' && lastCh !== '）') return null;
         const bilingualMatch = normalized.match(/^(.+?[\\u3400-\\u9fff].*?)\\s*[（(]([A-Za-z][A-Za-z0-9 .,'’/&+:#-]*)[)）]$/);
         if (!bilingualMatch) return null;
 
         let current = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
         let optionRow = null;
         for (let depth = 0; current && depth < 6; depth++) {
-            const rowText = norm(current.textContent);
+            const rawRow = getBoundedTextContent(current, 16, normalized.length + 64);
+            if (rawRow === null) break;
+            const rowText = norm(rawRow);
             const isCompactLabelRow = rowText.endsWith(normalized)
                 && rowText.length <= normalized.length + 32;
             const isInteractive = isCompactLabelRow
@@ -5631,18 +5868,31 @@ function getDynamicProductUiTranslation(value, node = null) {
         current = optionRow.parentElement || (optionRow.getRootNode?.().host ?? null);
         for (let depth = 0; current && depth < 10; depth++) {
             if (current === document.body || current === document.documentElement) break;
-            const cardText = norm(current.textContent);
+            const rawCard = getBoundedTextContent(current, 160, 4000);
+            if (rawCard === null) break;
+            const cardText = norm(rawCard);
             const hasProgress = /\\b\\d+\\s+of\\s+\\d+\\b/i.test(cardText);
             const hasActions = /(?:Skip|跳过)/i.test(cardText) && /(?:Continue|继续)/i.test(cardText);
-            if (cardText.length <= 4000 && hasProgress && hasActions) return bilingualMatch[1].trim();
+            if (hasProgress && hasActions) return bilingualMatch[1].trim();
             current = current.parentElement || (current.getRootNode?.().host ?? null);
         }
         return null;
     }
 
-    function translateFragmentedStatus(node, originalVal) {
-        const currentText = norm(originalVal);
-        if (!currentText || currentText.length > 120) return null;
+    const FRAGMENTED_FAST_START_RE = /^(?:[0-9（(.。?,aAbBcCdDeEfFgGhHiIlLmMoOpPrRsStTvVwWyY默全极自继子浏])/;
+
+    function translateFragmentedStatus(node, originalVal, preNorm) {
+        const currentText = preNorm !== undefined ? preNorm : norm(originalVal);
+        if (!currentText || currentText.length > 320) return null;
+        const hasPrevSibling = Boolean(node && node.previousSibling);
+        if (currentText.length > 46 && !/^(?:Google |Are you sure |Powered by |\\?)/i.test(currentText)) {
+            return null;
+        }
+        if (!hasPrevSibling && !FRAGMENTED_FAST_START_RE.test(currentText)) {
+            return null;
+        }
+        const c0 = currentText.charCodeAt(0);
+        const low0 = (c0 >= 65 && c0 <= 90) ? (c0 | 32) : c0;
 
         let _prevLoaded = false;
         let _previous = null;
@@ -5660,7 +5910,8 @@ function getDynamicProductUiTranslation(value, node = null) {
             return _previousText;
         };
 
-        if (/^(?:Default|Full machine|Turbo mode|Custom|Inherit Global|默认|全机访问|极速模式|自定义|继承全局)$/i.test(currentText)) {
+        if ((low0 === 100 || low0 === 102 || low0 === 116 || low0 === 99 || low0 === 105 || c0 > 127) &&
+            /^(?:Default|Full machine|Turbo mode|Custom|Inherit Global|默认|全机访问|极速模式|自定义|继承全局)$/i.test(currentText)) {
             const previousText = getPrevText();
             if (/^(?:Learn more about|了解更多关于)$/i.test(previousText)) {
                 replaceTextNode(getPrev(), "了解更多关于 ");
@@ -5675,41 +5926,45 @@ function getDynamicProductUiTranslation(value, node = null) {
             }
         }
 
-        if (/^to ask for content changes for legal reasons[.。]?$/i.test(currentText)) {
+        if (low0 === 116 && /^to ask for content changes for legal reasons[.。]?$/i.test(currentText)) {
             const parentText = node && node.parentElement ? (getBoundedTextContent(node.parentElement, 16, 400) || '') : '';
             if (/^(?:Legal Help|法律帮助)$/i.test(getPrevText()) || /(?:Legal Help|法律帮助)/i.test(parentText)) {
                 return " 页面";
             }
         }
-        if (/^Visit$/i.test(currentText)) {
+        if (low0 === 118 && /^Visit$/i.test(currentText)) {
             const parentText = node && node.parentElement ? (getBoundedTextContent(node.parentElement, 16, 400) || '') : '';
             if (/(?:Legal Help|法律帮助)/i.test(parentText) && /(?:to ask for content changes for legal reasons|出于法律原因)/i.test(parentText)) {
                 return "若出于法律原因需要申请更改内容，请访问 ";
             }
         }
-        if (/^(?:,?\\s*found here:?|found here:?)$/i.test(currentText)) {
+        if ((c0 === 44 || low0 === 102) && /^(?:,?\\s*found here:?|found here:?)$/i.test(currentText)) {
             const parentText = node && node.parentElement ? (getBoundedTextContent(node.parentElement, 16, 500) || '') : '';
             if (/(?:Privacy Policy|隐私政策)/i.test(getPrevText()) || /(?:third party developer tools|第三方开发者工具|policies\\.google\\.com)/i.test(parentText)) {
                 return " 保护任何此类数据，具体请参见此处:";
             }
         }
-        if (/^Google does not control the availability or functionality of third party developer tools\\.\\s*Your data from third party developer tools connected to your Antigravity instance may be shared with Google\\.\\s*Google will protect any such data in accordance with the$/i.test(currentText)) {
-            return "Google 无法控制第三方开发者工具的可用性或功能. 从连接到您 Antigravity 实例的第三方开发者工具中获取的数据可能会与 Google 共享. Google 将根据 ";
-        }
-        if (/^Google will protect any such data in accordance with the$/i.test(currentText)) {
-            const parentText = node && node.parentElement ? (getBoundedTextContent(node.parentElement, 16, 500) || '') : '';
-            if (/(?:third party developer tools|第三方开发者工具)/i.test(parentText)) {
-                return "Google 将根据 ";
+        if (low0 === 103) {
+            if (/^Google does not control the availability or functionality of third party developer tools\\.\\s*Your data from third party developer tools connected to your Antigravity instance may be shared with Google\\.\\s*Google will protect any such data in accordance with the$/i.test(currentText)) {
+                return "Google 无法控制第三方开发者工具的可用性或功能. 从连接到您 Antigravity 实例的第三方开发者工具中获取的数据可能会与 Google 共享. Google 将根据 ";
+            }
+            if (/^Google will protect any such data in accordance with the$/i.test(currentText)) {
+                const parentText = node && node.parentElement ? (getBoundedTextContent(node.parentElement, 16, 500) || '') : '';
+                if (/(?:third party developer tools|第三方开发者工具)/i.test(parentText)) {
+                    return "Google 将根据 ";
+                }
             }
         }
 
-        const commentCountMatch = currentText.match(/^[（(]\\s*(\\d+)\\s*[)）]$/);
-        if (commentCountMatch && /^(?:Comments?|评论)$/i.test(getPrevText())) {
-            replaceTextNode(getPrev(), "评论");
-            return "(" + commentCountMatch[1] + ")";
+        if (c0 === 40 || c0 === 65288) {
+            const commentCountMatch = currentText.match(/^[（(]\\s*(\\d+)\\s*[)）]$/);
+            if (commentCountMatch && /^(?:Comments?|评论)$/i.test(getPrevText())) {
+                replaceTextNode(getPrev(), "评论");
+                return "(" + commentCountMatch[1] + ")";
+            }
         }
 
-        if (/^yet$/i.test(currentText)) {
+        if (low0 === 121 && /^yet$/i.test(currentText)) {
             const prevText = getPrevText();
             const prevNode = getPrev();
             if (/^No\\s+automations?$/i.test(prevText) && prevNode) {
@@ -5734,96 +5989,111 @@ function getDynamicProductUiTranslation(value, node = null) {
             }
         }
 
-        if (/^Comments?$/i.test(currentText)) {
+        if (low0 === 99 && /^Comments?$/i.test(currentText)) {
             const prevText = getPrevText();
             if (/^\\d+$/.test(prevText)) {
                 return "条评论";
             }
         }
 
-        const statusItemMatch = currentText.match(STATUS_ITEM_REGEX);
-        if (statusItemMatch && getPrev()) {
-            const previousText = getPrevText();
-            if (/^(?:Explored|Exploring|ran|run|executed|edited|editing)\\s+\\d+$/i.test(previousText) || /^\\d+$/.test(previousText)) {
-                markThoughtContentSibling(node);
-                return null;
-            }
-        }
-
-        let statusMatch = currentText.match(/^(?:subagents?|子智能体)(?:\\s*([>›❯〉→]))?$/i);
-        if (statusMatch) {
-            const previous = getPrev();
-            const previousText = getPrevText();
-            if (/^Found$/i.test(previousText)) {
-                replaceTextNode(previous, "已找到");
-                return "子智能体" + (statusMatch[1] ? " " + statusMatch[1] : "");
-            }
-            if (/^\\d+$/.test(previousText)) {
-                const foundNode = findPreviousTextNode(previous);
-                if (foundNode && /^Found$/i.test(norm(foundNode.nodeValue))) {
-                    replaceTextNode(foundNode, "找到 ");
-                    return " 个子智能体" + (statusMatch[1] ? " " + statusMatch[1] : "");
-                }
-                if (foundNode && /^(?:Killed|已中止)$/i.test(norm(foundNode.nodeValue))) {
-                    replaceTextNode(foundNode, "已中止 ");
-                    return " 个子智能体" + (statusMatch[1] ? " " + statusMatch[1] : "");
+        if (currentText.length <= 24 && (low0 === 102 || low0 === 112 || low0 === 115 || low0 === 116 || low0 === 99 || low0 === 114 || low0 === 105 || low0 === 97)) {
+            const statusItemMatch = currentText.match(STATUS_ITEM_REGEX);
+            if (statusItemMatch && getPrev()) {
+                const previousText = getPrevText();
+                if (/^(?:Explored|Exploring|ran|run|executed|edited|editing)\\s+\\d+$/i.test(previousText) || /^\\d+$/.test(previousText)) {
+                    markThoughtContentSibling(node);
+                    return null;
                 }
             }
         }
 
-        statusMatch = currentText.match(/^(?:Browsers?|浏览器)(?:\\s*([>›❯〉→]))?$/i);
-        if (statusMatch && /^Found$/i.test(getPrevText())) {
-            replaceTextNode(getPrev(), "已找到");
-            return "浏览器" + (statusMatch[1] ? " " + statusMatch[1] : "");
-        }
-
-        statusMatch = currentText.match(/^(\\d+)\\s+subagents?(?:\\s*([>›❯〉→]))?$/i);
-        if (statusMatch) {
-            const previous = getPrev();
-            const previousText = getPrevText();
-            if (/^Found$/i.test(previousText)) {
-                replaceTextNode(previous, "找到");
-                return " " + statusMatch[1] + " 个子智能体" + (statusMatch[2] ? " " + statusMatch[2] : "");
-            }
-            if (/^(?:Killed|已中止)$/i.test(previousText)) {
-                replaceTextNode(previous, "已中止");
-                return " " + statusMatch[1] + " 个子智能体" + (statusMatch[2] ? " " + statusMatch[2] : "");
-            }
-        }
-
-        statusMatch = currentText.match(/^(\\d+)\\s+(seconds?|minutes?|hours?)(?:\\s*([>›❯〉→]))?$/i);
-        if (statusMatch && /^Timed$/i.test(getPrevText())) {
-            const unit = /^second/i.test(statusMatch[2]) ? "秒" : /^minute/i.test(statusMatch[2]) ? "分钟" : "小时";
-            replaceTextNode(getPrev(), "耗时");
-            return " " + statusMatch[1] + " " + unit + (statusMatch[3] ? " " + statusMatch[3] : "");
-        }
-        statusMatch = currentText.match(/^(seconds?|minutes?|hours?)(?:\\s*([>›❯〉→]))?$/i);
-        if (statusMatch && /^\\d+$/.test(getPrevText())) {
-            const timedNode = findPreviousTextNode(getPrev());
-            if (timedNode && /^Timed$/i.test(norm(timedNode.nodeValue))) {
-                const unit = /^second/i.test(statusMatch[1]) ? "秒" : /^minute/i.test(statusMatch[1]) ? "分钟" : "小时";
-                replaceTextNode(timedNode, "耗时 ");
-                return " " + unit + (statusMatch[2] ? " " + statusMatch[2] : "");
+        let statusMatch;
+        if (low0 === 115 || c0 > 127) {
+            statusMatch = currentText.match(/^(?:subagents?|子智能体)(?:\\s*([>›❯〉→]))?$/i);
+            if (statusMatch) {
+                const previous = getPrev();
+                const previousText = getPrevText();
+                if (/^Found$/i.test(previousText)) {
+                    replaceTextNode(previous, "已找到");
+                    return "子智能体" + (statusMatch[1] ? " " + statusMatch[1] : "");
+                }
+                if (/^\\d+$/.test(previousText)) {
+                    const foundNode = findPreviousTextNode(previous);
+                    if (foundNode && /^Found$/i.test(norm(foundNode.nodeValue))) {
+                        replaceTextNode(foundNode, "找到 ");
+                        return " 个子智能体" + (statusMatch[1] ? " " + statusMatch[1] : "");
+                    }
+                    if (foundNode && /^(?:Killed|已中止)$/i.test(norm(foundNode.nodeValue))) {
+                        replaceTextNode(foundNode, "已中止 ");
+                        return " 个子智能体" + (statusMatch[1] ? " " + statusMatch[1] : "");
+                    }
+                }
             }
         }
 
-        statusMatch = currentText.match(/^Root\\s+Agent(?:\\s*([>›❯〉→]))?$/i);
-        if (statusMatch && /^Messaged$/i.test(getPrevText())) {
-            replaceTextNode(getPrev(), "已向");
-            return "主智能体发送消息" + (statusMatch[1] ? " " + statusMatch[1] : "");
+        if (low0 === 98 || c0 > 127) {
+            statusMatch = currentText.match(/^(?:Browsers?|浏览器)(?:\\s*([>›❯〉→]))?$/i);
+            if (statusMatch && /^Found$/i.test(getPrevText())) {
+                replaceTextNode(getPrev(), "已找到");
+                return "浏览器" + (statusMatch[1] ? " " + statusMatch[1] : "");
+            }
         }
 
-        statusMatch = currentText.match(/^(\\d+)\\s+active\\s+goals?$/i);
-        if (statusMatch && /^(\\d+)\\s+tasks?\\s+running,?$/i.test(getPrevText())) {
-            const taskCount = getPrevText().match(/^(\\d+)/)[1];
-            replaceTextNode(getPrev(), taskCount + " 个任务正在运行，");
-            return statusMatch[1] + " 个活跃目标";
+        if (c0 >= 48 && c0 <= 57) {
+            statusMatch = currentText.match(/^(\\d+)\\s+subagents?(?:\\s*([>›❯〉→]))?$/i);
+            if (statusMatch) {
+                const previous = getPrev();
+                const previousText = getPrevText();
+                if (/^Found$/i.test(previousText)) {
+                    replaceTextNode(previous, "找到");
+                    return " " + statusMatch[1] + " 个子智能体" + (statusMatch[2] ? " " + statusMatch[2] : "");
+                }
+                if (/^(?:Killed|已中止)$/i.test(previousText)) {
+                    replaceTextNode(previous, "已中止");
+                    return " " + statusMatch[1] + " 个子智能体" + (statusMatch[2] ? " " + statusMatch[2] : "");
+                }
+            }
+
+            statusMatch = currentText.match(/^(\\d+)\\s+(seconds?|minutes?|hours?)(?:\\s*([>›❯〉→]))?$/i);
+            if (statusMatch && /^Timed$/i.test(getPrevText())) {
+                const unit = /^second/i.test(statusMatch[2]) ? "秒" : /^minute/i.test(statusMatch[2]) ? "分钟" : "小时";
+                replaceTextNode(getPrev(), "耗时");
+                return " " + statusMatch[1] + " " + unit + (statusMatch[3] ? " " + statusMatch[3] : "");
+            }
+
+            statusMatch = currentText.match(/^(\\d+)\\s+active\\s+goals?$/i);
+            if (statusMatch && /^(\\d+)\\s+tasks?\\s+running,?$/i.test(getPrevText())) {
+                const taskCount = getPrevText().match(/^(\\d+)/)[1];
+                replaceTextNode(getPrev(), taskCount + " 个任务正在运行，");
+                return statusMatch[1] + " 个活跃目标";
+            }
         }
-        if (/^active\\s+goals?$/i.test(currentText) && /^\\d+$/.test(getPrevText())) {
+
+        if (low0 === 115 || low0 === 109 || low0 === 104) {
+            statusMatch = currentText.match(/^(seconds?|minutes?|hours?)(?:\\s*([>›❯〉→]))?$/i);
+            if (statusMatch && /^\\d+$/.test(getPrevText())) {
+                const timedNode = findPreviousTextNode(getPrev());
+                if (timedNode && /^Timed$/i.test(norm(timedNode.nodeValue))) {
+                    const unit = /^second/i.test(statusMatch[1]) ? "秒" : /^minute/i.test(statusMatch[1]) ? "分钟" : "小时";
+                    replaceTextNode(timedNode, "耗时 ");
+                    return " " + unit + (statusMatch[2] ? " " + statusMatch[2] : "");
+                }
+            }
+        }
+
+        if (low0 === 114) {
+            statusMatch = currentText.match(/^Root\\s+Agent(?:\\s*([>›❯〉→]))?$/i);
+            if (statusMatch && /^Messaged$/i.test(getPrevText())) {
+                replaceTextNode(getPrev(), "已向");
+                return "主智能体发送消息" + (statusMatch[1] ? " " + statusMatch[1] : "");
+            }
+        }
+
+        if (low0 === 97 && /^active\\s+goals?$/i.test(currentText) && /^\\d+$/.test(getPrevText())) {
             return " 个活跃目标";
         }
 
-        if (/^found$/i.test(currentText) && getPrevText() === "项目") {
+        if (low0 === 102 && /^found$/i.test(currentText) && getPrevText() === "项目") {
             const noNode = findPreviousTextNode(getPrev());
             if (noNode && /^No$/i.test(norm(noNode.nodeValue))) {
                 replaceTextNode(noNode, '');
@@ -5832,7 +6102,7 @@ function getDynamicProductUiTranslation(value, node = null) {
             }
         }
 
-        if (/^(?:when not in a project|in this project|in this workspace|in this conversation)$/i.test(currentText) && getPrev()) {
+        if ((low0 === 119 || low0 === 105) && /^(?:when not in a project|in this project|in this workspace|in this conversation)$/i.test(currentText) && getPrev()) {
             const previous = getPrev();
             const previousText = getPrevText();
             const isAllow = /^(?:Yes, and always allow|是，且始终允许)$/i.test(previousText);
@@ -5853,7 +6123,7 @@ function getDynamicProductUiTranslation(value, node = null) {
             }
         }
 
-        if (/^s\\s+enabled$/i.test(currentText) && getPrev()) {
+        if (low0 === 115 && /^s\\s+enabled$/i.test(currentText) && getPrev()) {
             const countAndTool = getPrevText().match(/^(\\d+)\\s+tools?$/i);
             if (countAndTool) {
                 replaceTextNode(getPrev(), countAndTool[1] + " 个工具已启用");
@@ -5861,68 +6131,88 @@ function getDynamicProductUiTranslation(value, node = null) {
             }
         }
 
-        const isEnabledSuffix = /^s\\s+enabled$/i.test(currentText) || /^enabled$/i.test(currentText);
-        if (isEnabledSuffix && getPrev()) {
-            const previous = getPrev();
-            let toolNode = previous;
-            let toolText = getPrevText();
+        if (low0 === 115 || low0 === 101) {
+            const isEnabledSuffix = /^s\\s+enabled$/i.test(currentText) || /^enabled$/i.test(currentText);
+            if (isEnabledSuffix && getPrev()) {
+                const previous = getPrev();
+                let toolNode = previous;
+                let toolText = getPrevText();
 
-            if (/^s$/i.test(toolText) && /^enabled$/i.test(currentText)) {
-                toolNode = findPreviousTextNode(previous);
-                toolText = toolNode ? norm(toolNode.nodeValue) : '';
-                replaceTextNode(previous, '');
-            }
+                if (/^s$/i.test(toolText) && /^enabled$/i.test(currentText)) {
+                    toolNode = findPreviousTextNode(previous);
+                    toolText = toolNode ? norm(toolNode.nodeValue) : '';
+                    replaceTextNode(previous, '');
+                }
 
-            const countNode = toolNode ? findPreviousTextNode(toolNode) : null;
-            const countText = countNode ? norm(countNode.nodeValue) : '';
-            if (/^(?:tool|tools|工具)$/i.test(toolText) && /^\\d+$/.test(countText)) {
-                replaceTextNode(toolNode, '');
-                return " 个工具已启用";
+                const countNode = toolNode ? findPreviousTextNode(toolNode) : null;
+                const countText = countNode ? norm(countNode.nodeValue) : '';
+                if (/^(?:tool|tools|工具)$/i.test(toolText) && /^\\d+$/.test(countText)) {
+                    replaceTextNode(toolNode, '');
+                    return " 个工具已启用";
+                }
             }
         }
 
-        if (currentText.length <= 40 && !/[\\u4e00-\\u9fff]/.test(currentText) &&
-            node.previousSibling &&
+        if (hasPrevSibling && currentText.length <= 40 && !/[\\u4e00-\\u9fff]/.test(currentText) &&
             node.parentElement && node.parentElement.childNodes && node.parentElement.childNodes.length >= 2 &&
             getPrevText() === "所有计划任务均以") {
             const model = currentText.replace(/[.。]+$/, '').trim();
             if (model) return model + " 模型运行";
         }
 
-        if (/^[.。]$/.test(currentText) && /模型运行$/.test(getPrevText())) {
+        if ((c0 === 46 || c0 === 12290) && /^[.。]$/.test(currentText) && /模型运行$/.test(getPrevText())) {
             return '';
         }
 
-        if (/^\\?\\s*(?:This action cannot be undone\\.?)?$/i.test(currentText) && getPrev()) {
-            let candidate = getPrev();
-            for (let i = 0; i < 6 && candidate; i++) {
-                if (/^您确定要删除(?:计划)?任务$/.test(norm(candidate.nodeValue))) {
-                    return /This action cannot be undone/i.test(currentText)
-                        ? " 吗? 此操作无法撤销"
-                        : " 吗?";
-                }
-                candidate = findPreviousTextNode(candidate);
-            }
-        }
-
-        const deletePrefixMatch = currentText.match(/^Are you sure you want to delete(?:\\s+(?:the|this))?(?:\\s+(project|workspace|项目|工作区))?$/i);
-        if (deletePrefixMatch) {
-            let container = node && node.parentElement;
-            for (let depth = 0; depth < 3 && container; depth++) {
-                if (container === document.body || container === document.documentElement) break;
-                const containerText = getBoundedTextContent(container, 16, 320) || '';
-                if (/^Are you sure you want to delete\\s+(?:the\\s+|this\\s+)?(?:project|workspace|项目|工作区)\\s+.+\\?$/i.test(containerText)) {
-                    if (deletePrefixMatch[1]) {
-                        const scope = /^(?:workspace|工作区)$/i.test(deletePrefixMatch[1]) ? "工作区" : "项目";
-                        return "您确定要删除" + scope + (/\\s$/.test(originalVal) ? " " : "");
+        if (c0 === 63) {
+            if (/^\\?\\s*(?:This action cannot be undone\\.?)?$/i.test(currentText) && getPrev()) {
+                let candidate = getPrev();
+                for (let i = 0; i < 6 && candidate; i++) {
+                    if (/^您确定要删除(?:计划)?任务$/.test(norm(candidate.nodeValue))) {
+                        return /This action cannot be undone/i.test(currentText)
+                            ? " 吗? 此操作无法撤销"
+                            : " 吗?";
                     }
-                    return "您确定要删除";
+                    candidate = findPreviousTextNode(candidate);
                 }
-                container = container.parentElement;
+            }
+            if (currentText === '?' && getPrev()) {
+                let candidate = getPrev();
+                let hasProjectScope = false;
+                for (let i = 0; i < 8 && candidate; i++) {
+                    const candidateText = norm(candidate.nodeValue);
+                    if (/^(?:project|workspace|项目|工作区)$/i.test(candidateText)) {
+                        hasProjectScope = true;
+                    } else if (candidateText === "您确定要删除" && hasProjectScope) {
+                        return " 吗?";
+                    } else if (/^您确定要删除(?:项目|工作区)$/.test(candidateText)) {
+                        return " 吗?";
+                    }
+                    candidate = findPreviousTextNode(candidate);
+                }
             }
         }
 
-        if (/^(?:project|workspace)$/i.test(currentText) && getPrev()) {
+        if (low0 === 97) {
+            const deletePrefixMatch = currentText.match(/^Are you sure you want to delete(?:\\s+(?:the|this))?(?:\\s+(project|workspace|项目|工作区))?$/i);
+            if (deletePrefixMatch) {
+                let container = node && node.parentElement;
+                for (let depth = 0; depth < 3 && container; depth++) {
+                    if (container === document.body || container === document.documentElement) break;
+                    const containerText = getBoundedTextContent(container, 16, 320) || '';
+                    if (/^Are you sure you want to delete\\s+(?:the\\s+|this\\s+)?(?:project|workspace|项目|工作区)\\s+.+\\?$/i.test(containerText)) {
+                        if (deletePrefixMatch[1]) {
+                            const scope = /^(?:workspace|工作区)$/i.test(deletePrefixMatch[1]) ? "工作区" : "项目";
+                            return "您确定要删除" + scope + (/\\s$/.test(originalVal) ? " " : "");
+                        }
+                        return "您确定要删除";
+                    }
+                    container = container.parentElement;
+                }
+            }
+        }
+
+        if ((low0 === 112 || low0 === 119) && /^(?:project|workspace)$/i.test(currentText) && getPrev()) {
             let candidate = getPrev();
             for (let i = 0; i < 4 && candidate; i++) {
                 const candidateText = norm(candidate.nodeValue);
@@ -5933,23 +6223,7 @@ function getDynamicProductUiTranslation(value, node = null) {
             }
         }
 
-        if (currentText === '?' && getPrev()) {
-            let candidate = getPrev();
-            let hasProjectScope = false;
-            for (let i = 0; i < 8 && candidate; i++) {
-                const candidateText = norm(candidate.nodeValue);
-                if (/^(?:project|workspace|项目|工作区)$/i.test(candidateText)) {
-                    hasProjectScope = true;
-                } else if (candidateText === "您确定要删除" && hasProjectScope) {
-                    return " 吗?";
-                } else if (/^您确定要删除(?:项目|工作区)$/.test(candidateText)) {
-                    return " 吗?";
-                }
-                candidate = findPreviousTextNode(candidate);
-            }
-        }
-
-        if (/^(?:Daily|Weekly|Monthly)$/i.test(currentText)) {
+        if ((low0 === 100 || low0 === 119 || low0 === 109) && /^(?:Daily|Weekly|Monthly)$/i.test(currentText)) {
             const parent = node.parentElement;
             const outer = (parent && parent.parentElement) || parent;
             const containerText = outer ? (getBoundedTextContent(outer, 16, 120) || '') : '';
@@ -5963,7 +6237,7 @@ function getDynamicProductUiTranslation(value, node = null) {
             }
         }
 
-        if (/^on$/i.test(currentText) && getPrev()) {
+        if (low0 === 111 && /^on$/i.test(currentText) && getPrev()) {
             const prevText = getPrevText();
             const parent = node.parentElement;
             const containerText = parent ? (getBoundedTextContent(parent, 16, 120) || '') : '';
@@ -5976,27 +6250,29 @@ function getDynamicProductUiTranslation(value, node = null) {
             }
         }
 
-        if (/^(?:around|at)$/i.test(currentText) && getPrev()) {
+        if (low0 === 97 && /^(?:around|at)$/i.test(currentText) && getPrev()) {
             const prevText = getPrevText();
             if (/^(?:每天|每周|每月|Daily|Weekly|Monthly|星期[一二三四五六日]|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|每周星期[一二三四五六日]|Weekly\\s+on\\s+(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday))$/i.test(prevText)) {
                 return "在 ";
             }
         }
 
-        const weeklyOnDayMatch = currentText.match(/^Weekly\\s+on\\s+(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)$/i);
-        if (weeklyOnDayMatch) {
-            const dayMap = {
-                monday: "星期一", tuesday: "星期二", wednesday: "星期三",
-                thursday: "星期四", friday: "星期五", saturday: "星期六", sunday: "星期日"
-            };
-            return "每周" + (dayMap[weeklyOnDayMatch[1].toLowerCase()] || weeklyOnDayMatch[1]);
+        if (low0 === 119) {
+            const weeklyOnDayMatch = currentText.match(/^Weekly\\s+on\\s+(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)$/i);
+            if (weeklyOnDayMatch) {
+                const dayMap = {
+                    monday: "星期一", tuesday: "星期二", wednesday: "星期三",
+                    thursday: "星期四", friday: "星期五", saturday: "星期六", sunday: "星期日"
+                };
+                return "每周" + (dayMap[weeklyOnDayMatch[1].toLowerCase()] || weeklyOnDayMatch[1]);
+            }
+            if (/^Weekly\\s+on$/i.test(currentText)) {
+                return "每周";
+            }
         }
 
-        if (/^Weekly\\s+on$/i.test(currentText)) {
-            return "每周";
-        }
-
-        if (/^(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)$/i.test(currentText) && getPrev()) {
+        if ((low0 === 109 || low0 === 116 || low0 === 119 || low0 === 102 || low0 === 115) &&
+            /^(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)$/i.test(currentText) && getPrev()) {
             const prevText = getPrevText();
             const parent = node.parentElement;
             const outer = (parent && parent.parentElement) || parent;
@@ -6010,7 +6286,7 @@ function getDynamicProductUiTranslation(value, node = null) {
             }
         }
 
-        if (/^in$/i.test(currentText)) {
+        if (low0 === 105 && /^in$/i.test(currentText)) {
             const previous = getPrev();
             const previousText = getPrevText();
             if (previousText === "个已归档会话" || previousText === "已归档会话" || previousText === "个已归档对话" || previousText === "已归档对话" || previousText === "archived conversation" || previousText === "archived conversations") {
@@ -6036,42 +6312,44 @@ function getDynamicProductUiTranslation(value, node = null) {
             }
         }
 
-        if (/^Powered by Gemini Live\\s*[·•]\\s*You can change this in$/i.test(currentText)) {
+        if (low0 === 112 && /^Powered by Gemini Live\\s*[·•]\\s*You can change this in$/i.test(currentText)) {
             return "由 Gemini Live 提供支持 · 稍后可在 ";
         }
 
-        if (/^later\\.$/i.test(currentText) && getPrev()) {
+        if (low0 === 108 && /^later\\.$/i.test(currentText) && getPrev()) {
             const prevText = getPrevText();
             if (/^(?:设置|Settings)$/i.test(prevText)) {
                 return " 中进行更改.";
             }
         }
 
-        const termsSubjectMatch = currentText.match(/^([.。]?)\s*Your\s+use\s+is\s+subject\s+to\s+the$/i);
-        if (termsSubjectMatch) {
-            return (termsSubjectMatch[1] ? ". " : "") + "您对本服务的使用受 ";
+        if (c0 === 46 || c0 === 12290 || low0 === 121) {
+            const termsSubjectMatch = currentText.match(/^([.。]?)\\s*Your\\s+use\\s+is\\s+subject\\s+to\\s+the$/i);
+            if (termsSubjectMatch) {
+                return (termsSubjectMatch[1] ? ". " : "") + "您对本服务的使用受 ";
+            }
         }
 
-        if (/^and$/i.test(currentText)) {
+        if (low0 === 97 && /^and$/i.test(currentText)) {
             let prevNode = findPreviousTextNode(node);
             let prevText = prevNode ? norm(prevNode.nodeValue) : '';
             if (!prevText && node && node.previousSibling) {
-                prevText = norm(node.previousSibling.textContent || '');
+                prevText = norm(getBoundedTextContent(node.previousSibling, 8, 120) || '');
             }
             let nextNode = findNextTextNode(node);
             let nextText = nextNode ? norm(nextNode.nodeValue) : '';
             if (!nextText && node && node.nextSibling) {
-                nextText = norm(node.nextSibling.textContent || '');
+                nextText = norm(getBoundedTextContent(node.nextSibling, 8, 120) || '');
             }
             const parentEl = node && node.parentElement;
-            const parentText = parentEl ? (getBoundedTextContent(parentEl, 64, 2000) || norm(parentEl.textContent || '')) : '';
+            const parentText = parentEl ? norm(getBoundedTextContent(parentEl, 64, 2000) || '') : '';
             if ((/(?:Terms of Service|服务条款)/i.test(prevText) || /(?:Terms of Service|服务条款)/i.test(parentText)) &&
                 (/(?:Privacy Policy|隐私政策)/i.test(nextText) || /(?:Privacy Policy|隐私政策)/i.test(parentText))) {
                 return "及";
             }
         }
 
-        if (/^Back\\s+to$/i.test(currentText) && !isContentBodyContainer(node)) {
+        if (low0 === 98 && /^Back\\s+to$/i.test(currentText) && !isContentBodyContainer(node)) {
             const next = findNextTextNode(node);
             const nextText = next ? norm(next.nodeValue) : '';
             if (nextText) {
@@ -6090,7 +6368,62 @@ function getDynamicProductUiTranslation(value, node = null) {
         return null;
     }
 
-    function translateElementAttributes(node) {
+    const TRANSLATABLE_ATTRS = ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label', 'data-tooltip'];
+    const TRANSLATABLE_ATTRS_SET = new Set(TRANSLATABLE_ATTRS);
+    const unmatchedAttrStrings = new Set();
+
+    function setTranslatedAttr(node, attr, target) {
+        let rec = translatedAttrs.get(node);
+        if (!rec) {
+            rec = Object.create(null);
+            translatedAttrs.set(node, rec);
+        }
+        rec[attr] = target;
+        node.setAttribute(attr, target);
+    }
+
+    function resolveAttributeTranslation(v, node, mode = 'full') {
+        if (!v || !/[a-zA-Z]/.test(v)) return null;
+        const isSideOrigin = Boolean(node && node.getAttribute?.('data-testid') === 'side-question-origin');
+        if (isSideOrigin) {
+            const sideOrigin = translateSideQuestionOriginAttr(v, node);
+            if (sideOrigin) return sideOrigin;
+        }
+        const cacheKey = isSideOrigin ? null : (mode + '\\0' + v);
+        if (cacheKey && unmatchedAttrStrings.has(cacheKey)) return null;
+
+        const t = norm(v);
+        if (!t) return null;
+        const exact = map.has(t) ? map.get(t) : lowerMap.get(t.toLowerCase());
+        if (exact !== undefined) return exact;
+        if (v.includes('Searching') || v.includes('searching') || v.includes('suggestions') || v.includes('Suggestions')) {
+            const searchingTrans = getSearchingStatusTranslation(v);
+            if (searchingTrans && searchingTrans !== v) return searchingTrans;
+        }
+        let res = null;
+        if (mode === 'placeholder') {
+            res = getDynamicProductUiTranslation(t, node) || null;
+        } else if (mode === 'contenteditable') {
+            res = getVersionControlUiTranslation(t)
+                || getDynamicProductUiTranslation(t, node)
+                || translateWithShortcut(t)
+                || null;
+        } else {
+            res = getVersionControlUiTranslation(t)
+                || getDynamicSubagentStatusTranslation(t)
+                || getDynamicProductUiTranslation(t, node)
+                || getCompactCountLabelTranslation(t)
+                || translateWithShortcut(t)
+                || null;
+        }
+        if (res === null && cacheKey && !v.includes('Leaving on') && !v.includes('Back to ') && !v.includes('setting') && !v.includes('Stream and control')) {
+            if (unmatchedAttrStrings.size > 1000) unmatchedAttrStrings.clear();
+            unmatchedAttrStrings.add(cacheKey);
+        }
+        return res;
+    }
+
+    function translateElementAttributes(node, singleAttr = null) {
         try {
             if (!node || node.nodeType !== Node.ELEMENT_NODE) return;
             if (isSwarmBoardDocument()) {
@@ -6107,81 +6440,55 @@ function getDynamicProductUiTranslation(value, node = null) {
                 }
                 return;
             }
+            if (node.hasAttributes && !node.hasAttributes()) return;
+            const attrsToScan = (singleAttr && TRANSLATABLE_ATTRS_SET.has(singleAttr)) ? [singleAttr] : TRANSLATABLE_ATTRS;
+            const prevRec = translatedAttrs.get(node);
             const blockedState = getElementBlockedState(node);
             if (blockedState === 2) {
                 const tag = node.tagName ? node.tagName.toUpperCase() : '';
                 if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SVG') {
                     const parentState = getElementBlockedState(node.parentElement);
-                    for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label', 'data-tooltip']) {
+                    const allowAllAttrs = tag === 'INPUT' || tag === 'TEXTAREA' || parentState === 0;
+                    for (const attr of attrsToScan) {
                         const v = node.getAttribute(attr);
-                        if (v) {
+                        if (!v || (prevRec && prevRec[attr] === v)) continue;
+                        if (allowAllAttrs) {
+                            const target = resolveAttributeTranslation(v, node, 'full');
+                            if (target !== null && target !== v) setTranslatedAttr(node, attr, target);
+                        } else if (v.includes('Searching') || v.includes('searching') || v.includes('suggestions') || v.includes('Suggestions')) {
                             const searchingTrans = getSearchingStatusTranslation(v);
-                            if (searchingTrans && searchingTrans !== v) {
-                                node.setAttribute(attr, searchingTrans);
-                            } else if (tag === 'INPUT' || tag === 'TEXTAREA' || parentState === 0) {
-                                const t = norm(v);
-                                const target = getVersionControlUiTranslation(t)
-                                    || getDynamicSubagentStatusTranslation(t)
-                                    || getDynamicProductUiTranslation(t, node)
-                                    || getCompactCountLabelTranslation(t)
-                                    || translateWithShortcut(t)
-                                    || map.get(t)
-                                    || lowerMap.get(t.toLowerCase());
-                                if (target && target !== v) node.setAttribute(attr, target);
-                            }
+                            if (searchingTrans && searchingTrans !== v) setTranslatedAttr(node, attr, searchingTrans);
                         }
                     }
                 }
                 return;
             }
             if (node.getAttribute('contenteditable') === 'true') {
-                for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'aria-label', 'title', 'data-tooltip']) {
+                for (const attr of attrsToScan) {
                     const value = node.getAttribute(attr);
-                    if (!value) continue;
-                    const normalizedValue = norm(value);
-                    const target = getVersionControlUiTranslation(normalizedValue)
-                        || getDynamicProductUiTranslation(normalizedValue, node)
-                        || translateWithShortcut(normalizedValue)
-                        || map.get(normalizedValue)
-                        || lowerMap.get(normalizedValue.toLowerCase());
-                    if (target && target !== value) node.setAttribute(attr, target);
+                    if (!value || (prevRec && prevRec[attr] === value)) continue;
+                    const target = resolveAttributeTranslation(value, node, 'contenteditable');
+                    if (target !== null && target !== value) setTranslatedAttr(node, attr, target);
                 }
                 return;
             }
             if (blockedState === 0 || node.tagName === 'BUTTON' || node.getAttribute?.('role') === 'button' || node.tagName === 'INPUT' || node.tagName === 'TEXTAREA') {
-                for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label', 'data-tooltip']) {
+                for (const attr of attrsToScan) {
                     const v = node.getAttribute(attr);
-                    if (v) {
-                        const searchingTrans = getSearchingStatusTranslation(v);
-                        if (searchingTrans && searchingTrans !== v) {
-                            node.setAttribute(attr, searchingTrans);
-                        } else {
-                            const t = norm(v);
-                            const target = getVersionControlUiTranslation(t)
-                                || getDynamicSubagentStatusTranslation(t)
-                                || getDynamicProductUiTranslation(t, node)
-                                || getCompactCountLabelTranslation(t)
-                                || translateWithShortcut(t)
-                                || map.get(t)
-                                || lowerMap.get(t.toLowerCase());
-                            if (target && target !== v) node.setAttribute(attr, target);
-                        }
-                    }
+                    if (!v || (prevRec && prevRec[attr] === v)) continue;
+                    const target = resolveAttributeTranslation(v, node, 'full');
+                    if (target !== null && target !== v) setTranslatedAttr(node, attr, target);
                 }
             } else {
-                for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label', 'data-tooltip']) {
+                for (const attr of attrsToScan) {
                     const v = node.getAttribute(attr);
-                    if (v) {
+                    if (!v || (prevRec && prevRec[attr] === v)) continue;
+                    if (attr === 'placeholder' || attr === 'aria-placeholder' || attr === 'data-placeholder') {
+                        const target = resolveAttributeTranslation(v, node, 'placeholder');
+                        if (target !== null && target !== v) setTranslatedAttr(node, attr, target);
+                    } else if (v.includes('Searching') || v.includes('searching') || v.includes('suggestions') || v.includes('Suggestions')) {
                         const searchingTrans = getSearchingStatusTranslation(v);
-                        if (searchingTrans && searchingTrans !== v) {
-                            node.setAttribute(attr, searchingTrans);
-                        } else if (attr === 'placeholder' || attr === 'aria-placeholder' || attr === 'data-placeholder') {
-                            const t = norm(v);
-                            const target = getDynamicProductUiTranslation(t, node)
-                                || map.get(t)
-                                || lowerMap.get(t.toLowerCase());
-                            if (target && target !== v) node.setAttribute(attr, target);
-                        }
+                        if (searchingTrans && searchingTrans !== v) setTranslatedAttr(node, attr, searchingTrans);
                     }
                 }
             }
@@ -6278,7 +6585,7 @@ function getDynamicProductUiTranslation(value, node = null) {
                 const tag = node.tagName.toUpperCase();
                 const className = typeof node.className === 'string' ? node.className : '';
 
-                if ((className && HARD_PRUNED_CLASS_REGEX.test(className)) || node.hasAttribute('data-line-tokens') || node.getAttribute('data-testid') === 'code-gutter') {
+                if ((className && HARD_PRUNED_CLASS_REGEX.test(className)) || node.hasAttribute('data-line-tokens') || node.getAttribute('data-testid') === 'code-gutter' || isAgentBubbleMarkdownRoot(node)) {
                     if (node.getAttribute('translate') !== 'no') node.setAttribute('translate', 'no');
                     try {
                         if (!node.classList.contains('notranslate')) node.classList.add('notranslate');
@@ -6296,19 +6603,16 @@ function getDynamicProductUiTranslation(value, node = null) {
                         }
                     }
                 }
-                if (node.getAttribute('contenteditable') === 'true') {
+                const hasNodeAttrs = !node.hasAttributes || node.hasAttributes();
+                const prevAttrRec = hasNodeAttrs ? translatedAttrs.get(node) : null;
+                if (hasNodeAttrs && node.getAttribute('contenteditable') === 'true') {
                     isBlocked = true;
 
-                    for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'aria-label', 'title', 'data-tooltip']) {
+                    for (const attr of TRANSLATABLE_ATTRS) {
                         const value = node.getAttribute(attr);
-                        if (!value) continue;
-                        const normalizedValue = norm(value);
-                        const target = getVersionControlUiTranslation(normalizedValue)
-                            || getDynamicProductUiTranslation(normalizedValue, node)
-                            || translateWithShortcut(normalizedValue)
-                            || map.get(normalizedValue)
-                            || lowerMap.get(normalizedValue.toLowerCase());
-                        if (target && target !== value) node.setAttribute(attr, target);
+                        if (!value || (prevAttrRec && prevAttrRec[attr] === value)) continue;
+                        const target = resolveAttributeTranslation(value, node, 'contenteditable');
+                        if (target !== null && target !== value) setTranslatedAttr(node, attr, target);
                     }
                 }
 
@@ -6333,25 +6637,18 @@ function getDynamicProductUiTranslation(value, node = null) {
                         }
                         return;
                     }
-                    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SVG') {
+                    if (hasNodeAttrs && (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SVG')) {
                         const parentBlocked = getElementBlockedState(node.parentElement) !== 0;
-                        for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label', 'data-tooltip']) {
+                        const allowAllAttrs = !parentBlocked || tag === 'INPUT' || tag === 'TEXTAREA';
+                        for (const attr of TRANSLATABLE_ATTRS) {
                             const v = node.getAttribute(attr);
-                            if (v) {
+                            if (!v || (prevAttrRec && prevAttrRec[attr] === v)) continue;
+                            if (allowAllAttrs || attr === 'placeholder' || attr === 'data-placeholder' || attr === 'aria-placeholder') {
+                                const target = resolveAttributeTranslation(v, node, 'full');
+                                if (target !== null && target !== v) setTranslatedAttr(node, attr, target);
+                            } else if (v.includes('Searching') || v.includes('searching') || v.includes('suggestions') || v.includes('Suggestions')) {
                                 const searchingTrans = getSearchingStatusTranslation(v);
-                                if (searchingTrans && searchingTrans !== v) {
-                                    node.setAttribute(attr, searchingTrans);
-                                } else if (!parentBlocked || tag === 'INPUT' || tag === 'TEXTAREA' || attr === 'placeholder' || attr === 'data-placeholder' || attr === 'aria-placeholder') {
-                                    const t = norm(v);
-                                    const target = getVersionControlUiTranslation(t)
-                                        || getDynamicSubagentStatusTranslation(t)
-                                        || getDynamicProductUiTranslation(t, node)
-                                        || getCompactCountLabelTranslation(t)
-                                        || translateWithShortcut(t)
-                                        || map.get(t)
-                                        || lowerMap.get(t.toLowerCase());
-                                    if (target && target !== v) node.setAttribute(attr, target);
-                                }
+                                if (searchingTrans && searchingTrans !== v) setTranslatedAttr(node, attr, searchingTrans);
                             }
                         }
                     }
@@ -6376,43 +6673,28 @@ function getDynamicProductUiTranslation(value, node = null) {
                     return;
                 }
 
-                const isFoldButtonContainer = tag === 'BUTTON' || node.getAttribute?.('role') === 'button';
+                const isFoldButtonContainer = tag === 'BUTTON' || (hasNodeAttrs && node.getAttribute?.('role') === 'button');
                 if (blockedState === 0 || isFoldButtonContainer) {
-                    if (translateSpecialContainers(node) === 'skip_children') return;
+                    if (translateSpecialContainers(node, blockedState) === 'skip_children') return;
                     translateCombinedTextChildren(node);
-                    for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label', 'data-tooltip']) {
-                        const v = node.getAttribute(attr);
-                        if (v) {
-                            const searchingTrans = getSearchingStatusTranslation(v);
-                            if (searchingTrans && searchingTrans !== v) {
-                                node.setAttribute(attr, searchingTrans);
-                            } else {
-                                const t = norm(v);
-                                const target = getVersionControlUiTranslation(t)
-                                    || getDynamicSubagentStatusTranslation(t)
-                                    || getDynamicProductUiTranslation(t, node)
-                                    || getCompactCountLabelTranslation(t)
-                                    || translateWithShortcut(t)
-                                    || map.get(t)
-                                    || lowerMap.get(t.toLowerCase());
-                               if (target && target !== v) node.setAttribute(attr, target);
-                            }
+                    if (hasNodeAttrs) {
+                        for (const attr of TRANSLATABLE_ATTRS) {
+                            const v = node.getAttribute(attr);
+                            if (!v || (prevAttrRec && prevAttrRec[attr] === v)) continue;
+                            const target = resolveAttributeTranslation(v, node, 'full');
+                            if (target !== null && target !== v) setTranslatedAttr(node, attr, target);
                         }
                     }
-                } else {
-                    for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label', 'data-tooltip']) {
+                } else if (hasNodeAttrs) {
+                    for (const attr of TRANSLATABLE_ATTRS) {
                         const v = node.getAttribute(attr);
-                        if (v) {
+                        if (!v || (prevAttrRec && prevAttrRec[attr] === v)) continue;
+                        if (attr === 'placeholder' || attr === 'aria-placeholder' || attr === 'data-placeholder') {
+                            const target = resolveAttributeTranslation(v, node, 'placeholder');
+                            if (target !== null && target !== v) setTranslatedAttr(node, attr, target);
+                        } else if (v.includes('Searching') || v.includes('searching') || v.includes('suggestions') || v.includes('Suggestions')) {
                             const searchingTrans = getSearchingStatusTranslation(v);
-                            if (searchingTrans && searchingTrans !== v) {
-                                node.setAttribute(attr, searchingTrans);
-                            } else if (attr === 'placeholder' || attr === 'aria-placeholder' || attr === 'data-placeholder') {
-                                const t = norm(v);
-                                const target = getDynamicProductUiTranslation(t, node)
-                                    || map.get(t)
-                                    || lowerMap.get(t.toLowerCase());
-                                if (target && target !== v) node.setAttribute(attr, target);
-                            }
+                            if (searchingTrans && searchingTrans !== v) setTranslatedAttr(node, attr, searchingTrans);
                         }
                     }
                 }
@@ -6451,7 +6733,10 @@ function getDynamicProductUiTranslation(value, node = null) {
                     return;
                 }
 
-                if (parentBlockedState === 1 || isInSkillItemContext(node)) {
+                const rawNorm = norm(originalVal);
+                if (!rawNorm) return;
+
+                if (parentBlockedState === 1 || isInSkillItemContext(node, rawNorm)) {
                     const protectedProductUiTranslation = getProtectedProductUiTranslation(node, originalVal);
                     if (protectedProductUiTranslation) {
                         replaceTextNode(node, protectedProductUiTranslation);
@@ -6461,7 +6746,7 @@ function getDynamicProductUiTranslation(value, node = null) {
 
                 if (isSwarmBoardDocument()) {
                     if (!parentContainersScanned && translateSwarmBoardContainers(parentEl)) return;
-                    const swarmTextTrans = getSwarmBoardUiTranslation(node, norm(originalVal), originalVal, false);
+                    const swarmTextTrans = getSwarmBoardUiTranslation(node, rawNorm, originalVal, false);
                     if (swarmTextTrans !== null && swarmTextTrans !== undefined && swarmTextTrans !== originalVal) {
                         let finalSwarmText = swarmTextTrans;
                         const leadingMatch = originalVal.match(/^\\s+/);
@@ -6483,26 +6768,25 @@ function getDynamicProductUiTranslation(value, node = null) {
                     return;
                 }
 
-                if (translateAttachmentMenuFolder(node, originalVal)) return;
-                if (translateAutomationNewButton(node, originalVal)) return;
-                if (translateSkillPickerNameTextNode(node, originalVal)) return;
-                if (translateUsedSkillNameTextNode(node, originalVal)) return;
-                if (translateCommitSummaryTextNode(node, originalVal)) return;
+                if (rawNorm === 'Folder' && translateAttachmentMenuFolder(node, originalVal)) return;
+                if (rawNorm === 'New' && translateAutomationNewButton(node, originalVal)) return;
+                if (SKILL_PICKER_SOURCE_MAP.has(rawNorm) && (translateSkillPickerNameTextNode(node, originalVal, rawNorm) || translateUsedSkillNameTextNode(node, originalVal, rawNorm))) return;
+                if (COMMIT_SUMMARY_TOKEN_RE.test(rawNorm) && translateCommitSummaryTextNode(node, originalVal, rawNorm)) return;
                 if (!parentContainersScanned && translateSpecialContainers(parentEl)) return;
                 if (!parentContainersScanned && translateCombinedTextChildren(parentEl)) return;
 
                 let newVal = originalVal;
-                const hasRecommended = /^\\(Recommended\\)(?:\\s+|$)/i.test(newVal);
+                const hasRecommended = (originalVal[0] === '(' || originalVal[0] === ' ' || originalVal[0] === '\\t' || originalVal[0] === '\\n') && /^\\s*\\(Recommended\\)(?:\\s+|$)/i.test(newVal);
                 if (hasRecommended) {
-                    newVal = newVal.replace(/^\\(Recommended\\)(?:\\s+|$)/i, '');
+                    newVal = newVal.replace(/^\\s*\\(Recommended\\)(?:\\s+|$)/i, '');
                 }
-                const valNorm = norm(newVal);
+                const valNorm = hasRecommended ? norm(newVal) : rawNorm;
                 if (!valNorm) return;
 
                 if (!/[a-zA-Z]/.test(valNorm)) {
                     let dynNonAlpha = null;
                     if (/^[（(.。?]/.test(valNorm)) {
-                        dynNonAlpha = translateFragmentedStatus(node, originalVal);
+                        dynNonAlpha = translateFragmentedStatus(node, originalVal, hasRecommended ? valNorm : rawNorm);
                     }
                     if (dynNonAlpha === null && /^[●•·◦∙○\\u2022\\u25CF\\u25CB]/.test(valNorm)) {
                         dynNonAlpha = getBulletedStatusTranslation(valNorm);
@@ -6548,59 +6832,59 @@ function getDynamicProductUiTranslation(value, node = null) {
                     if ((valNorm === 'Modified in' || valNorm === 'Also modified in') && /\\s$/.test(originalVal)) {
                         newVal += ' ';
                     }
-                } else if ((dynRes = translateFragmentedStatus(node, originalVal)) !== null) {
+                } else if ((dynRes = translateFragmentedStatus(node, originalVal, hasRecommended ? valNorm : rawNorm)) !== null) {
                     newVal = dynRes;
-                } else if ((dynRes = translateQuestionnaireOptionLabel(node, valNorm))) {
+                } else if (valNorm.length >= 4 && (valNorm[valNorm.length - 1] === ')' || valNorm[valNorm.length - 1] === '）') && (dynRes = translateQuestionnaireOptionLabel(node, valNorm))) {
                     newVal = dynRes;
-                } else if ((dynRes = getTimestampNowTranslation(node, valNorm))) {
+                } else if (valLower === 'now' && (dynRes = getTimestampNowTranslation(node, valNorm))) {
                     newVal = dynRes;
-                } else if ((dynRes = getRecentProjectSectionTranslation(node, valNorm))) {
+                } else if (valLower.startsWith('recent in ') && (dynRes = getRecentProjectSectionTranslation(node, valNorm))) {
                     newVal = dynRes;
-                } else if ((dynRes = getDeleteTaskConfirmationTranslation(node, valNorm))) {
+                } else if ((valNorm[0] === '?' || valLower.startsWith('are you sure you want to delete')) && (dynRes = getDeleteTaskConfirmationTranslation(node, valNorm))) {
                     newVal = dynRes;
-                } else if ((dynRes = translateWithShortcut(valNorm))) {
+                } else if ((valNorm.includes('(') || valNorm.includes('+')) && (dynRes = translateWithShortcut(valNorm))) {
                     newVal = dynRes;
-                } else if ((dynRes = getVersionControlUiTranslation(valNorm))) {
+                } else if ((valNorm[valNorm.length - 1] === ')' || /^(?:All changes|Publish |Push|Committed |Amended |Commit|提交)/i.test(valNorm)) && (dynRes = getVersionControlUiTranslation(valNorm))) {
                     newVal = dynRes;
-                } else if ((dynRes = getBaselineQuotaRefreshTranslation(valNorm))) {
+                } else if (valLower.includes('baseline quota') && (dynRes = getBaselineQuotaRefreshTranslation(valNorm))) {
                     newVal = dynRes;
-                } else if ((dynRes = getDynamicSubagentStatusTranslation(valNorm))) {
+                } else if (/^(?:\\d|Found\\s|Killed\\s|已中止\\s|Messaged?\\s|Error\\s+from\\s|Timed\\s|Goals?\\s|View\\s|Question\\s|Side\\s+question\\s|Asked\\s)/i.test(valNorm) && (dynRes = getDynamicSubagentStatusTranslation(valNorm))) {
                     newVal = dynRes;
-                } else if ((dynRes = getBracketedTaskStatusTranslation(valNorm))) {
+                } else if (valNorm[0] === '[' && (dynRes = getBracketedTaskStatusTranslation(valNorm))) {
                     newVal = dynRes;
-                } else if ((dynRes = getBulletedStatusTranslation(valNorm))) {
+                } else if (/^[●•·◦∙○\\u2022\\u25CF\\u25CB]/.test(valNorm) && (dynRes = getBulletedStatusTranslation(valNorm))) {
                     newVal = dynRes;
                 } else if ((dynRes = getDynamicProductUiTranslation(valNorm, node))) {
                     newVal = dynRes;
-                } else if ((dynRes = getProjectDeleteSummaryTranslation(valNorm))) {
+                } else if ((valLower.includes('delete') || valLower.includes('conversation') || valNorm.includes('删除') || valNorm.includes('会话')) && (dynRes = getProjectDeleteSummaryTranslation(valNorm))) {
                     newVal = dynRes;
-                } else if ((dynRes = getCustomizationBudgetTranslation(valNorm))) {
+                } else if (valNorm.includes('%') && valLower.includes('budget') && (dynRes = getCustomizationBudgetTranslation(valNorm))) {
                     newVal = dynRes;
-                } else if ((dynRes = getArtifactFileCountTranslation(valNorm))) {
+                } else if (valLower.startsWith('artifacts') && (dynRes = getArtifactFileCountTranslation(valNorm))) {
                     newVal = dynRes;
-                } else if ((dynRes = getCommandInputStatusTranslation(valNorm))) {
+                } else if (valLower.endsWith('to command') && (dynRes = getCommandInputStatusTranslation(valNorm))) {
                     newVal = dynRes;
-                } else if ((dynRes = getRelativeTimeTranslation(valNorm, node))) {
+                } else if (valNorm.length <= 64 && /^[\\djJtT已]/.test(valNorm) && (dynRes = getRelativeTimeTranslation(valNorm, node))) {
                     newVal = dynRes;
-                } else if ((dynRes = getWorkingStatusTranslation(valNorm))) {
+                } else if (valNorm.length <= 24 && (valLower.startsWith('working') || valLower.startsWith('compacting') || valNorm.startsWith('处理中') || valNorm.startsWith('工作中') || valNorm.startsWith('压缩中') || valNorm.startsWith('正在压缩')) && (dynRes = getWorkingStatusTranslation(valNorm))) {
                     markThoughtContentSibling(node);
                     newVal = dynRes;
-                } else if ((dynRes = getExecutionTimingTranslation(valNorm))) {
+                } else if ((valLower.startsWith('worked for') || valLower.startsWith('stopped after')) && (dynRes = getExecutionTimingTranslation(valNorm))) {
                     markThoughtContentSibling(node);
                     newVal = dynRes;
-                } else if ((dynRes = getSearchingStatusTranslation(valNorm))) {
+                } else if ((valLower.startsWith('searching') || valLower.startsWith('no suggestions')) && (dynRes = getSearchingStatusTranslation(valNorm))) {
                     newVal = dynRes;
-                } else if ((dynRes = getCompactCountLabelTranslation(valNorm))) {
+                } else if (valNorm.length <= 64 && /^[\\d+（(cCsSvV评侧显查全发]/.test(valNorm) && (dynRes = getCompactCountLabelTranslation(valNorm))) {
                     newVal = dynRes;
-                } else if ((dynRes = getArtifactTimestampTranslation(valNorm))) {
+                } else if (valNorm.includes(':') && (valLower.includes('am') || valLower.includes('pm')) && (dynRes = getArtifactTimestampTranslation(valNorm))) {
                     newVal = dynRes;
-                } else if ((dynRes = getQuotaNoticeTranslation(valNorm))) {
+                } else if ((valLower.includes('weekly limit') || valLower.includes('5-hour limit')) && (dynRes = getQuotaNoticeTranslation(valNorm))) {
                     newVal = dynRes;
-                } else if ((dynRes = getArchivedConversationNoticeTranslation(valNorm))) {
+                } else if ((valLower.includes('archived') || valNorm.includes('已归档')) && (dynRes = getArchivedConversationNoticeTranslation(valNorm))) {
                     newVal = dynRes;
-                } else if ((dynRes = getAutomationScheduleTranslation(valNorm, node))) {
+                } else if (AUTOMATION_SCHEDULE_GATE_RE.test(valNorm) && (dynRes = getAutomationScheduleTranslation(valNorm, node))) {
                     newVal = dynRes;
-                } else if ((dynRes = translateAutomationCustomScheduleUnit(node, valNorm))) {
+                } else if (valNorm.length <= 10 && (dynRes = translateAutomationCustomScheduleUnit(node, valNorm))) {
                     newVal = dynRes;
                 } else if (map.has(valNorm) && isIsolatedUiControlLabel(node, valNorm, originalVal)) {
                     newVal = map.get(valNorm);
@@ -6855,9 +7139,38 @@ function getDynamicProductUiTranslation(value, node = null) {
                     if (valNorm.length > 21 && valNorm.includes(' ') && !unmatchedLongStrings.has(valNorm) && longScannedValues.get(node) !== originalVal && /[A-Za-z][ -~]{19,}/.test(valNorm)) {
                         longScannedValues.set(node, originalVal);
                         const beforeLong = newVal;
-                        for (const [key, translated] of longEntries) {
-                            if (key.length < valNorm.length && valNorm.includes(key)) {
-                                newVal = replaceLongDictionaryEntry(newVal, key, translated);
+                        const queryWords = valNorm.toLowerCase().match(/[a-z]{4,}/g);
+                        let candidateIdxs = null;
+                        if (queryWords) {
+                            const seenIdx = new Set();
+                            for (let wi = 0; wi < queryWords.length; wi++) {
+                                const bucket = longEntryWordIndex.get(queryWords[wi]);
+                                if (!bucket) continue;
+                                for (let bi = 0; bi < bucket.length; bi++) {
+                                    const idx = bucket[bi];
+                                    if (!seenIdx.has(idx)) {
+                                        seenIdx.add(idx);
+                                        if (!candidateIdxs) candidateIdxs = [];
+                                        candidateIdxs.push(idx);
+                                    }
+                                }
+                            }
+                        }
+                        if (longEntryFallback.length > 0) {
+                            if (!candidateIdxs) candidateIdxs = longEntryFallback.slice();
+                            else {
+                                for (let fi = 0; fi < longEntryFallback.length; fi++) {
+                                    candidateIdxs.push(longEntryFallback[fi]);
+                                }
+                            }
+                        }
+                        if (candidateIdxs) {
+                            if (candidateIdxs.length > 1) candidateIdxs.sort((a, b) => a - b);
+                            for (let ci = 0; ci < candidateIdxs.length; ci++) {
+                                const [key, translated] = longEntries[candidateIdxs[ci]];
+                                if (key.length < valNorm.length && valNorm.includes(key)) {
+                                    newVal = replaceLongDictionaryEntry(newVal, key, translated);
+                                }
                             }
                         }
                         if (newVal === beforeLong) {
@@ -6969,13 +7282,20 @@ function getDynamicProductUiTranslation(value, node = null) {
     const observer = new MutationObserver(mutations => {
         try {
             const visitedElements = new WeakSet();
+            const visitedTextNodes = new WeakSet();
             for (const m of mutations) {
                 if (m.type === 'childList') {
                     for (const n of m.addedNodes) translateNode(n, false, visitedElements);
                 } else if (m.type === 'characterData') {
-                    translateNode(m.target, false, visitedElements);
+                    const t = m.target;
+                    if (t && !visitedTextNodes.has(t)) {
+                        visitedTextNodes.add(t);
+                        translateNode(t, false, visitedElements);
+                    }
                 } else if (m.type === 'attributes') {
-                    translateElementAttributes(m.target);
+                    if (m.target && !visitedElements.has(m.target)) {
+                        translateElementAttributes(m.target, m.attributeName || null);
+                    }
                 }
             }
         } catch (e) {}
@@ -7110,7 +7430,11 @@ function getDynamicProductUiTranslation(value, node = null) {
 })();
 ${SIGNATURE_END}`;
 
-    return jsSource.replace("DICT_PLACEHOLDER", dictJson).replace("REPLACEMENT_ENTRIES_PLACEHOLDER", entriesJson);
+    return jsSource
+        .replace("DICT_PLACEHOLDER", () => dictJson)
+        .replace("REPLACEMENT_ENTRIES_PLACEHOLDER", () => entriesJson)
+        .replace("WORD_INDEX_PLACEHOLDER", () => wordIndexJson)
+        .replace("FALLBACK_INDEX_PLACEHOLDER", () => fallbackJson);
 }
 
 function removeMarkedBlocks(content, startMark, endMark) {

@@ -20,10 +20,24 @@
     const RUNNING_STATUS_RE = /RUNNING|BUSY|IN_PROGRESS/i;
     const LOCAL_ORIGIN_RE = /^https?:\/\/(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?(?:\/|$)/i;
 
+    const SUMMARIES_TTL_MS = 2000;
+    const SUMMARIES_RUNNING_TTL_MS = 800;
+    const SESSION_CACHE_MAX = 64;
+
+    const httpAgent = new http.Agent({ keepAlive: true, keepAliveMsecs: 15000, maxSockets: 6, maxFreeSockets: 4 });
+    const httpsAgent = new https.Agent({ keepAlive: true, keepAliveMsecs: 15000, maxSockets: 6, maxFreeSockets: 4, rejectUnauthorized: false });
+    if (app && typeof app.on === 'function') {
+        app.on('before-quit', () => {
+            try { httpAgent.destroy(); } catch {}
+            try { httpsAgent.destroy(); } catch {}
+        });
+    }
+
     const portProtocols = new Map();
     const sessionCache = new Map();
+    const errorBackoffCache = new Map();
     const inflightRequests = new Map();
-    let summariesCache = { endpointKey: '', pending: null };
+    let summariesCache = { endpointKey: '', data: null, fetchedAt: 0, pending: null };
     let modelCatalogCache = { endpointKey: '', map: new Map(), fetchedAt: 0, pending: null };
 
     // -------------------------------------------------------------------------
@@ -36,22 +50,9 @@
     const DROP = Symbol('drop');
     const SUMMARY_ENTRY = Symbol('summaryEntry');
 
-    const TOKEN_GROUP_SCHEMA = {
-        name: SCALAR,
-        numTokens: SCALAR,
-        children: {
-            '*': {
-                name: SCALAR,
-                numTokens: SCALAR,
-            },
-        },
-    };
     const TOP_LEVEL_TOKEN_GROUP_SCHEMA = {
-        name: SCALAR,
         type: SCALAR,
-        source: SCALAR,
         numTokens: SCALAR,
-        children: { '*': TOKEN_GROUP_SCHEMA },
     };
 
     const SUMMARY_SCHEMA = {
@@ -112,21 +113,27 @@
         cascadeModelConfigData: MODEL_CONFIG_DATA_SCHEMA,
     };
 
-    const STREAM_MAX_BYTES = 4 * 1024 * 1024;
+    const STREAM_MAX_BYTES = 32 * 1024 * 1024;
     const STREAM_MAX_DEPTH = 64;
     const JSON_ESCAPE_CHARS = { '"': '"', '\\': '\\', '/': '/', b: '\b', f: '\f', n: '\n', r: '\r', t: '\t' };
     const JSON_NUMBER_RE = /^(?:true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)$/;
+    const STR_CTRL_RE = /["\\\x00-\x1f]/g;
 
     /** 创建按白名单裁剪字段的流式 JSON 解析器，防止长对话 RPC 响应占满内存 */
-    function createRpcJsonFilter(rootSchema = RPC_PROJECTION_SCHEMA, maxBytes = STREAM_MAX_BYTES) {
+    function createRpcJsonFilter(rootSchema = RPC_PROJECTION_SCHEMA, maxBytes = STREAM_MAX_BYTES, streamConsumers = null) {
         const frames = [];
         let activeToken = null;
         let rootValue;
         let completed = false;
         let retainedBytes = 0;
+        let skipDepth = 0;
+        let skipInStr = false;
+        let skipEsc = false;
 
         const raise = (msg) => {
-            throw new Error(msg || 'Language server 返回了无效 JSON');
+            const err = new Error(msg || 'Language server 返回了无效 JSON');
+            err.noProtocolRetry = true;
+            throw err;
         };
 
         const addCost = (bytes) => {
@@ -162,6 +169,13 @@
                 return;
             }
             if (top.stage !== 'value' && top.stage !== 'valueOrEnd') raise();
+            if (top.isArray && top.streamConsumer) {
+                top.streamConsumer(val === DROP ? null : val);
+                retainedBytes = top.elementBaseBytes;
+                top.stage = 'commaOrEnd';
+                top.field = null;
+                return;
+            }
             if (val !== DROP && top.target) {
                 addCost(32 + (top.schema === SUMMARIES_MAP_SCHEMA ? top.field.length * 2 : 0));
                 if (top.isArray) {
@@ -213,9 +227,17 @@
         const closePrimitive = () => {
             const tk = activeToken;
             activeToken = null;
+            if (!tk.keep) {
+                commitValue(DROP);
+                return;
+            }
             if (!JSON_NUMBER_RE.test(tk.buf)) raise();
-            const parsed = JSON.parse(tk.buf);
-            commitValue(tk.schema === SCALAR || tk.schema === DURATION ? parsed : DROP);
+            let parsed;
+            if (tk.buf === 'true') parsed = true;
+            else if (tk.buf === 'false') parsed = false;
+            else if (tk.buf === 'null') parsed = null;
+            else parsed = Number(tk.buf);
+            commitValue(parsed);
         };
 
         const onDelimiter = (ch) => {
@@ -226,12 +248,21 @@
                 const raw = resolveSlotSchema();
                 const schema = !isArray && raw === DURATION ? DURATION_OBJECT_SCHEMA : raw;
                 const keep = typeof schema === 'object' && schema !== null && (!isArray || schema !== SUMMARIES_MAP_SCHEMA);
+                const streamConsumer = isArray && streamConsumers && streamConsumers.get(schema) || null;
+                if (!keep && !streamConsumer) {
+                    skipDepth = 1;
+                    skipInStr = false;
+                    skipEsc = false;
+                    return;
+                }
                 const target = keep ? (isArray ? [] : {}) : null;
                 if (target) addCost(64);
                 frames.push({
                     schema,
                     isArray,
                     target,
+                    streamConsumer,
+                    elementBaseBytes: retainedBytes,
                     field: null,
                     stage: isArray ? 'valueOrEnd' : 'keyOrEnd',
                 });
@@ -262,9 +293,67 @@
         return {
             write(chunk) {
                 let pos = 0;
-                while (pos < chunk.length) {
+                const len = chunk.length;
+                while (pos < len) {
+                    if (skipDepth > 0) {
+                        if (skipInStr) {
+                            if (skipEsc) {
+                                skipEsc = false;
+                                pos++;
+                                continue;
+                            }
+                            while (pos < len) {
+                                const c = chunk.charCodeAt(pos++);
+                                if (c === 34) {
+                                    skipInStr = false;
+                                    break;
+                                }
+                                if (c === 92) {
+                                    skipEsc = true;
+                                    break;
+                                }
+                            }
+                        } else {
+                            while (pos < len) {
+                                const c = chunk.charCodeAt(pos++);
+                                if (c === 34) {
+                                    skipInStr = true;
+                                    break;
+                                }
+                                if (c === 123 || c === 91) {
+                                    skipDepth++;
+                                } else if (c === 125 || c === 93) {
+                                    if (--skipDepth === 0) {
+                                        commitValue(DROP);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        continue;
+                    }
                     const tk = activeToken;
                     if (tk && tk.kind === 'str') {
+                        if (!tk.keep) {
+                            if (tk.esc === 1) {
+                                tk.esc = 0;
+                                pos++;
+                                continue;
+                            }
+                            while (pos < len) {
+                                const c = chunk.charCodeAt(pos++);
+                                if (c === 34) {
+                                    activeToken = null;
+                                    commitValue(DROP);
+                                    break;
+                                }
+                                if (c === 92) {
+                                    tk.esc = 1;
+                                    break;
+                                }
+                            }
+                            continue;
+                        }
                         if (tk.esc === 1) {
                             const ch = chunk[pos++];
                             if (ch === 'u') { tk.esc = 2; tk.hex = ''; continue; }
@@ -284,11 +373,12 @@
                             }
                             continue;
                         }
-                        const scan = /["\\\x00-\x1f]/g;
-                        scan.lastIndex = pos;
-                        const hit = scan.exec(chunk);
-                        const segEnd = hit ? hit.index : chunk.length;
-                        appendStringChunk(chunk.slice(pos, segEnd));
+                        STR_CTRL_RE.lastIndex = pos;
+                        const hit = STR_CTRL_RE.exec(chunk);
+                        const segEnd = hit ? hit.index : len;
+                        if (!tk.truncated && segEnd > pos) {
+                            appendStringChunk(chunk.slice(pos, segEnd));
+                        }
                         pos = segEnd;
                         if (!hit) continue;
                         const ctrl = chunk[pos++];
@@ -299,10 +389,24 @@
                     }
                     if (tk && tk.kind === 'prim') {
                         const start = pos;
-                        while (pos < chunk.length && /[a-zA-Z0-9+\-.]/.test(chunk[pos])) pos++;
-                        tk.buf += chunk.slice(start, pos);
-                        if (tk.buf.length > 1024) raise();
-                        if (pos < chunk.length) closePrimitive();
+                        while (pos < len) {
+                            const c = chunk.charCodeAt(pos);
+                            if ((c >= 48 && c <= 57) || (c >= 97 && c <= 122) || (c >= 65 && c <= 90) || c === 43 || c === 45 || c === 46) {
+                                pos++;
+                            } else {
+                                break;
+                            }
+                        }
+                        if (tk.keep) {
+                            if (pos > start) {
+                                tk.buf += chunk.slice(start, pos);
+                                if (tk.buf.length > 1024) raise();
+                            }
+                            if (pos < len) closePrimitive();
+                        } else if (pos < len) {
+                            activeToken = null;
+                            commitValue(DROP);
+                        }
                         continue;
                     }
                     const ch = chunk[pos++];
@@ -311,10 +415,13 @@
                         const top = topFrame();
                         const isKey = Boolean(top && !top.isArray && (top.stage === 'key' || top.stage === 'keyOrEnd'));
                         if (!isKey && !canReadValue()) raise();
+                        const slotSchema = isKey ? null : resolveSlotSchema();
+                        const keep = isKey || slotSchema === SCALAR || slotSchema === DURATION;
                         activeToken = {
                             kind: 'str',
                             isKey,
-                            schema: isKey ? null : resolveSlotSchema(),
+                            schema: slotSchema,
+                            keep,
                             buf: '',
                             truncated: false,
                             esc: 0,
@@ -327,10 +434,13 @@
                         continue;
                     }
                     if (!canReadValue() || !/[tfn\d-]/.test(ch)) raise();
-                    activeToken = { kind: 'prim', schema: resolveSlotSchema(), buf: ch };
+                    const slotSchema = resolveSlotSchema();
+                    const keep = slotSchema === SCALAR || slotSchema === DURATION;
+                    activeToken = { kind: 'prim', schema: slotSchema, keep, buf: keep ? ch : '' };
                 }
             },
             finish() {
+                if (skipDepth > 0) raise();
                 if (activeToken && activeToken.kind === 'prim') closePrimitive();
                 if (activeToken || frames.length || !completed || !rootValue || typeof rootValue !== 'object') {
                     raise();
@@ -374,7 +484,7 @@
         return { port, csrf, key: `${port}:${csrf}` };
     }
 
-    function sendRpcOnce(protocol, port, csrf, method, payloadText) {
+    function sendRpcOnce(protocol, port, csrf, method, payloadText, rpcOptions) {
         return new Promise((resolve, reject) => {
             const mod = protocol === 'https' ? https : http;
             const req = mod.request(
@@ -383,8 +493,7 @@
                     port,
                     path: RPC_SERVICE + method,
                     method: 'POST',
-                    agent: false,
-                    ...(protocol === 'https' ? { rejectUnauthorized: false } : {}),
+                    agent: protocol === 'https' ? httpsAgent : httpAgent,
                     headers: {
                         'Content-Type': 'application/json',
                         'Connect-Protocol-Version': '1',
@@ -393,11 +502,18 @@
                     },
                 },
                 (res) => {
-                    const streamFilter = createRpcJsonFilter();
+                    const streamConsumers = rpcOptions && typeof rpcOptions.createStreamConsumers === 'function'
+                        ? rpcOptions.createStreamConsumers()
+                        : null;
+                    const maxBytes = (rpcOptions && rpcOptions.maxBytes) || STREAM_MAX_BYTES;
+                    const streamFilter = createRpcJsonFilter(RPC_PROJECTION_SCHEMA, maxBytes, streamConsumers);
                     let settled = false;
                     const fail = (err) => {
                         if (settled) return;
                         settled = true;
+                        if (err && req.reusedSocket && !err.noProtocolRetry && typeof err.status !== 'number') {
+                            err.reusedSocket = true;
+                        }
                         reject(err);
                         res.destroy();
                         req.destroy();
@@ -428,27 +544,35 @@
                     });
                 }
             );
-            req.on('error', reject);
-            req.setTimeout(10000, () => req.destroy(new Error(`RPC ${method} timeout`)));
+            req.on('error', (err) => {
+                if (err && req.reusedSocket) err.reusedSocket = true;
+                reject(err);
+            });
+            req.setTimeout(10000, () => req.destroy(Object.assign(new Error(`RPC ${method} timeout`), { isTimeout: true })));
             req.end(payloadText);
         });
     }
 
-    async function callLsRpc(endpoint, method, body) {
+    async function callLsRpc(endpoint, method, body, rpcOptions) {
         const payloadText = JSON.stringify(body || {});
         const preferred = portProtocols.get(endpoint.port) || 'https';
         const order = preferred === 'https' ? ['https', 'http'] : ['http', 'https'];
         let lastErr = null;
         for (const protocol of order) {
-            try {
-                const result = await sendRpcOnce(protocol, endpoint.port, endpoint.csrf, method, payloadText);
-                portProtocols.set(endpoint.port, protocol);
-                if (portProtocols.size > 16) portProtocols.delete(portProtocols.keys().next().value);
-                return result;
-            } catch (err) {
-                lastErr = err;
-                // HTTP 4xx/5xx 说明协议层已通，无需再换协议重试
-                if (err && typeof err.status === 'number') throw err;
+            for (let attempt = 0; attempt < 2; attempt++) {
+                try {
+                    const result = await sendRpcOnce(protocol, endpoint.port, endpoint.csrf, method, payloadText, rpcOptions);
+                    portProtocols.set(endpoint.port, protocol);
+                    if (portProtocols.size > 16) portProtocols.delete(portProtocols.keys().next().value);
+                    return result;
+                } catch (err) {
+                    lastErr = err;
+                    // HTTP 4xx/5xx 或流式解析/体积上限失败说明协议层已通，无需再换协议重试
+                    if (err && (typeof err.status === 'number' || err.noProtocolRetry)) throw err;
+                    // Keep-Alive 复用连接若被服务端断开，先在同协议新建连接重试一次，避免误判协议
+                    if (attempt === 0 && err && err.reusedSocket && !err.isTimeout) continue;
+                    break;
+                }
             }
         }
         throw lastErr || new Error('Language server RPC failed');
@@ -748,18 +872,34 @@
         };
     }
 
-    async function getSummaries(endpoint) {
+    async function getSummaries(endpoint, options) {
         if (summariesCache.endpointKey !== endpoint.key) {
-            summariesCache = { endpointKey: endpoint.key, pending: null };
+            summariesCache = { endpointKey: endpoint.key, data: null, fetchedAt: 0, pending: null };
             sessionCache.clear();
+            errorBackoffCache.clear();
+        }
+        const forceRefresh = Boolean(options && options.forceRefresh);
+        const maxAgeMs = options && typeof options.maxAgeMs === 'number' ? options.maxAgeMs : SUMMARIES_TTL_MS;
+        if (!forceRefresh && summariesCache.data && (Date.now() - summariesCache.fetchedAt) < maxAgeMs) {
+            return summariesCache.data;
         }
         if (summariesCache.pending) return summariesCache.pending;
+        const targetKey = endpoint.key;
         summariesCache.pending = callLsRpc(endpoint, 'GetAllCascadeTrajectories', { excludeSubtrajectories: false })
-            .then((res) => (res && res.trajectorySummaries && typeof res.trajectorySummaries === 'object')
-                ? res.trajectorySummaries
-                : {})
+            .then((res) => {
+                const data = (res && res.trajectorySummaries && typeof res.trajectorySummaries === 'object')
+                    ? res.trajectorySummaries
+                    : {};
+                if (summariesCache.endpointKey === targetKey) {
+                    summariesCache.data = data;
+                    summariesCache.fetchedAt = Date.now();
+                }
+                return data;
+            })
             .finally(() => {
-                summariesCache.pending = null;
+                if (summariesCache.endpointKey === targetKey) {
+                    summariesCache.pending = null;
+                }
             });
         return summariesCache.pending;
     }
@@ -773,29 +913,51 @@
         for (let pageIdx = 0; pageIdx < 1024; pageIdx++) {
             if (visitedOffsets.has(offset)) break;
             visitedOffsets.add(offset);
-            const page = await callLsRpc(endpoint, 'GetCascadeTrajectoryGeneratorMetadata', {
-                cascadeId,
-                generatorMetadataOffset: offset,
-                includeMessages: false,
-            });
-            const items = (page && (page.generatorMetadata || page.generatorMetadatas)) || [];
-            if (!Array.isArray(items) || items.length === 0) {
+            let attempt = null;
+            const createStreamConsumers = () => {
+                const cur = {
+                    count: 0,
+                    latestChat,
+                    cacheSlots: [],
+                    speedSlots: [],
+                };
+                attempt = cur;
+                return new Map([
+                    [GENERATORS_ARRAY_SCHEMA, (item) => {
+                        const chat = item && item.chatModel;
+                        if (chat) {
+                            if (readContextWindowTokens(chat) || !cur.latestChat) {
+                                cur.latestChat = chat;
+                            }
+                            cur.cacheSlots.push(readCacheSlot(chat.usage));
+                            cur.speedSlots.push(readSpeedSlot(chat));
+                        } else {
+                            cur.cacheSlots.push(null);
+                            cur.speedSlots.push(null);
+                        }
+                        cur.count++;
+                    }],
+                ]);
+            };
+            await callLsRpc(
+                endpoint,
+                'GetCascadeTrajectoryGeneratorMetadata',
+                {
+                    cascadeId,
+                    generatorMetadataOffset: offset,
+                    includeMessages: false,
+                },
+                { createStreamConsumers }
+            );
+            if (!attempt || attempt.count === 0) {
                 return { offset, latestChat, cacheSlots, speedSlots, emptyAtStart: pageIdx === 0 && startOffset > 0 };
             }
-            for (let i = 0; i < items.length; i++) {
-                const chat = items[i] && items[i].chatModel;
-                if (chat) {
-                    if (readContextWindowTokens(chat) || !latestChat) {
-                        latestChat = chat;
-                    }
-                    cacheSlots[offset + i] = readCacheSlot(chat.usage);
-                    speedSlots[offset + i] = readSpeedSlot(chat);
-                } else {
-                    cacheSlots[offset + i] = null;
-                    speedSlots[offset + i] = null;
-                }
+            latestChat = attempt.latestChat;
+            for (let i = 0; i < attempt.count; i++) {
+                cacheSlots[offset + i] = attempt.cacheSlots[i];
+                speedSlots[offset + i] = attempt.speedSlots[i];
             }
-            offset += items.length;
+            offset += attempt.count;
         }
         cacheSlots.length = offset;
         speedSlots.length = offset;
@@ -903,7 +1065,100 @@
             return { status: 'new', running: false, conversationId: null, context: null, cache: null, speed: null, breakdown: null };
         }
         const id = rawId.toLowerCase();
-        const summaries = await getSummaries(endpoint);
+        if (summariesCache.endpointKey && summariesCache.endpointKey !== endpoint.key) {
+            summariesCache = { endpointKey: endpoint.key, data: null, fetchedAt: 0, pending: null };
+            sessionCache.clear();
+            errorBackoffCache.clear();
+        }
+
+        const prevCached = sessionCache.get(id);
+        const hasValidCache = Boolean(prevCached && prevCached.endpointKey === endpoint.key);
+        const prevErr = errorBackoffCache.get(id);
+        const hasErrBackoff = Boolean(!force && prevErr && prevErr.endpointKey === endpoint.key);
+
+        if (!hasValidCache && !hasErrBackoff) {
+            const [summaries, modelCatalog, scanRes] = await Promise.all([
+                getSummaries(endpoint, { maxAgeMs: SUMMARIES_TTL_MS }),
+                getModelCatalog(endpoint),
+                fetchLatestChatModel(endpoint, id, 0, null, null, null).then(
+                    (scan) => ({ ok: true, scan }),
+                    (err) => ({ ok: false, err })
+                ),
+            ]);
+            const summary = summaries[id];
+            if (!summary) {
+                if (scanRes.ok && scanRes.scan && scanRes.scan.latestChat) {
+                    const context = buildContextMetrics(scanRes.scan.latestChat, modelCatalog);
+                    const cache = aggregateCacheSlots(scanRes.scan.cacheSlots);
+                    const speed = aggregateSpeedSlots(scanRes.scan.speedSlots);
+                    const breakdown = buildContextBreakdown(context, scanRes.scan.latestChat);
+                    return {
+                        status: context ? 'ready' : 'waiting',
+                        running: false,
+                        conversationId: id,
+                        context,
+                        cache,
+                        speed,
+                        breakdown,
+                    };
+                }
+                return { status: 'new', running: false, conversationId: id, context: null, cache: null, speed: null, breakdown: null };
+            }
+
+            const stepCount = parseNonNegInt(summary.stepCount);
+            const lastInputIdx = parseNonNegInt(summary.lastUserInputStepIndex);
+            const statusStr = String(summary.status || '');
+            const running = RUNNING_STATUS_RE.test(statusStr);
+            const mark = JSON.stringify([stepCount, summary.lastModifiedTime || null, statusStr || null, lastInputIdx]);
+            const settled = SETTLED_STATUS_RE.test(statusStr);
+
+            if (!scanRes.ok) {
+                errorBackoffCache.delete(id);
+                errorBackoffCache.set(id, { endpointKey: endpoint.key, mark, at: Date.now() });
+                while (errorBackoffCache.size > 32) {
+                    errorBackoffCache.delete(errorBackoffCache.keys().next().value);
+                }
+                return { status: 'error', running, conversationId: id, context: null, cache: null, speed: null, breakdown: null };
+            }
+            errorBackoffCache.delete(id);
+
+            const scan = scanRes.scan;
+            const context = buildContextMetrics(scan.latestChat, modelCatalog);
+            const cache = aggregateCacheSlots(scan.cacheSlots);
+            const speed = aggregateSpeedSlots(scan.speedSlots);
+            const breakdown = buildContextBreakdown(context, scan.latestChat);
+            const payload = {
+                status: context ? 'ready' : 'waiting',
+                running,
+                conversationId: id,
+                context,
+                cache,
+                speed,
+                breakdown,
+            };
+
+            sessionCache.delete(id);
+            sessionCache.set(id, {
+                endpointKey: endpoint.key,
+                mark,
+                settled,
+                stepCount,
+                lastInputIdx,
+                offset: scan.offset,
+                lastChat: scan.latestChat,
+                cacheSlots: scan.cacheSlots,
+                speedSlots: scan.speedSlots,
+                verifiedAt: Date.now(),
+                payload,
+            });
+            while (sessionCache.size > SESSION_CACHE_MAX) {
+                sessionCache.delete(sessionCache.keys().next().value);
+            }
+            return payload;
+        }
+
+        const summaryMaxAge = (hasValidCache && !prevCached.settled) ? SUMMARIES_RUNNING_TTL_MS : SUMMARIES_TTL_MS;
+        const summaries = await getSummaries(endpoint, { maxAgeMs: summaryMaxAge });
         const summary = summaries[id];
         if (!summary) {
             return { status: 'new', running: false, conversationId: id, context: null, cache: null, speed: null, breakdown: null };
@@ -916,19 +1171,23 @@
         const mark = JSON.stringify([stepCount, summary.lastModifiedTime || null, statusStr || null, lastInputIdx]);
         const settled = SETTLED_STATUS_RE.test(statusStr);
 
-        const cached = sessionCache.get(id);
+        const cached = hasValidCache ? prevCached : null;
         const now = Date.now();
-        if (cached && cached.endpointKey === endpoint.key && !force && cached.mark === mark) {
+        if (cached && cached.mark === mark) {
+            if (settled && cached.settled && cached.payload && cached.payload.status === 'ready') {
+                cached.verifiedAt = now;
+                sessionCache.delete(id);
+                sessionCache.set(id, cached);
+                return cached.payload;
+            }
             const ttl = settled ? 10000 : 1200;
-            if (now - cached.verifiedAt < ttl) {
+            if (!force && (now - cached.verifiedAt) < ttl) {
                 return cached.payload;
             }
         }
 
         const canIncremental = Boolean(
             cached &&
-            cached.endpointKey === endpoint.key &&
-            !force &&
             cached.offset > 0 &&
             (
                 (stepCount !== null && cached.stepCount !== null && stepCount > cached.stepCount) ||
@@ -939,21 +1198,42 @@
             (lastInputIdx === null || cached.lastInputIdx === null || lastInputIdx >= cached.lastInputIdx)
         );
 
-        const [modelCatalog, initialScan] = await Promise.all([
-            getModelCatalog(endpoint),
-            fetchLatestChatModel(
-                endpoint,
-                id,
-                canIncremental ? Math.max(0, cached.offset - 1) : 0,
-                canIncremental ? cached.lastChat : null,
-                canIncremental ? cached.cacheSlots : null,
-                canIncremental ? cached.speedSlots : null
-            ),
-        ]);
-        let scan = initialScan;
-        if (scan.emptyAtStart) {
-            scan = await fetchLatestChatModel(endpoint, id, 0, null, null, null);
+        const errCached = errorBackoffCache.get(id);
+        if (!force && errCached && errCached.endpointKey === endpoint.key && errCached.mark === mark) {
+            const errTtl = settled ? 15000 : 5000;
+            if (now - errCached.at < errTtl) {
+                return { status: 'error', running, conversationId: id, context: null, cache: null, speed: null, breakdown: null };
+            }
         }
+
+        let modelCatalog;
+        let scan;
+        try {
+            const [catalog, initialScan] = await Promise.all([
+                getModelCatalog(endpoint),
+                fetchLatestChatModel(
+                    endpoint,
+                    id,
+                    canIncremental ? Math.max(0, cached.offset - 1) : 0,
+                    canIncremental ? cached.lastChat : null,
+                    canIncremental ? cached.cacheSlots : null,
+                    canIncremental ? cached.speedSlots : null
+                ),
+            ]);
+            modelCatalog = catalog;
+            scan = initialScan;
+            if (scan.emptyAtStart) {
+                scan = await fetchLatestChatModel(endpoint, id, 0, null, null, null);
+            }
+        } catch {
+            errorBackoffCache.delete(id);
+            errorBackoffCache.set(id, { endpointKey: endpoint.key, mark, at: Date.now() });
+            while (errorBackoffCache.size > 32) {
+                errorBackoffCache.delete(errorBackoffCache.keys().next().value);
+            }
+            return { status: 'error', running, conversationId: id, context: null, cache: null, speed: null, breakdown: null };
+        }
+        errorBackoffCache.delete(id);
 
         const context = buildContextMetrics(scan.latestChat, modelCatalog);
         const cache = aggregateCacheSlots(scan.cacheSlots);
@@ -983,7 +1263,7 @@
             verifiedAt: Date.now(),
             payload,
         });
-        while (sessionCache.size > 32) {
+        while (sessionCache.size > SESSION_CACHE_MAX) {
             sessionCache.delete(sessionCache.keys().next().value);
         }
         return payload;
@@ -1026,6 +1306,16 @@
         const BIG_ARC = BIG_C * 0.75;
 
         const instances = new Map();
+        const payloadCache = new Map();
+        const PAYLOAD_CACHE_MAX = 64;
+        function cachePayload(convId, payload) {
+            if (!convId || !payload) return;
+            payloadCache.delete(convId);
+            payloadCache.set(convId, payload);
+            while (payloadCache.size > PAYLOAD_CACHE_MAX) {
+                payloadCache.delete(payloadCache.keys().next().value);
+            }
+        }
         let cardPortal = null;
         let cardRoot = null;
         let activeInst = null;
@@ -1036,6 +1326,7 @@
         let hoverTimer = null;
         let closeTimer = null;
         let layoutScheduled = false;
+        let attrSyncTimer = null;
 
         function isVisible(el) {
             return Boolean(el && el.isConnected && !el.closest('[hidden],[inert]') && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden');
@@ -1962,6 +2253,7 @@
                 latestPayload: null,
                 lastFetchAt: 0,
                 lastToolbarWidth: -1,
+                lastDarkTheme: null,
                 isFetching: false,
                 fetchEpoch: 0,
                 resizeObserver: null,
@@ -2135,7 +2427,7 @@
             if (inst.resizeObserver) inst.resizeObserver.disconnect();
             if (typeof ResizeObserver !== 'function') return;
             inst.resizeObserver = new ResizeObserver(() => {
-                fitInstanceLayout(inst);
+                fitInstanceLayout(inst, true);
                 if (inst === activeInst) positionCard();
             });
             if (comp.toolbar) inst.resizeObserver.observe(comp.toolbar);
@@ -2148,17 +2440,29 @@
             }
         }
 
-        function fitInstanceLayout(inst) {
+        function fitInstanceLayout(inst, force = false) {
             const { host, speedHost, comp } = inst;
             if (!host || !comp || !comp.toolbar || !comp.toolbar.isConnected) return;
             const dark = detectDarkTheme(comp.box);
-            const prevHostCompact = host.getAttribute('data-compact') || '';
-            const prevSpeedCompact = speedHost && speedHost.isConnected ? (speedHost.getAttribute('data-compact') || '') : '';
-            host.setAttribute('data-theme', dark ? 'dark' : 'light');
-            host.removeAttribute('data-compact');
+            const themeStr = dark ? 'dark' : 'light';
+            if (host.getAttribute('data-theme') !== themeStr) {
+                host.setAttribute('data-theme', themeStr);
+            }
+            if (speedHost && speedHost.isConnected && speedHost.getAttribute('data-theme') !== themeStr) {
+                speedHost.setAttribute('data-theme', themeStr);
+            }
 
             const tbWidth = comp.toolbar.clientWidth || 0;
+            if (!force && inst.lastToolbarWidth === tbWidth && inst.lastDarkTheme === dark) {
+                return;
+            }
             inst.lastToolbarWidth = tbWidth;
+            inst.lastDarkTheme = dark;
+
+            const prevHostCompact = host.getAttribute('data-compact') || '';
+            const prevSpeedCompact = speedHost && speedHost.isConnected ? (speedHost.getAttribute('data-compact') || '') : '';
+            host.removeAttribute('data-compact');
+
             const lg = comp.leftGroup;
             const inLeft = Boolean(lg && comp.mountParent === lg);
             const isWrappedBelowModel = (el) => {
@@ -2171,7 +2475,6 @@
 
             let nextSpeedCompact = '';
             if (speedHost && speedHost.isConnected) {
-                speedHost.setAttribute('data-theme', dark ? 'dark' : 'light');
                 speedHost.removeAttribute('data-compact');
                 if ((tbWidth > 0 && tbWidth < 250) || isWrappedBelowModel(speedHost) || leftOverflow()) {
                     nextSpeedCompact = 'hidden';
@@ -2211,6 +2514,9 @@
             let badgeText = '待采样';
             if (payload && payload.status === 'offline') {
                 badgeText = '等待服务';
+            } else if (payload && payload.status === 'error') {
+                level = 'danger';
+                badgeText = '采样失败';
             } else if (ctx && !hasRatio) {
                 badgeText = '容量未知';
             } else if (hasRatio) {
@@ -2294,7 +2600,9 @@
             if (noteEl) {
                 if (!bd) {
                     noteEl.hidden = false;
-                    noteEl.textContent = '等待首个请求后展示分类构成';
+                    noteEl.textContent = inst && inst.latestPayload && inst.latestPayload.status === 'error'
+                        ? '采样失败，暂无法获取分类构成'
+                        : '等待首个请求后展示分类构成';
                 } else if (categories.length === 0) {
                     noteEl.hidden = false;
                     noteEl.textContent = '暂无可拆分的构成数据';
@@ -2380,9 +2688,12 @@
             const pctShort = hasRatio ? `${Math.round(ratio * 100)}%` : '--';
             const pctDetail = hasRatio ? `${(ratio * 100).toFixed(1)}%` : '--';
             root.getElementById('mini-pct').textContent = pctShort;
+            const statusLabel = payload && payload.status === 'error'
+                ? '上下文窗口采样失败'
+                : (payload && payload.status === 'offline' ? '上下文窗口等待服务' : '上下文窗口待采样');
             root.getElementById('ctx-trigger').setAttribute(
                 'aria-label',
-                hasRatio ? `上下文窗口占用 ${pctDetail}` : '上下文窗口待采样'
+                hasRatio ? `上下文窗口占用 ${pctDetail}` : statusLabel
             );
 
             const speedView = formatSpeedView(payload && payload.speed, isRunning);
@@ -2422,7 +2733,13 @@
             try {
                 const res = await window.__agCtxBridge.getMetrics(convId, force);
                 if (myEpoch !== inst.fetchEpoch || convId !== inst.conversationId) return;
-                inst.latestPayload = res || { status: 'error', running: false, conversationId: convId, context: null, cache: null, speed: null, breakdown: null };
+                const nextPayload = res || { status: 'error', running: false, conversationId: convId, context: null, cache: null, speed: null, breakdown: null };
+                if (nextPayload.status === 'ready' || nextPayload.status === 'waiting') {
+                    cachePayload(convId, nextPayload);
+                } else if (nextPayload.status === 'error' || nextPayload.status === 'new') {
+                    payloadCache.delete(convId);
+                }
+                inst.latestPayload = nextPayload;
                 renderInstance(inst);
             } catch {
                 // 保持已有显示，待下一轮自动重连
@@ -2464,14 +2781,14 @@
                 if (isNew || nextId !== inst.conversationId) {
                     inst.conversationId = nextId;
                     inst.fetchEpoch++;
-                    inst.latestPayload = null;
+                    inst.latestPayload = nextId ? (payloadCache.get(nextId) || null) : null;
                     inst.lastFetchAt = 0;
                     inst.lastToolbarWidth = -1;
                     inst.isFetching = false;
                     renderInstance(inst);
                     void refreshInstance(inst, true);
                 } else if (moved || (comp.toolbar && comp.toolbar.clientWidth !== inst.lastToolbarWidth)) {
-                    fitInstanceLayout(inst);
+                    fitInstanceLayout(inst, true);
                 }
             }
         }
@@ -2485,6 +2802,14 @@
             });
         }
 
+        function scheduleThrottledSync() {
+            if (layoutScheduled || attrSyncTimer !== null) return;
+            attrSyncTimer = setTimeout(() => {
+                attrSyncTimer = null;
+                scheduleSync();
+            }, 120);
+        }
+
         function isOwnUiTarget(target) {
             if (cardPortal && (target === cardPortal || cardPortal.contains(target))) return true;
             for (const inst of instances.values()) {
@@ -2494,10 +2819,35 @@
             return false;
         }
 
+        const SKIP_STYLE_ATTR_TAGS = new Set(['SPAN', 'SVG', 'PATH', 'CIRCLE', 'CODE', 'PRE', 'I', 'B', 'A', 'P']);
         const domObserver = new MutationObserver((records) => {
-            if (records.some((r) => !isOwnUiTarget(r.target))) {
-                scheduleSync();
+            let needImmediate = false;
+            let needThrottled = false;
+            for (let i = 0; i < records.length; i++) {
+                const r = records[i];
+                const t = r.target;
+                if (isOwnUiTarget(t)) continue;
+                if (r.type === 'childList') {
+                    needImmediate = true;
+                    break;
+                }
+                if (r.type === 'attributes') {
+                    const attr = r.attributeName;
+                    if (attr === 'data-cascade-id' || attr === 'data-testid' || attr === 'hidden' || attr === 'inert') {
+                        needImmediate = true;
+                        break;
+                    }
+                    if (t && t.nodeType === 1) {
+                        const tag = t.tagName ? t.tagName.toUpperCase() : '';
+                        if (SKIP_STYLE_ATTR_TAGS.has(tag) || t.hasAttribute('data-index') || t.hasAttribute('data-line-number') || t.hasAttribute('data-line-tokens')) {
+                            continue;
+                        }
+                        needThrottled = true;
+                    }
+                }
             }
+            if (needImmediate) scheduleSync();
+            else if (needThrottled) scheduleThrottledSync();
         });
         domObserver.observe(document.documentElement, {
             childList: true,
@@ -2515,7 +2865,7 @@
         document.addEventListener('focusin', scheduleSync);
         window.addEventListener('resize', () => {
             for (const inst of instances.values()) {
-                fitInstanceLayout(inst);
+                fitInstanceLayout(inst, true);
             }
             positionCard();
         });
@@ -2524,7 +2874,8 @@
             sync();
             const now = Date.now();
             for (const inst of instances.values()) {
-                const interval = document.hidden ? 10000 : (inst.latestPayload && inst.latestPayload.running ? 1100 : 2200);
+                const isErr = Boolean(inst.latestPayload && inst.latestPayload.status === 'error');
+                const interval = (document.hidden || isErr) ? 10000 : (inst.latestPayload && inst.latestPayload.running ? 1100 : 2200);
                 if (now - inst.lastFetchAt >= interval) {
                     void refreshInstance(inst, false);
                 }

@@ -203,7 +203,7 @@
   "Find threat actors targeting financial services": "查找以金融服务为攻击目标的威胁发起者",
   "Which MCP servers have AI agents connected to across the fleet?": "全网舰队中有哪些 MCP 服务器连接了 AI 智能体?",
   "Databricks skills for the CLI, Apps, Lakebase, Model Serving, Lakeflow Jobs, Spark Declarative Pipelines, Declarative Automation Bundles (DABs), and classic-to-serverless migration.": "面向 CLI、Apps、Lakebase、模型服务、Lakeflow 任务、Spark 声明式流水线、声明式自动化捆绑包(DAB)以及经典架构到无服务器架构迁移的 Databricks 技能.",
-  "Use Datadog directly in Antigravity through a preconfigured Datadog MCP server. Query logs, metrics, traces, dashboards, and more through natural conversation. This plugin is in preview.": "通过预配置的 Datadog MCP 服务器直接在 Antigravity 中使用 Datadog. 通过自然对话查询日志、指标、链路追踪、仪表板等. 此插件目前处于预览阶段.",
+  "Use Datadog directly in Antigravity through a preconfigured Datadog MCP server. Query logs, metrics, traces, dashboards, and more through natural conversation.": "通过预配置的 Datadog MCP 服务器直接在 Antigravity 中使用 Datadog. 通过自然对话查询日志、指标、链路追踪、仪表板等.",
   "Show me error logs for the \"checkout\" service from the last hour": "向我展示过去一小时内 \"checkout\" 服务的错误日志",
   "What monitors are currently alerting?": "目前有哪些监控器正在发出告警?",
   "Find traces for service \"api-gateway\" with latency > 500ms": "查找延迟大于 500ms 的 \"api-gateway\" 服务链路追踪",
@@ -522,5 +522,9 @@
   "See what GPTBot, ClaudeBot, PerplexityBot and other AI crawlers get from a website. Skills and a remote MCP server for robots.txt checks, AI visibility scans and agent directory listings.": "查看 GPTBot、ClaudeBot、PerplexityBot 等 AI 爬虫从网站抓取的内容. 提供用于 robots.txt 检查、AI 可见性扫描及智能体目录收录的技能与远程 MCP 服务器.",
   "Which AI crawlers can read example.com?": "哪些 AI 爬虫可以读取 example.com?",
   "Run a Why Won't AI scan of my site and list the top issues": "对我的网站运行一次 Why Won't AI 扫描并列出主要问题",
-  "Can my product be listed in AI agent directories?": "我的产品能否被收录进 AI 智能体目录?"
+  "Can my product be listed in AI agent directories?": "我的产品能否被收录进 AI 智能体目录?",
+  "Generate 3D models from text or images with Meshy, then texture them and download game-ready GLB, FBX, OBJ and USDZ files, using your Meshy credits.": "使用 Meshy 从文本或图像生成 3D 模型，随后为其添加纹理并下载可用于游戏的 GLB、FBX、OBJ 与 USDZ 文件(消耗您的 Meshy 额度).",
+  "Turn this reference image into a textured 3D model and download it as GLB.": "将此参考图转换为带纹理的 3D 模型并下载为 GLB 格式.",
+  "Generate a low-poly treasure chest for my game and export it as FBX.": "为我的游戏生成一个低多边形宝箱并导出为 FBX 格式.",
+  "Make a concept image of a sci-fi helmet, then turn it into a 3D model.": "制作一张科幻头盔的概念图，然后将其转换为 3D 模型."
 }
