@@ -5798,6 +5798,137 @@ function getModelUnavailableRetryTranslation(value) {
         return null;
     }
 
+    function applyCombinedTextRunPreservingAnchors(textRun, translated) {
+        if (!textRun || textRun.length < 2 || !translated) return false;
+
+        const isAsciiWordChar = ch => Boolean(ch) && /[A-Za-z0-9]/.test(ch);
+        const hasCleanBoundary = (str, start, end, token) => {
+            if (!token) return false;
+            if (isAsciiWordChar(token[0]) && start > 0 && isAsciiWordChar(str[start - 1])) return false;
+            if (isAsciiWordChar(token[token.length - 1]) && end < str.length && isAsciiWordChar(str[end])) return false;
+            return true;
+        };
+        const countOccurrences = (str, sub, fromIdx) => {
+            let count = 0;
+            let idx = fromIdx;
+            while (idx <= str.length - sub.length) {
+                const found = str.indexOf(sub, idx);
+                if (found < 0) break;
+                if (hasCleanBoundary(str, found, found + sub.length, sub)) {
+                    count++;
+                    idx = found + sub.length;
+                } else {
+                    idx = found + 1;
+                }
+            }
+            return count;
+        };
+        const findNextMatch = (str, sub, fromIdx) => {
+            let idx = fromIdx;
+            while (idx <= str.length - sub.length) {
+                const found = str.indexOf(sub, idx);
+                if (found < 0) return -1;
+                if (hasCleanBoundary(str, found, found + sub.length, sub)) return found;
+                idx = found + 1;
+            }
+            return -1;
+        };
+
+        const tryAnchorIndices = candidateIndices => {
+            if (!candidateIndices || candidateIndices.length === 0) return false;
+            const matched = [];
+            let cursor = 0;
+
+            for (let ci = 0; ci < candidateIndices.length; ci++) {
+                const nodeIdx = candidateIndices[ci];
+                const raw = textRun[nodeIdx].nodeValue || '';
+                if (!raw) return false;
+
+                let pos = -1;
+                if (nodeIdx === 0) {
+                    if (translated.startsWith(raw) && hasCleanBoundary(translated, 0, raw.length, raw)) {
+                        pos = 0;
+                    }
+                } else if (nodeIdx === textRun.length - 1) {
+                    const endPos = translated.length - raw.length;
+                    if (endPos >= cursor && translated.endsWith(raw) && hasCleanBoundary(translated, endPos, translated.length, raw)) {
+                        pos = endPos;
+                    }
+                } else {
+                    let remainingSame = 1;
+                    for (let cj = ci + 1; cj < candidateIndices.length; cj++) {
+                        if ((textRun[candidateIndices[cj]].nodeValue || '') === raw) remainingSame++;
+                    }
+                    if (countOccurrences(translated, raw, cursor) === remainingSame) {
+                        pos = findNextMatch(translated, raw, cursor);
+                    }
+                }
+
+                if (pos < cursor) return false;
+                if (matched.length > 0) {
+                    const prev = matched[matched.length - 1];
+                    const between = translated.slice(prev.pos + prev.raw.length, pos);
+                    if (between && nodeIdx - prev.index <= 1) return false;
+                }
+
+                matched.push({ index: nodeIdx, raw, pos });
+                cursor = pos + raw.length;
+            }
+
+            const first = matched[0];
+            const last = matched[matched.length - 1];
+            const tail = translated.slice(last.pos + last.raw.length);
+            if (tail && last.index >= textRun.length - 1) return false;
+
+            const updates = new Array(textRun.length).fill('');
+            if (first.pos > 0) {
+                updates[first.index - 1] = translated.slice(0, first.pos);
+            }
+            for (let mi = 0; mi < matched.length; mi++) {
+                const cur = matched[mi];
+                updates[cur.index] = cur.raw;
+                if (mi + 1 < matched.length) {
+                    const next = matched[mi + 1];
+                    const between = translated.slice(cur.pos + cur.raw.length, next.pos);
+                    if (between) updates[cur.index + 1] = between;
+                }
+            }
+            if (tail) {
+                updates[last.index + 1] = tail;
+            }
+
+            for (let i = 0; i < textRun.length; i++) {
+                replaceTextNode(textRun[i], updates[i]);
+            }
+            return true;
+        };
+
+        const numericCandidates = [];
+        for (let i = 0; i < textRun.length; i++) {
+            const raw = textRun[i].nodeValue || '';
+            if (/^\\s*\\d+(?:[.,]\\d+)*%?\\s*$/.test(raw)) {
+                numericCandidates.push(i);
+            }
+        }
+        if (numericCandidates.length > 0 && tryAnchorIndices(numericCandidates)) {
+            return true;
+        }
+
+        const verbatimCandidates = [];
+        for (let i = 0; i < textRun.length; i++) {
+            const raw = textRun[i].nodeValue || '';
+            const trimmed = raw.trim();
+            if (trimmed.length >= 2 && /[0-9A-Za-z]/.test(trimmed) && translated.includes(raw)) {
+                verbatimCandidates.push(i);
+            }
+        }
+        if (verbatimCandidates.length > 0 && tryAnchorIndices(verbatimCandidates)) {
+            return true;
+        }
+
+        return false;
+    }
+
     function translateCombinedTextChildren(element) {
         if (!element || element.nodeType !== Node.ELEMENT_NODE || !element.childNodes || element.childNodes.length < 2) {
             return false;
@@ -5822,6 +5953,7 @@ function getModelUnavailableRetryTranslation(value) {
             const original = textRun.map(textNode => textNode.nodeValue || '').join('');
             const translated = getCombinedStatusTranslation(original, element);
             if (!translated || translated === original) return false;
+            if (applyCombinedTextRunPreservingAnchors(textRun, translated)) return true;
             replaceTextNode(textRun[0], translated);
             for (let i = 1; i < textRun.length; i++) replaceTextNode(textRun[i], '');
             return true;
